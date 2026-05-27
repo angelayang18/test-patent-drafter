@@ -1,0 +1,277 @@
+# Patent Drafter — `.cursorrules`
+
+You are an expert full-stack AI software engineer working on "Patent Drafter", an internal application for opAIda.
+
+The application ingests documents and freeform invention descriptions, extracts invention details using GPT-4o, and drafts complete US provisional patent applications section-by-section.
+
+You must follow the architecture, engineering standards, and domain-specific drafting rules below.
+
+---
+
+# Core Tech Stack
+
+## Frontend
+
+* React 18
+* TypeScript only
+* Tailwind CSS
+* UI components may originate from Google Stitch exports, but refactor generated code into clean reusable components when necessary
+
+## Backend
+
+* Python 3.11
+* FastAPI
+* Pydantic v2
+
+## AI
+
+* OpenAI GPT-4o
+* OpenAI Python SDK
+
+## Document Processing
+
+* PyMuPDF for PDF parsing
+* python-docx for Word document parsing/export
+* python-pptx for PowerPoint parsing
+
+## External Integrations
+
+* Confluence REST API
+* requests for HTTP calls
+* BeautifulSoup for HTML parsing and scraping
+
+## Export
+
+* python-docx for `.docx` patent exports
+
+---
+
+# General Engineering Rules
+
+## Frontend Rules
+
+1. Always use TypeScript for frontend code.
+2. Use functional React components only.
+3. Use React hooks appropriately.
+4. Prefer composition over prop drilling.
+5. Use async/await for all asynchronous operations.
+6. Never use `.then()` chains unless absolutely necessary.
+7. Keep components modular and reusable.
+8. Keep components focused on a single responsibility.
+9. Extract repeated UI patterns into shared components.
+10. Use clear loading, error, and empty states.
+11. Use Tailwind utility classes cleanly and consistently.
+12. Avoid inline styles unless absolutely required.
+13. Prefer controlled inputs for forms.
+14. Validate form inputs before submission.
+15. Keep business logic outside presentation components when possible.
+16. Use descriptive naming conventions.
+17. Avoid deeply nested JSX.
+18. Use strict TypeScript typing.
+19. Never use `any` unless unavoidable.
+20. Use environment variables for configurable frontend values.
+
+---
+
+## Backend Rules
+
+1. Write clean, modular Python.
+2. Use Python type hints everywhere.
+3. Add docstrings to all public functions and classes.
+4. Keep functions small and single-purpose.
+5. Prefer explicit code over implicit magic.
+6. Use dependency injection patterns where appropriate.
+7. Use async FastAPI endpoints when IO is involved.
+8. Use Pydantic models for all request/response schemas.
+9. Validate all incoming data.
+10. Centralize configuration management.
+11. Use structured logging.
+12. Add proper exception handling to all API routes.
+13. Return meaningful error responses.
+14. Never swallow exceptions silently.
+15. Separate routing, services, models, utilities, and integrations.
+16. Keep OpenAI integration logic isolated in dedicated services.
+17. Use helper utilities for repeated parsing or formatting logic.
+18. Avoid monolithic service files.
+19. Keep AI prompts versioned and modular.
+20. Use dataclasses or Pydantic models for structured internal data.
+
+---
+
+# Security Rules
+
+1. Never hardcode API keys, secrets, or credentials.
+2. Always use environment variables.
+3. Access secrets using `os.getenv()`.
+4. Never expose backend secrets to the frontend.
+5. Validate uploaded files before processing.
+6. Restrict supported file types.
+7. Sanitize external HTML content before processing.
+8. Add timeout handling to external API requests.
+9. Validate AI-generated output before export.
+10. Log security-sensitive failures appropriately.
+
+---
+
+# API Design Rules
+
+1. Use RESTful API conventions.
+2. Group endpoints by domain responsibility.
+3. Use consistent naming.
+4. Version APIs when appropriate.
+5. Return structured JSON responses.
+6. Include success/error metadata when useful.
+7. Use proper HTTP status codes.
+8. Avoid deeply nested response payloads.
+9. Keep request schemas explicit and predictable.
+10. Document endpoints clearly.
+
+Example response shape:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "error": null
+}
+```
+
+---
+
+# Suggested Project Structure
+
+```text
+frontend/
+  src/
+    components/
+    pages/
+    hooks/
+    services/
+    types/
+    utils/
+    styles/
+
+backend/
+  app/
+    api/
+    services/
+    models/
+    prompts/
+    parsers/
+    integrations/
+    utils/
+    core/
+```
+
+---
+
+# AI Prompt Engineering Rules
+
+1. Keep prompts modular and reusable.
+2. Store prompts in dedicated files.
+3. Separate system prompts from user prompts.
+4. Use structured prompt templates.
+5. Prefer deterministic prompt formatting.
+6. Clearly define expected output structure.
+7. Include fallback behavior instructions.
+8. Minimize hallucination risk with explicit constraints.
+9. Preserve invention terminology consistently.
+10. Track section-level drafting context.
+
+---
+
+# Patent Drafting Rules
+
+The application generates US provisional patent application drafts.
+
+When generating patent-related prompts or drafting logic:
+
+1. Use formal patent drafting language.
+2. Prefer terminology commonly used in patent applications.
+3. Use transitional phrases such as:
+
+   * "comprising"
+   * "wherein"
+   * "configured to"
+   * "in some embodiments"
+   * "according to one embodiment"
+4. Maintain consistent terminology throughout the document.
+5. Avoid unnecessary ambiguity.
+6. Preserve technical specificity.
+7. Generate logically structured sections.
+8. Keep section formatting consistent.
+9. Maintain professional legal-technical tone.
+10. Clearly separate background, summary, and detailed description sections.
+11. Support iterative refinement of generated patent sections.
+12. Preserve traceability between extracted invention details and drafted sections.
+13. Add comments explaining patent-specific drafting logic.
+14. Ensure generated content reads like a professionally drafted provisional patent.
+
+---
+
+# Document Parsing Rules
+
+1. Extract text cleanly from PDFs, DOCX, and PPTX files.
+2. Preserve section hierarchy when possible.
+3. Normalize whitespace and formatting.
+4. Handle malformed documents gracefully.
+5. Log parsing failures with actionable detail.
+6. Use dedicated parser services per document type.
+7. Keep extraction logic separate from AI drafting logic.
+8. Preserve source metadata when useful.
+
+---
+
+# Code Quality Standards
+
+1. Prioritize readability over cleverness.
+2. Avoid premature optimization.
+3. Write self-documenting code.
+4. Refactor duplicated logic.
+5. Use descriptive function and variable names.
+6. Keep files reasonably small.
+7. Prefer explicit interfaces.
+8. Add comments only where they improve clarity.
+9. Ensure maintainability for future contributors.
+10. Design for extensibility.
+
+---
+
+# Testing Expectations
+
+1. Write testable code.
+2. Separate side effects from business logic.
+3. Mock external APIs in tests.
+4. Validate AI response parsing.
+5. Test document parsing edge cases.
+6. Test API validation behavior.
+7. Test export generation workflows.
+
+---
+
+# Performance Guidelines
+
+1. Avoid blocking operations in async routes.
+2. Stream large file operations when appropriate.
+3. Minimize unnecessary OpenAI calls.
+4. Cache reusable metadata when beneficial.
+5. Avoid redundant parsing.
+6. Keep frontend renders efficient.
+7. Lazy load large UI sections when appropriate.
+
+---
+
+# Output Expectations for Cursor
+
+When generating code:
+
+1. Produce production-quality implementations.
+2. Include all required imports.
+3. Use strict typing.
+4. Avoid placeholder pseudo-code unless explicitly requested.
+5. Prefer complete working examples.
+6. Follow existing project conventions.
+7. Keep generated files organized and modular.
+8. Explain non-obvious patent-specific logic.
+9. Ensure code is directly usable within this project structure.
+10. Optimize for maintainability and clarity.
