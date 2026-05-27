@@ -69,6 +69,15 @@ export async function uploadDocuments(files: File[]): Promise<SourceContent[]> {
   }));
 }
 
+/** Upload and parse a single file (for per-file progress UI). */
+export async function uploadDocument(file: File): Promise<SourceContent> {
+  const [result] = await uploadDocuments([file]);
+  if (!result) {
+    throw new ApiError("No content returned from upload.", 422);
+  }
+  return result;
+}
+
 export async function connectConfluence(
   url: string,
   spaceKey: string,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -74,7 +75,7 @@ class InventionDetails(BaseModel):
 class ExtractFieldRequest(BaseModel):
     combined_text: str
     field: str
-    current: InventionDetails | None = None
+    current: Optional[InventionDetails] = None
 
 
 class DraftRequest(InventionDetails):

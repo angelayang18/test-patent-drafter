@@ -2,6 +2,10 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
+import {
+  UploadProgressPanel,
+  type UploadQueueItem,
+} from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
@@ -9,7 +13,7 @@ import {
   connectConfluence,
   extractInvention,
   scrapeUrl,
-  uploadDocuments,
+  uploadDocument,
 } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import "../styles/patent-drafter.css";
@@ -39,9 +43,13 @@ export default function InputPage() {
   } = usePatentWorkflow();
 
   const [showToken, setShowToken] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const uploading = uploadQueue.some(
+    (item) => item.status === "pending" || item.status === "parsing",
+  );
 
   const processFiles = useCallback(
     async (fileList: FileList | File[]) => {
@@ -51,22 +59,75 @@ export default function InputPage() {
         return;
       }
       setError(null);
-      setUploading(true);
-      try {
-        const results = await uploadDocuments(files);
-        addUploadedFiles(
-          results.map((item, index) => ({
-            id: `${Date.now()}-${index}-${item.filename}`,
-            filename: item.filename ?? files[index]?.name ?? "file",
-            sizeBytes: files[index]?.size ?? 0,
-            content: item.content,
-          })),
+
+      const queue: UploadQueueItem[] = files.map((file, index) => ({
+        id: `${Date.now()}-${index}-${file.name}`,
+        filename: file.name,
+        sizeBytes: file.size,
+        status: "pending",
+      }));
+      setUploadQueue(queue);
+
+      const parsed: {
+        id: string;
+        filename: string;
+        sizeBytes: number;
+        content: string;
+      }[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const queueId = queue[i].id;
+        const file = files[i];
+
+        setUploadQueue((prev) =>
+          prev.map((item) =>
+            item.id === queueId ? { ...item, status: "parsing" } : item,
+          ),
         );
+
+        try {
+          const result = await uploadDocument(file);
+          parsed.push({
+            id: queueId,
+            filename: result.filename ?? file.name,
+            sizeBytes: file.size,
+            content: result.content,
+          });
+          setUploadQueue((prev) =>
+            prev.map((item) =>
+              item.id === queueId ? { ...item, status: "done" } : item,
+            ),
+          );
+        } catch (err) {
+          const message = err instanceof ApiError ? err.message : "Parse failed.";
+          setUploadQueue((prev) =>
+            prev.map((item) =>
+              item.id === queueId ? { ...item, status: "error", error: message } : item,
+            ),
+          );
+        }
+      }
+
+      if (parsed.length > 0) {
+        addUploadedFiles(parsed);
         saveToStorage();
-      } catch (err) {
-        setError(err instanceof ApiError ? err.message : "Upload failed.");
-      } finally {
-        setUploading(false);
+      }
+
+      const failedCount = files.length - parsed.length;
+      if (failedCount > 0 && parsed.length === 0) {
+        setError(
+          failedCount === 1
+            ? "Could not parse the uploaded file."
+            : `Could not parse ${failedCount} file(s).`,
+        );
+      } else if (failedCount > 0) {
+        setError(
+          `${parsed.length} file(s) added; ${failedCount} failed to parse. See details below.`,
+        );
+      }
+
+      if (failedCount === 0) {
+        window.setTimeout(() => setUploadQueue([]), 2000);
       }
     },
     [addUploadedFiles, saveToStorage],
@@ -211,26 +272,41 @@ export default function InputPage() {
             <div
               ref={dropzoneRef}
               role="button"
-              tabIndex={0}
-              onClick={() => fileInputRef.current?.click()}
+              tabIndex={uploading ? -1 : 0}
+              aria-disabled={uploading}
+              onClick={() => !uploading && fileInputRef.current?.click()}
               onKeyDown={(e) => {
+                if (uploading) return;
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   fileInputRef.current?.click();
                 }
               }}
-              className="border-2 border-dashed border-outline-variant rounded-xl p-12 flex flex-col items-center justify-center bg-surface-container-low hover:bg-primary/5 hover:border-primary transition-all cursor-pointer group"
+              className={`border-2 border-dashed border-outline-variant rounded-xl p-12 flex flex-col items-center justify-center bg-surface-container-low transition-all group ${
+                uploading
+                  ? "opacity-60 cursor-not-allowed"
+                  : "hover:bg-primary/5 hover:border-primary cursor-pointer"
+              }`}
             >
-              <span className="material-symbols-outlined text-primary text-5xl mb-4 group-hover:scale-110 transition-transform">
-                cloud_upload
+              <span
+                className={`material-symbols-outlined text-primary text-5xl mb-4 transition-transform ${
+                  uploading ? "loading-spin" : "group-hover:scale-110"
+                }`}
+              >
+                {uploading ? "progress_activity" : "cloud_upload"}
               </span>
               <p className="font-title-lg text-title-lg text-on-surface mb-2">
-                {uploading ? "Uploading and parsing..." : "Drag files here or click to browse"}
+                {uploading
+                  ? "Parsing your documents…"
+                  : "Drag files here or click to browse"}
               </p>
               <p className="font-body-sm text-body-sm text-on-surface-variant">
                 Accepted formats: PDF, .docx, .pptx
               </p>
             </div>
+
+            <UploadProgressPanel items={uploadQueue} />
+
             <div className="mt-8">
               <h3 className="font-label-md text-label-md text-on-surface-variant uppercase tracking-wider mb-4">
                 Uploaded Files
