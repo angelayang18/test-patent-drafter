@@ -96,10 +96,20 @@ export default function Export() {
               Your Patent Draft Is Ready
             </h1>
             <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto">
-              Download your provisional patent application. DOCX includes text sections
-              {figures.length > 0
-                ? ` and ${figures.length} embedded figure(s).`
-                : " (generate figures on the Figures step to embed diagrams)."}
+              Download your provisional patent application.
+              {figures.length > 0 ? (
+                <>
+                  {" "}
+                  Word (.docx) embeds {figures.length} figure{figures.length === 1 ? "" : "s"} as
+                  PNG images in the Drawings section. PDF export includes text sections only.
+                </>
+              ) : (
+                <>
+                  {" "}
+                  Generate figures on the Figures step to embed PNG diagrams in your Word export.
+                  PDF includes text sections only.
+                </>
+              )}
             </p>
           </section>
 
@@ -119,8 +129,8 @@ export default function Export() {
                   <h3 className="font-title-lg text-title-lg text-primary">Word Document (.docx)</h3>
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-8 flex-grow">
-                  Editable format with optional embedded figure PNGs. Recommended for attorney
-                  review.
+                  Editable format with embedded figure PNGs when you have generated figures on the
+                  Figures step. Recommended for attorney review and USPTO filing prep.
                 </p>
                 <button
                   type="button"
@@ -160,7 +170,8 @@ export default function Export() {
                   <h3 className="font-title-lg text-title-lg text-primary">PDF Document (.pdf)</h3>
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-8 flex-grow">
-                  Read-only PDF of all drafted sections, suitable for quick review or filing prep.
+                  Read-only PDF of all drafted text sections. Figures are not embedded in PDF—use
+                  DOCX for diagram images.
                 </p>
                 <button
                   type="button"

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
@@ -20,10 +20,17 @@ export default function Draft() {
 
   const [activeSection, setActiveSection] = useState<PatentSectionId>("field");
   const [generatingSection, setGeneratingSection] = useState<PatentSectionId | null>(null);
-  const [autoDrafting, setAutoDrafting] = useState(false);
-  const [autoDraftProgress, setAutoDraftProgress] = useState({ current: 0, total: 0 });
+  const [bulkDrafting, setBulkDrafting] = useState(false);
+  const [bulkDraftProgress, setBulkDraftProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
-  const autoDraftStarted = useRef(false);
+
+  const activeSectionRef = useRef(activeSection);
+  const sectionsRef = useRef(sections);
+  const inFlightSections = useRef(new Set<PatentSectionId>());
+
+  useEffect(() => {
+    sectionsRef.current = sections;
+  }, [sections]);
 
   const {
     value: draftText,
@@ -37,96 +44,122 @@ export default function Draft() {
   } = useUndoRedo("");
 
   useEffect(() => {
+    activeSectionRef.current = activeSection;
+  }, [activeSection]);
+
+  useEffect(() => {
     if (!invention) {
       navigate("/review", { replace: true });
     }
   }, [invention, navigate]);
 
-  const prevSectionRef = useRef(activeSection);
-  useEffect(() => {
-    if (prevSectionRef.current !== activeSection) {
-      resetDraftHistory(sections[activeSection] ?? "");
-      prevSectionRef.current = activeSection;
-    }
-  }, [activeSection, sections, resetDraftHistory]);
+  const flushActiveSection = useCallback(
+    (sectionId: PatentSectionId, text: string) => {
+      setSection(sectionId, text);
+    },
+    [setSection],
+  );
 
-  useEffect(() => {
-    setSection(activeSection, draftText);
-  }, [draftText, activeSection, setSection]);
+  const selectSection = useCallback(
+    (nextSection: PatentSectionId) => {
+      if (nextSection === activeSection) return;
+      flushActiveSection(activeSection, draftText);
+      setActiveSection(nextSection);
+      resetDraftHistory(sections[nextSection] ?? "");
+    },
+    [activeSection, draftText, flushActiveSection, resetDraftHistory, sections],
+  );
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => saveToStorage(), 500);
-    return () => window.clearTimeout(timer);
-  }, [draftText, sections, saveToStorage]);
+  const draftSectionContent = useCallback(
+    async (sectionId: PatentSectionId, force = false) => {
+      if (!invention) return;
+      if (inFlightSections.current.has(sectionId)) return;
+      if (!force && sectionsRef.current[sectionId]?.trim()) return;
 
-  useEffect(() => {
-    if (!invention || autoDraftStarted.current) return;
-
-    const emptySections = PATENT_SECTION_IDS.filter((id) => !sections[id]?.trim());
-    if (emptySections.length === 0) return;
-
-    autoDraftStarted.current = true;
-    let cancelled = false;
-
-    const runAutoDraft = async () => {
-      setAutoDrafting(true);
-      setAutoDraftProgress({ current: 0, total: emptySections.length });
+      inFlightSections.current.add(sectionId);
+      setGeneratingSection(sectionId);
       setError(null);
 
-      const details = invention ?? defaultInvention;
-
-      for (let i = 0; i < emptySections.length; i++) {
-        if (cancelled) break;
-        const sectionId = emptySections[i];
-        setGeneratingSection(sectionId);
-        setAutoDraftProgress({ current: i + 1, total: emptySections.length });
-
-        try {
-          const content = await draftSection(details, sectionId);
-          setSection(sectionId, content);
-          if (sectionId === activeSection) {
-            resetDraftHistory(content);
-          }
-        } catch (err) {
-          setError(
-            err instanceof ApiError
-              ? err.message
-              : `Failed to draft ${SECTION_LABELS[sectionId]}.`,
-          );
-          break;
+      try {
+        const content = await draftSection(invention ?? defaultInvention, sectionId);
+        setSection(sectionId, content);
+        if (activeSectionRef.current === sectionId) {
+          resetDraftHistory(content);
         }
+        saveToStorage();
+      } catch (err) {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : `Failed to draft ${SECTION_LABELS[sectionId]}.`,
+        );
+      } finally {
+        inFlightSections.current.delete(sectionId);
+        setGeneratingSection((current) => (current === sectionId ? null : current));
       }
+    },
+    [invention, resetDraftHistory, saveToStorage, setSection],
+  );
 
-      setGeneratingSection(null);
-      setAutoDrafting(false);
+  useEffect(() => {
+    if (!invention) return;
+    if (sectionsRef.current[activeSection]?.trim()) return;
+    if (inFlightSections.current.has(activeSection)) return;
+    void draftSectionContent(activeSection);
+  }, [activeSection, invention, draftSectionContent]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (generatingSection === activeSection) return;
+      flushActiveSection(activeSection, draftText);
       saveToStorage();
-    };
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [draftText, activeSection, generatingSection, flushActiveSection, saveToStorage]);
 
-    void runAutoDraft();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- run once per visit when sections are empty
-  }, [invention]);
+  const handleDraftAllEmpty = async () => {
+    if (!invention) return;
+    const empty = PATENT_SECTION_IDS.filter((id) => !sections[id]?.trim());
+    if (empty.length === 0) return;
+
+    setBulkDrafting(true);
+    setBulkDraftProgress({ current: 0, total: empty.length });
+    setError(null);
+
+    for (let i = 0; i < empty.length; i++) {
+      const sectionId = empty[i];
+      setBulkDraftProgress({ current: i + 1, total: empty.length });
+      if (!sectionsRef.current[sectionId]?.trim()) {
+        await draftSectionContent(sectionId);
+      }
+    }
+
+    setBulkDrafting(false);
+    setBulkDraftProgress({ current: 0, total: 0 });
+  };
 
   const sectionIndex = PATENT_SECTION_IDS.indexOf(activeSection);
   const isDone = (id: PatentSectionId) => Boolean(sections[id]?.trim());
-  const isBusy = autoDrafting || generatingSection !== null;
+  const isGeneratingActive = generatingSection === activeSection;
+  const isBusy = bulkDrafting || generatingSection !== null;
+  const hasEmptySections = PATENT_SECTION_IDS.some((id) => !sections[id]?.trim());
 
   const handleRegenerateSection = async () => {
-    const details = invention ?? defaultInvention;
+    if (!invention) return;
     setError(null);
-    setGeneratingSection(activeSection);
     pushDraftText(draftText);
+    inFlightSections.current.add(activeSection);
+    setGeneratingSection(activeSection);
     try {
-      const content = await draftSection(details, activeSection);
+      const content = await draftSection(invention ?? defaultInvention, activeSection);
       pushDraftText(content);
       setSection(activeSection, content);
       saveToStorage();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to regenerate section.");
     } finally {
-      setGeneratingSection(null);
+      inFlightSections.current.delete(activeSection);
+      setGeneratingSection((current) => (current === activeSection ? null : current));
     }
   };
 
@@ -137,9 +170,6 @@ export default function Draft() {
       setError("Could not copy to clipboard.");
     }
   };
-
-  const showEmptyHint =
-    !autoDrafting && !draftText.trim() && generatingSection !== activeSection;
 
   return (
     <AppShell
@@ -173,7 +203,10 @@ export default function Draft() {
               </button>
               <Link
                 to="/figures"
-                onClick={() => saveToStorage()}
+                onClick={() => {
+                  flushActiveSection(activeSection, draftText);
+                  saveToStorage();
+                }}
                 className="px-8 py-2.5 bg-primary text-on-primary font-label-md text-label-md rounded-lg shadow-md hover:bg-primary-container transition-all active:scale-95 flex items-center gap-2"
               >
                 Next: Figures
@@ -190,18 +223,34 @@ export default function Draft() {
             Document Sections
           </h3>
           <p className="px-2 mb-4 font-body-sm text-body-sm text-on-surface-variant">
-            Full patent text for each USPTO section, generated from your invention details on
-            Review.
+            Each section is drafted with AI from your invention details. Open an empty section to
+            start generating it.
           </p>
+          {hasEmptySections && (
+            <button
+              type="button"
+              disabled={bulkDrafting || isBusy}
+              onClick={() => void handleDraftAllEmpty()}
+              className="mx-2 mb-2 px-3 py-2 text-left rounded-lg border border-secondary/40 text-secondary font-label-sm text-label-sm hover:bg-secondary/10 disabled:opacity-50 flex items-center gap-2"
+            >
+              <span
+                className={`material-symbols-outlined text-[18px] ${bulkDrafting ? "loading-spin" : ""}`}
+              >
+                auto_awesome
+              </span>
+              Draft all empty sections
+            </button>
+          )}
           {PATENT_SECTION_IDS.map((id) => {
             const active = id === activeSection;
             const done = isDone(id);
-            const generating = generatingSection === id;
+            const generating =
+              generatingSection === id || (bulkDrafting && !sections[id]?.trim());
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => setActiveSection(id)}
+                onClick={() => selectSection(id)}
                 className={`flex items-center justify-between p-3 rounded-lg transition-all group text-left w-full ${
                   active
                     ? "bg-secondary-container/20 border border-secondary-container/30"
@@ -220,7 +269,7 @@ export default function Draft() {
                     progress_activity
                   </span>
                 )}
-                {done && !active && !generating && (
+                {done && !generating && (
                   <span
                     className="material-symbols-outlined text-green-600 text-[18px]"
                     style={{ fontVariationSettings: "'FILL' 1" }}
@@ -241,18 +290,18 @@ export default function Draft() {
           )}
 
           <div className="max-w-[800px] w-full mx-auto my-8 px-margin-desktop flex-1 flex flex-col gap-6">
-            {autoDrafting && (
+            {bulkDrafting && (
               <GenerationProgress
                 active
-                label="Drafting patent sections"
-                step={autoDraftProgress}
+                label="Drafting all empty sections"
+                step={bulkDraftProgress}
               />
             )}
 
-            {generatingSection === activeSection && !autoDrafting && (
+            {isGeneratingActive && !bulkDrafting && (
               <GenerationProgress
                 active
-                label={`Regenerating ${SECTION_LABELS[activeSection]}`}
+                label={`Generating ${SECTION_LABELS[activeSection]}`}
               />
             )}
 
@@ -267,10 +316,10 @@ export default function Draft() {
               </div>
             </div>
 
-            {showEmptyHint && (
+            {!isGeneratingActive && !draftText.trim() && !bulkDrafting && (
               <p className="font-body-sm text-body-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-lg p-4">
-                This section is empty. Sections draft automatically when you open this page, or
-                click <strong>Regenerate Section</strong> to generate this one now.
+                This section is empty. It will generate automatically when you select it, or click{" "}
+                <strong>Regenerate Section</strong> to draft or refresh it now.
               </p>
             )}
 
@@ -279,18 +328,37 @@ export default function Draft() {
                 <button
                   type="button"
                   onClick={() => void handleCopy()}
-                  className="p-2 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm hover:bg-secondary hover:text-on-primary transition-all active:scale-95"
+                  disabled={isGeneratingActive}
+                  className="p-2 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm hover:bg-secondary hover:text-on-primary transition-all active:scale-95 disabled:opacity-50"
                   title="Copy Content"
                 >
                   <span className="material-symbols-outlined">content_copy</span>
                 </button>
               </div>
-              <div className="bg-surface-container-lowest canvas-shadow border border-outline-variant rounded-lg p-10 min-h-[400px] flex flex-col">
+              <div className="bg-surface-container-lowest canvas-shadow border border-outline-variant rounded-lg p-10 min-h-[400px] flex flex-col relative">
+                {isGeneratingActive && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 rounded-lg bg-surface-container-lowest/90 backdrop-blur-[1px]">
+                    <span className="material-symbols-outlined text-primary text-5xl loading-spin">
+                      progress_activity
+                    </span>
+                    <p className="font-title-lg text-title-lg text-primary text-center px-6">
+                      AI is drafting {SECTION_LABELS[activeSection].toLowerCase()}…
+                    </p>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant text-center max-w-md">
+                      This usually takes 15–60 seconds. You can switch sections; drafting continues
+                      in the background.
+                    </p>
+                  </div>
+                )}
                 <textarea
-                  className="w-full flex-1 border-none focus:ring-0 resize-none font-body-md text-body-md leading-relaxed text-on-surface-variant bg-transparent min-h-[360px]"
-                  placeholder={`Drafting ${SECTION_LABELS[activeSection].toLowerCase()}...`}
+                  className="w-full flex-1 border-none focus:ring-0 resize-none font-body-md text-body-md leading-relaxed text-on-surface bg-transparent min-h-[360px] disabled:cursor-wait"
+                  placeholder={
+                    isGeneratingActive
+                      ? ""
+                      : `Generated text for ${SECTION_LABELS[activeSection].toLowerCase()} will appear here.`
+                  }
                   value={draftText}
-                  disabled={isBusy && generatingSection === activeSection}
+                  readOnly={isGeneratingActive}
                   onChange={(e) => setDraftText(e.target.value)}
                 />
               </div>
@@ -304,11 +372,11 @@ export default function Draft() {
                 className="flex items-center gap-2 px-5 py-2 border border-outline text-on-surface-variant rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-all active:scale-95 disabled:opacity-60"
               >
                 <span
-                  className={`material-symbols-outlined text-[20px] ${generatingSection === activeSection ? "loading-spin" : ""}`}
+                  className={`material-symbols-outlined text-[20px] ${isGeneratingActive ? "loading-spin" : ""}`}
                 >
                   refresh
                 </span>
-                {generatingSection === activeSection ? "Regenerating..." : "Regenerate Section"}
+                {isGeneratingActive ? "Generating..." : "Regenerate Section"}
               </button>
               <div className="flex items-center gap-4 text-outline font-label-md text-label-md">
                 <span>{draftText.length.toLocaleString()} characters</span>

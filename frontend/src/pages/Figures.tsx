@@ -114,7 +114,8 @@ export default function Figures() {
         <h1 className="font-headline-lg text-headline-lg text-primary mb-2">Patent Figures</h1>
         <p className="font-body-md text-body-md text-on-surface-variant">
           Generate system architecture, method flowchart, and data-flow diagrams as Mermaid
-          source. Preview here, then export embedded PNGs in your DOCX.
+          source. Preview here—figures are embedded as PNG images when you export Word (.docx), not
+          in the PDF export.
         </p>
       </div>
 
