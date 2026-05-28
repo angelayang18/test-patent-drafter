@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 from io import BytesIO
 from typing import Any
 
@@ -9,6 +10,10 @@ from docx import Document
 from docx.shared import Inches
 
 from exporter.mermaid_render import render_mermaid_to_png
+from exporter.text_format import split_paragraphs
+
+MAX_FIGURE_WIDTH_IN = 6.0
+MAX_FIGURE_HEIGHT_IN = 4.5
 
 SECTION_DISPLAY_ORDER = [
     "field",
@@ -44,6 +49,41 @@ def _ordered_section_keys(sections: dict[str, str]) -> list[str]:
     return ordered
 
 
+def _png_dimensions(png_bytes: bytes) -> tuple[int, int]:
+    """Read width and height from PNG IHDR without external image libraries."""
+    if png_bytes[:8] != b"\x89PNG\r\n\x1a\n":
+        raise ValueError("Not a PNG image.")
+    width, height = struct.unpack(">II", png_bytes[16:24])
+    return width, height
+
+
+def _add_picture_fitted(doc: Document, png_bytes: bytes) -> None:
+    """Insert a figure scaled to fit within letter-page-friendly bounds."""
+    width_px, height_px = _png_dimensions(png_bytes)
+    aspect = width_px / height_px
+
+    width_in = min(MAX_FIGURE_WIDTH_IN, MAX_FIGURE_HEIGHT_IN * aspect)
+    height_in = width_in / aspect
+    if height_in > MAX_FIGURE_HEIGHT_IN:
+        height_in = MAX_FIGURE_HEIGHT_IN
+        width_in = height_in * aspect
+
+    doc.add_picture(BytesIO(png_bytes), width=Inches(width_in))
+
+
+def _add_section_body(doc: Document, body: str, section_key: str) -> None:
+    """Add section text as one or more Word paragraphs with markdown stripped."""
+    paragraphs = split_paragraphs(body)
+    if not paragraphs:
+        return
+
+    for index, paragraph in enumerate(paragraphs):
+        if section_key == "claims" and index == 0 and not paragraph[:1].isdigit():
+            doc.add_paragraph(paragraph, style="List Number")
+        else:
+            doc.add_paragraph(paragraph)
+
+
 def _add_figures_to_doc(doc: Document, figures: list[dict[str, Any]]) -> None:
     """Insert rendered figure images and captions into the document."""
     if not figures:
@@ -64,7 +104,7 @@ def _add_figures_to_doc(doc: Document, figures: list[dict[str, Any]]) -> None:
 
         try:
             png_bytes = render_mermaid_to_png(mermaid)
-            doc.add_picture(BytesIO(png_bytes), width=Inches(6.0))
+            _add_picture_fitted(doc, png_bytes)
         except Exception as exc:
             doc.add_paragraph(
                 f"[Figure {number} could not be rendered: {exc}. "
@@ -92,7 +132,7 @@ def export_patent_docx(
 
     for key in keys:
         doc.add_heading(_section_heading(key), level=1)
-        doc.add_paragraph(sections[key])
+        _add_section_body(doc, sections[key], key)
 
         if (
             not figures_inserted

@@ -157,6 +157,23 @@ export async function draftSection(
   return data.content;
 }
 
+/** Draft multiple sections in parallel (one backend agent per section). */
+export async function draftAllSections(
+  invention: InventionDetails,
+  sections?: string[],
+): Promise<Record<string, string>> {
+  const data = await requestJson<{ sections: Record<string, string> }>("/draft/all", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...invention,
+      ...(sections?.length ? { sections } : {}),
+    }),
+  });
+
+  return data.sections;
+}
+
 export async function generateFigures(
   invention: InventionDetails,
   descriptionText = "",

@@ -13,6 +13,17 @@ _MERMAID_FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 
+# Default compact layouts when the model omits a flowchart direction.
+_FIGURE_DEFAULT_DIRECTION = {
+    1: "TB",
+    2: "TB",
+    3: "TB",
+}
+
+
+def _default_flowchart_direction(number: int) -> str:
+    return _FIGURE_DEFAULT_DIRECTION.get(number, "TB")
+
 
 def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
     """Validate and normalize a single figure from model output."""
@@ -30,7 +41,17 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
         }
 
     if not mermaid.lower().startswith("flowchart"):
-        mermaid = f"flowchart TB\n{mermaid}"
+        direction = _default_flowchart_direction(number)
+        mermaid = f"flowchart {direction}\n{mermaid}"
+    elif re.match(r"^flowchart\s+LR\b", mermaid, re.IGNORECASE):
+        # Avoid purely horizontal layouts that are hard to read in Word.
+        mermaid = re.sub(
+            r"^flowchart\s+LR\b",
+            f"flowchart {_default_flowchart_direction(number)}",
+            mermaid,
+            count=1,
+            flags=re.IGNORECASE,
+        )
 
     if _MERMAID_FORBIDDEN.search(mermaid):
         raise ValueError(

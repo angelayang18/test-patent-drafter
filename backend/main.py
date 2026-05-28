@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.figures import generate_patent_figures
-from drafter.sections import draft_section
+from drafter.sections import draft_all_sections_parallel, draft_section
 from exporter.docx_export import export_patent_docx
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
@@ -80,6 +80,12 @@ class ExtractFieldRequest(BaseModel):
 
 class DraftRequest(InventionDetails):
     section: str
+
+
+class DraftAllRequest(InventionDetails):
+    """Optional subset of section ids; default is all six specification sections."""
+
+    sections: Optional[List[str]] = None
 
 
 class PatentFigureModel(BaseModel):
@@ -261,21 +267,52 @@ def extract_details(body: ExtractRequest) -> dict:
 
 @app.post("/draft")
 def draft_patent_section(body: DraftRequest) -> dict:
-    """Draft a single patent section from extracted invention details."""
+    """Draft a single patent section via one dedicated section agent."""
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
     invention = body.model_dump(exclude={"section"})
+    section = body.section.strip()
     try:
-        content = draft_section(invention, body.section.strip())
+        content = draft_section(invention, section)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         log.exception("Section drafting failed for %s", body.section)
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to draft section '{body.section}': {exc}",
+            detail=f"Failed to draft section '{section}': {exc}",
         ) from exc
 
-    return {"section": body.section.strip(), "content": content}
+    return {"section": section, "content": content}
+
+
+@app.post("/draft/all")
+def draft_all_patent_sections(body: DraftAllRequest) -> dict:
+    """
+    Draft multiple sections in parallel — one isolated LLM agent per section.
+
+    Each agent uses the provisional filing template for its section only.
+    """
+    invention = body.model_dump(exclude={"sections"})
+    section_list = body.sections
+    if section_list is not None:
+        section_list = [s.strip() for s in section_list if s.strip()]
+        if not section_list:
+            raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
+
+    try:
+        drafted = draft_all_sections_parallel(invention, section_list)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        log.exception("Parallel section drafting failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft sections in parallel: {exc}",
+        ) from exc
+
+    return {"sections": drafted}
 
 
 @app.post("/figures/generate")

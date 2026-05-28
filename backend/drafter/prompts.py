@@ -40,7 +40,8 @@ PATENT_DRAFTER_SYSTEM = (
     "Be highly specific and technical. Reference exact AI/ML concepts such as "
     "transformer architectures, attention mechanisms, tokenization, vector embeddings, "
     "cosine similarity, and retrieval-augmented generation where relevant. "
-    "Avoid vague business language — focus on what is mechanically novel and inventive."
+    "Avoid vague business language — focus on what is mechanically novel and inventive. "
+    "Output plain text only — no markdown (no **, #, bullet lists, or code fences)."
 )
 
 
@@ -373,6 +374,13 @@ REQUIREMENTS:
   - No classDef, no style directives, no colors, no subgraph styling
   - Maximum 12 nodes per diagram
   - Use --> for arrows; label critical flows on arrows when helpful
+- Layout rules (critical for Word export — target ~4:3 aspect ratio on one page):
+  - Do NOT draw a single long horizontal row (max 3 nodes before branching or wrapping)
+  - Do NOT draw a single long vertical column (max 5 nodes before splitting into parallel branches)
+  - Use branching and parallel columns to keep each diagram compact and roughly square
+  - FIG. 1: flowchart TB with components arranged in 2 parallel columns
+  - FIG. 2: flowchart TB with method steps in a zigzag or two-column layout
+  - FIG. 3: flowchart TB with data stages split across parallel branches (not one straight chain)
 - reference_numerals must use even numbers starting at 10 (10, 12, 14, ...) and match labels in mermaid
 - brief_description_of_drawings must list FIG. 1, FIG. 2, and FIG. 3 in order
 

@@ -7,6 +7,7 @@ from io import BytesIO
 from fpdf import FPDF
 
 from exporter.docx_export import SECTION_TITLES, _ordered_section_keys
+from exporter.text_format import split_paragraphs
 
 FONT_SIZE_BODY = 11
 FONT_SIZE_HEADING = 14
@@ -33,13 +34,9 @@ def _sanitize_text(text: str) -> str:
     )
 
 
-def _write_paragraph(pdf: FPDF, text: str) -> None:
-    for paragraph in text.split("\n"):
-        line = paragraph.strip()
-        if not line:
-            pdf.ln(LINE_HEIGHT / 2)
-            continue
-        pdf.multi_cell(0, LINE_HEIGHT, line)
+def _write_section_body(pdf: FPDF, text: str) -> None:
+    for paragraph in split_paragraphs(text):
+        pdf.multi_cell(0, LINE_HEIGHT, paragraph)
         pdf.ln(2)
 
 
@@ -64,7 +61,7 @@ def export_patent_pdf(sections: dict[str, str]) -> BytesIO:
         pdf.set_font("Helvetica", style="B", size=FONT_SIZE_HEADING)
         pdf.cell(0, 10, _sanitize_text(heading), ln=True)
         pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
-        _write_paragraph(pdf, _sanitize_text(body))
+        _write_section_body(pdf, _sanitize_text(body))
         pdf.ln(4)
 
     buffer = BytesIO()

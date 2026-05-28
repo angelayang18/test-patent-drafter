@@ -6,7 +6,7 @@ import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useUndoRedo } from "../hooks/useUndoRedo";
-import { ApiError, draftSection } from "../services/api";
+import { ApiError, draftAllSections, draftSection } from "../services/api";
 import {
   PATENT_SECTION_IDS,
   SECTION_LABELS,
@@ -16,17 +16,22 @@ import "../styles/patent-drafter.css";
 
 export default function Draft() {
   const navigate = useNavigate();
-  const { invention, sections, setSection, saveToStorage } = usePatentWorkflow();
+  const { invention, sections, setSection, setSections, saveToStorage } =
+    usePatentWorkflow();
 
   const [activeSection, setActiveSection] = useState<PatentSectionId>("field");
-  const [generatingSection, setGeneratingSection] = useState<PatentSectionId | null>(null);
-  const [bulkDrafting, setBulkDrafting] = useState(false);
-  const [bulkDraftProgress, setBulkDraftProgress] = useState({ current: 0, total: 0 });
+  const [parallelDrafting, setParallelDrafting] = useState(false);
+  const [parallelAgentCount, setParallelAgentCount] = useState(0);
+  const [pendingSectionIds, setPendingSectionIds] = useState<PatentSectionId[]>([]);
+  const [regeneratingSection, setRegeneratingSection] = useState<PatentSectionId | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const activeSectionRef = useRef(activeSection);
   const sectionsRef = useRef(sections);
-  const inFlightSections = useRef(new Set<PatentSectionId>());
+  const pendingSectionIdsRef = useRef<PatentSectionId[]>([]);
+  const parallelDraftInitiated = useRef(false);
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -48,6 +53,16 @@ export default function Draft() {
   }, [activeSection]);
 
   useEffect(() => {
+    pendingSectionIdsRef.current = pendingSectionIds;
+  }, [pendingSectionIds]);
+
+  useEffect(() => {
+    resetDraftHistory(sectionsRef.current[activeSection] ?? "");
+    // Load stored content for the initial section once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!invention) {
       navigate("/review", { replace: true });
     }
@@ -63,103 +78,136 @@ export default function Draft() {
   const selectSection = useCallback(
     (nextSection: PatentSectionId) => {
       if (nextSection === activeSection) return;
-      flushActiveSection(activeSection, draftText);
+
+      const leavingPending = pendingSectionIdsRef.current.includes(activeSection);
+      const leavingRegenerating = regeneratingSection === activeSection;
+      if (!leavingPending && !leavingRegenerating) {
+        flushActiveSection(activeSection, draftText);
+      }
+
       setActiveSection(nextSection);
-      resetDraftHistory(sections[nextSection] ?? "");
+
+      const enteringPending = pendingSectionIdsRef.current.includes(nextSection);
+      resetDraftHistory(
+        enteringPending ? "" : (sectionsRef.current[nextSection] ?? ""),
+      );
     },
-    [activeSection, draftText, flushActiveSection, resetDraftHistory, sections],
+    [activeSection, draftText, flushActiveSection, regeneratingSection, resetDraftHistory],
   );
 
-  const draftSectionContent = useCallback(
-    async (sectionId: PatentSectionId, force = false) => {
-      if (!invention) return;
-      if (inFlightSections.current.has(sectionId)) return;
-      if (!force && sectionsRef.current[sectionId]?.trim()) return;
+  const setPendingSections = useCallback((sectionIds: PatentSectionId[]) => {
+    pendingSectionIdsRef.current = sectionIds;
+    setPendingSectionIds(sectionIds);
+  }, []);
 
-      inFlightSections.current.add(sectionId);
-      setGeneratingSection(sectionId);
+  const clearPendingSections = useCallback(() => {
+    pendingSectionIdsRef.current = [];
+    setPendingSectionIds([]);
+  }, []);
+
+  const startParallelDraft = useCallback(
+    async (sectionIds: PatentSectionId[]) => {
+      if (!invention || sectionIds.length === 0) return;
+
+      setParallelDrafting(true);
+      setParallelAgentCount(sectionIds.length);
+      setPendingSections(sectionIds);
       setError(null);
 
       try {
-        const content = await draftSection(invention ?? defaultInvention, sectionId);
-        setSection(sectionId, content);
-        if (activeSectionRef.current === sectionId) {
-          resetDraftHistory(content);
+        const drafted = await draftAllSections(
+          invention ?? defaultInvention,
+          sectionIds,
+        );
+        setSections({ ...sectionsRef.current, ...drafted });
+        const active = activeSectionRef.current;
+        if (sectionIds.includes(active) && drafted[active]) {
+          resetDraftHistory(drafted[active]);
         }
         saveToStorage();
       } catch (err) {
         setError(
           err instanceof ApiError
             ? err.message
-            : `Failed to draft ${SECTION_LABELS[sectionId]}.`,
+            : "Failed to draft sections in parallel.",
         );
       } finally {
-        inFlightSections.current.delete(sectionId);
-        setGeneratingSection((current) => (current === sectionId ? null : current));
+        clearPendingSections();
+        setParallelDrafting(false);
+        setParallelAgentCount(0);
       }
     },
-    [invention, resetDraftHistory, saveToStorage, setSection],
+    [
+      clearPendingSections,
+      invention,
+      resetDraftHistory,
+      saveToStorage,
+      setPendingSections,
+      setSections,
+    ],
   );
 
   useEffect(() => {
-    if (!invention) return;
-    if (sectionsRef.current[activeSection]?.trim()) return;
-    if (inFlightSections.current.has(activeSection)) return;
-    void draftSectionContent(activeSection);
-  }, [activeSection, invention, draftSectionContent]);
+    if (!invention || parallelDraftInitiated.current) return;
+
+    const empty = PATENT_SECTION_IDS.filter((id) => !sectionsRef.current[id]?.trim());
+    if (empty.length === 0) return;
+
+    parallelDraftInitiated.current = true;
+    void startParallelDraft(empty);
+  }, [invention, startParallelDraft]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (generatingSection === activeSection) return;
+      if (pendingSectionIds.includes(activeSection) || regeneratingSection === activeSection) {
+        return;
+      }
       flushActiveSection(activeSection, draftText);
       saveToStorage();
     }, 500);
     return () => window.clearTimeout(timer);
-  }, [draftText, activeSection, generatingSection, flushActiveSection, saveToStorage]);
+  }, [
+    draftText,
+    activeSection,
+    pendingSectionIds,
+    regeneratingSection,
+    flushActiveSection,
+    saveToStorage,
+  ]);
 
-  const handleDraftAllEmpty = async () => {
-    if (!invention) return;
+  const handleDraftAllEmpty = () => {
     const empty = PATENT_SECTION_IDS.filter((id) => !sections[id]?.trim());
     if (empty.length === 0) return;
-
-    setBulkDrafting(true);
-    setBulkDraftProgress({ current: 0, total: empty.length });
-    setError(null);
-
-    for (let i = 0; i < empty.length; i++) {
-      const sectionId = empty[i];
-      setBulkDraftProgress({ current: i + 1, total: empty.length });
-      if (!sectionsRef.current[sectionId]?.trim()) {
-        await draftSectionContent(sectionId);
-      }
-    }
-
-    setBulkDrafting(false);
-    setBulkDraftProgress({ current: 0, total: 0 });
+    void startParallelDraft(empty);
   };
 
   const sectionIndex = PATENT_SECTION_IDS.indexOf(activeSection);
   const isDone = (id: PatentSectionId) => Boolean(sections[id]?.trim());
-  const isGeneratingActive = generatingSection === activeSection;
-  const isBusy = bulkDrafting || generatingSection !== null;
-  const hasEmptySections = PATENT_SECTION_IDS.some((id) => !sections[id]?.trim());
+  const isSectionPending = (id: PatentSectionId) =>
+    pendingSectionIds.includes(id) || regeneratingSection === id;
+  const isGeneratingActive = isSectionPending(activeSection);
+  const isBusy = pendingSectionIds.length > 0 || regeneratingSection !== null;
+  const hasEmptySections = PATENT_SECTION_IDS.some(
+    (id) => !sections[id]?.trim() && !pendingSectionIds.includes(id),
+  );
 
   const handleRegenerateSection = async () => {
     if (!invention) return;
+    const sectionId = activeSection;
     setError(null);
     pushDraftText(draftText);
-    inFlightSections.current.add(activeSection);
-    setGeneratingSection(activeSection);
+    setRegeneratingSection(sectionId);
     try {
-      const content = await draftSection(invention ?? defaultInvention, activeSection);
-      pushDraftText(content);
-      setSection(activeSection, content);
+      const content = await draftSection(invention ?? defaultInvention, sectionId);
+      setSection(sectionId, content);
+      if (activeSectionRef.current === sectionId) {
+        pushDraftText(content);
+      }
       saveToStorage();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to regenerate section.");
     } finally {
-      inFlightSections.current.delete(activeSection);
-      setGeneratingSection((current) => (current === activeSection ? null : current));
+      setRegeneratingSection((current) => (current === sectionId ? null : current));
     }
   };
 
@@ -223,29 +271,28 @@ export default function Draft() {
             Document Sections
           </h3>
           <p className="px-2 mb-4 font-body-sm text-body-sm text-on-surface-variant">
-            Each section is drafted with AI from your invention details. Open an empty section to
-            start generating it.
+            Six dedicated agents draft sections in parallel using the US provisional filing
+            template. Each agent only sees invention details—not other sections.
           </p>
           {hasEmptySections && (
             <button
               type="button"
-              disabled={bulkDrafting || isBusy}
-              onClick={() => void handleDraftAllEmpty()}
+              disabled={isBusy}
+              onClick={handleDraftAllEmpty}
               className="mx-2 mb-2 px-3 py-2 text-left rounded-lg border border-secondary/40 text-secondary font-label-sm text-label-sm hover:bg-secondary/10 disabled:opacity-50 flex items-center gap-2"
             >
               <span
-                className={`material-symbols-outlined text-[18px] ${bulkDrafting ? "loading-spin" : ""}`}
+                className={`material-symbols-outlined text-[18px] ${parallelDrafting ? "loading-spin" : ""}`}
               >
                 auto_awesome
               </span>
-              Draft all empty sections
+              Run parallel agents on empty sections
             </button>
           )}
           {PATENT_SECTION_IDS.map((id) => {
             const active = id === activeSection;
-            const done = isDone(id);
-            const generating =
-              generatingSection === id || (bulkDrafting && !sections[id]?.trim());
+            const done = isDone(id) && !isSectionPending(id);
+            const generating = isSectionPending(id);
             return (
               <button
                 key={id}
@@ -290,18 +337,17 @@ export default function Draft() {
           )}
 
           <div className="max-w-[800px] w-full mx-auto my-8 px-margin-desktop flex-1 flex flex-col gap-6">
-            {bulkDrafting && (
+            {parallelDrafting && (
               <GenerationProgress
                 active
-                label="Drafting all empty sections"
-                step={bulkDraftProgress}
+                label={`${parallelAgentCount} section agents drafting in parallel (provisional filing template)`}
               />
             )}
 
-            {isGeneratingActive && !bulkDrafting && (
+            {regeneratingSection === activeSection && !parallelDrafting && (
               <GenerationProgress
                 active
-                label={`Generating ${SECTION_LABELS[activeSection]}`}
+                label={`Regenerating ${SECTION_LABELS[activeSection]} (single agent)`}
               />
             )}
 
@@ -316,10 +362,11 @@ export default function Draft() {
               </div>
             </div>
 
-            {!isGeneratingActive && !draftText.trim() && !bulkDrafting && (
+            {!isGeneratingActive && !draftText.trim() && !isSectionPending(activeSection) && (
               <p className="font-body-sm text-body-sm text-on-surface-variant bg-surface-container-low border border-outline-variant rounded-lg p-4">
-                This section is empty. It will generate automatically when you select it, or click{" "}
-                <strong>Regenerate Section</strong> to draft or refresh it now.
+                Empty sections are drafted automatically when you arrive from Review. Use{" "}
+                <strong>Run parallel agents on empty sections</strong> to retry, or{" "}
+                <strong>Regenerate Section</strong> for this section only.
               </p>
             )}
 
@@ -342,11 +389,14 @@ export default function Draft() {
                       progress_activity
                     </span>
                     <p className="font-title-lg text-title-lg text-primary text-center px-6">
-                      AI is drafting {SECTION_LABELS[activeSection].toLowerCase()}…
+                      {regeneratingSection === activeSection
+                        ? `Agent is regenerating ${SECTION_LABELS[activeSection].toLowerCase()}…`
+                        : `Agent is drafting ${SECTION_LABELS[activeSection].toLowerCase()}…`}
                     </p>
                     <p className="font-body-sm text-body-sm text-on-surface-variant text-center max-w-md">
-                      This usually takes 15–60 seconds. You can switch sections; drafting continues
-                      in the background.
+                      {parallelDrafting
+                        ? "Each section uses an isolated agent and the provisional filing template. You can switch sections while drafting continues."
+                        : "This usually takes 15–60 seconds."}
                     </p>
                   </div>
                 )}

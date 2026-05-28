@@ -29,3 +29,14 @@ def test_normalize_figure_rejects_styling():
     except ValueError:
         raised = True
     assert raised
+
+
+def test_normalize_figure_converts_horizontal_layout_to_tb():
+    raw = {
+        "number": 1,
+        "title": "System",
+        "brief_description": "FIG. 1",
+        "mermaid": "flowchart LR\nA[10 Module] --> B[12 Parser]",
+    }
+    result = _normalize_figure(raw, 1)
+    assert result["mermaid"].startswith("flowchart TB")
