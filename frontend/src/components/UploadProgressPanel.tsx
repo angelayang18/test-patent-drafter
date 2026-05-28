@@ -33,13 +33,16 @@ export function UploadProgressPanel({ items }: UploadProgressPanelProps) {
 
   const total = items.length;
   const doneCount = items.filter((i) => i.status === "done" || i.status === "error").length;
-  const parsingItem = items.find((i) => i.status === "parsing");
+  const parsingItems = items.filter((i) => i.status === "parsing");
+  const allParsing = parsingItems.length === total && total > 0;
   const hasActive = items.some((i) => i.status === "pending" || i.status === "parsing");
 
   const progressPercent =
     total === 0
       ? 0
-      : Math.round(((doneCount + (parsingItem ? 0.5 : 0)) / total) * 100);
+      : allParsing
+        ? 15
+        : Math.round(((doneCount + (parsingItems.length > 0 ? 0.5 : 0)) / total) * 100);
 
   useEffect(() => {
     if (!hasActive) {
@@ -72,12 +75,19 @@ export function UploadProgressPanel({ items }: UploadProgressPanelProps) {
           <div className="min-w-0">
             <p className="font-label-md text-label-md text-on-surface">
               {hasActive
-                ? `Parsing documents (${doneCount} of ${total} complete)`
+                ? allParsing
+                  ? `Parsing ${total} document${total === 1 ? "" : "s"} in one batch…`
+                  : `Parsing documents (${doneCount} of ${total} complete)`
                 : `Finished parsing ${doneCount} of ${total} file${total === 1 ? "" : "s"}`}
             </p>
-            {parsingItem && (
+            {parsingItems.length === 1 && (
               <p className="font-body-sm text-body-sm text-secondary truncate mt-0.5">
-                Currently parsing: {parsingItem.filename}
+                Currently parsing: {parsingItems[0].filename}
+              </p>
+            )}
+            {parsingItems.length > 1 && allParsing && (
+              <p className="font-body-sm text-body-sm text-secondary mt-0.5">
+                Server is parsing files in parallel.
               </p>
             )}
           </div>

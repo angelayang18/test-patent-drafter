@@ -6,7 +6,7 @@ An internal tool for drafting US provisional patent applications. Upload inventi
 
 - **Multi-source input** — Upload PDF, DOCX, or PPTX files; connect to Confluence; scrape web pages; or paste freeform text
 - **AI extraction** — Automatically extracts invention title, technical field, problem, solution, novel mechanism, embodiments, and key components
-- **Section-by-section drafting** — Generates standard patent sections (background, summary, detailed description, claims, abstract, etc.)
+- **Parallel section agents** — Six isolated LLM agents draft sections simultaneously (no cross-section context); follows the US provisional filing template from the Patent Filing Guide
 - **Figure generation** — Creates Mermaid-based patent figures with PNG rendering
 - **Review & edit** — Review and refine extracted details and drafted sections before export
 - **Export** — Download the finished application as `.docx` or `.pdf`
@@ -15,7 +15,7 @@ An internal tool for drafting US provisional patent applications. Upload inventi
 
 1. **Input** — Add source documents and invention context
 2. **Review** — Verify and edit extracted invention details
-3. **Draft** — Generate patent sections one at a time
+3. **Draft** — Parallel agents generate all specification sections at once (per-section regenerate supported)
 4. **Figures** — Generate and preview patent figures
 5. **Export** — Download the final document
 
@@ -120,7 +120,8 @@ patent-drafter/
 | `POST` | `/scrape` | Scrape text from a URL |
 | `POST` | `/extract` | Extract invention details from combined text |
 | `POST` | `/extract/field` | Re-extract a single invention field |
-| `POST` | `/draft` | Draft a patent section |
+| `POST` | `/draft` | Draft one section (single agent) |
+| `POST` | `/draft/all` | Draft multiple sections in parallel (one agent per section) |
 | `POST` | `/figures/generate` | Generate patent figure definitions |
 | `POST` | `/figures/render` | Render a Mermaid diagram to PNG |
 | `POST` | `/export/docx` | Export patent application as DOCX |

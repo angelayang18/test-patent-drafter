@@ -13,7 +13,7 @@ import {
   connectConfluence,
   extractInvention,
   scrapeUrl,
-  uploadDocument,
+  uploadDocuments,
 } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import "../styles/patent-drafter.css";
@@ -34,7 +34,7 @@ export default function InputPage() {
   const {
     uploadedFiles,
     inputSources,
-    addUploadedFiles,
+    addUploadedFilesAndPersist,
     removeUploadedFile,
     setInputSources,
     buildCombinedSourceText,
@@ -66,7 +66,7 @@ export default function InputPage() {
         sizeBytes: file.size,
         status: "pending",
       }));
-      setUploadQueue(queue);
+      setUploadQueue(queue.map((item) => ({ ...item, status: "parsing" as const })));
 
       const parsed: {
         id: string;
@@ -75,42 +75,40 @@ export default function InputPage() {
         content: string;
       }[] = [];
 
-      for (let i = 0; i < files.length; i++) {
-        const queueId = queue[i].id;
-        const file = files[i];
-
-        setUploadQueue((prev) =>
-          prev.map((item) =>
-            item.id === queueId ? { ...item, status: "parsing" } : item,
-          ),
+      try {
+        const results = await uploadDocuments(files);
+        const resultByName = new Map(
+          results.map((result) => [result.filename ?? "", result]),
         );
 
-        try {
-          const result = await uploadDocument(file);
+        const finalQueue: UploadQueueItem[] = queue.map((item) => {
+          const result = resultByName.get(item.filename);
+          if (!result) {
+            return {
+              ...item,
+              status: "error" as const,
+              error: "No response from server.",
+            };
+          }
+
           parsed.push({
-            id: queueId,
-            filename: result.filename ?? file.name,
-            sizeBytes: file.size,
+            id: item.id,
+            filename: result.filename ?? item.filename,
+            sizeBytes: item.sizeBytes,
             content: result.content,
           });
-          setUploadQueue((prev) =>
-            prev.map((item) =>
-              item.id === queueId ? { ...item, status: "done" } : item,
-            ),
-          );
-        } catch (err) {
-          const message = err instanceof ApiError ? err.message : "Parse failed.";
-          setUploadQueue((prev) =>
-            prev.map((item) =>
-              item.id === queueId ? { ...item, status: "error", error: message } : item,
-            ),
-          );
-        }
+          return { ...item, status: "done" as const };
+        });
+        setUploadQueue(finalQueue);
+      } catch (err) {
+        const message = err instanceof ApiError ? err.message : "Upload failed.";
+        setUploadQueue((prev) =>
+          prev.map((item) => ({ ...item, status: "error", error: message })),
+        );
       }
 
       if (parsed.length > 0) {
-        addUploadedFiles(parsed);
-        saveToStorage();
+        addUploadedFilesAndPersist(parsed);
       }
 
       const failedCount = files.length - parsed.length;
@@ -130,7 +128,7 @@ export default function InputPage() {
         window.setTimeout(() => setUploadQueue([]), 2000);
       }
     },
-    [addUploadedFiles, saveToStorage],
+    [addUploadedFilesAndPersist],
   );
 
   useEffect(() => {
