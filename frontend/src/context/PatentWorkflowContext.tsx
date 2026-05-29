@@ -6,9 +6,28 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { FiguresResult, InventionDetails, PatentFigure } from "../types/patent";
-
-const STORAGE_KEY = "patent-drafter-workflow";
+import type {
+  FiguresResult,
+  FilingInfo,
+  InventionDetails,
+  PatentFigure,
+} from "../types/patent";
+import { EMPTY_FILING_INFO } from "../types/patent";
+import {
+  clearActiveWorkflow,
+  defaultDraftName,
+  deleteSavedDraft,
+  downloadDraftFile,
+  listSavedDrafts,
+  normalizeWorkflow,
+  readActiveWorkflow,
+  readDraftFile,
+  saveDraftToLibrary,
+  writeActiveWorkflow,
+  type SavedDraftRecord,
+  type WorkflowSnapshot,
+} from "../utils/draftStorage";
+import { gatherCombinedSourceText, type CachedRemoteSources } from "../utils/gatherSourceText";
 
 export interface UploadedSourceFile {
   id: string;
@@ -25,20 +44,14 @@ export interface InputSources {
   pastedText: string;
 }
 
-interface StoredWorkflow {
-  invention: InventionDetails | null;
-  sections: Record<string, string>;
-  figures: PatentFigure[];
-  brief_description_of_drawings: string;
-  uploadedFiles: UploadedSourceFile[];
-  inputSources: InputSources;
-}
+interface StoredWorkflow extends WorkflowSnapshot {}
 
 interface PatentWorkflowContextValue {
   invention: InventionDetails | null;
   sections: Record<string, string>;
   figures: PatentFigure[];
   briefDescriptionOfDrawings: string;
+  filingInfo: FilingInfo;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   setInvention: (details: InventionDetails) => void;
@@ -47,13 +60,23 @@ interface PatentWorkflowContextValue {
   setFiguresResult: (result: FiguresResult) => void;
   updateFigure: (number: number, patch: Partial<PatentFigure>) => void;
   setBriefDescriptionOfDrawings: (text: string) => void;
+  setFilingInfo: (patch: Partial<FilingInfo>) => void;
   setUploadedFiles: (files: UploadedSourceFile[]) => void;
   addUploadedFiles: (files: UploadedSourceFile[]) => void;
-  /** Append uploads and persist to sessionStorage without blocking the UI thread. */
+  /** Append uploads and persist to localStorage without blocking the UI thread. */
   addUploadedFilesAndPersist: (files: UploadedSourceFile[]) => void;
   removeUploadedFile: (id: string) => void;
   setInputSources: (patch: Partial<InputSources>) => void;
   buildCombinedSourceText: () => string;
+  /** Local files + paste, then remote sources (parallel, cached). */
+  gatherSourceText: () => Promise<string>;
+  getWorkflowSnapshot: () => WorkflowSnapshot;
+  importWorkflow: (workflow: WorkflowSnapshot) => void;
+  getSavedDrafts: () => SavedDraftRecord[];
+  saveNamedDraft: (name: string) => SavedDraftRecord;
+  removeSavedDraft: (id: string) => void;
+  exportDraftFile: (name: string) => void;
+  importDraftFile: (file: File) => Promise<WorkflowSnapshot>;
   loadFromStorage: () => void;
   saveToStorage: () => void;
   clearWorkflow: () => void;
@@ -80,37 +103,7 @@ const emptyInputSources: InputSources = {
 const PatentWorkflowContext = createContext<PatentWorkflowContextValue | null>(null);
 
 function readStorage(): StoredWorkflow {
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {
-        invention: null,
-        sections: {},
-        figures: [],
-        brief_description_of_drawings: "",
-        uploadedFiles: [],
-        inputSources: emptyInputSources,
-      };
-    }
-    const parsed = JSON.parse(raw) as StoredWorkflow;
-    return {
-      invention: parsed.invention ?? null,
-      sections: parsed.sections ?? {},
-      figures: parsed.figures ?? [],
-      brief_description_of_drawings: parsed.brief_description_of_drawings ?? "",
-      uploadedFiles: parsed.uploadedFiles ?? [],
-      inputSources: { ...emptyInputSources, ...parsed.inputSources },
-    };
-  } catch {
-    return {
-      invention: null,
-      sections: {},
-      figures: [],
-      brief_description_of_drawings: "",
-      uploadedFiles: [],
-      inputSources: emptyInputSources,
-    };
-  }
+  return readActiveWorkflow();
 }
 
 export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
@@ -125,19 +118,25 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const [briefDescriptionOfDrawings, setBriefDescriptionOfDrawings] = useState(
     initial.brief_description_of_drawings,
   );
+  const [filingInfo, setFilingInfoState] = useState<FilingInfo>(
+    initial.filingInfo ?? EMPTY_FILING_INFO,
+  );
   const [uploadedFiles, setUploadedFilesState] = useState<UploadedSourceFile[]>(
     initial.uploadedFiles,
   );
   const [inputSources, setInputSourcesState] = useState<InputSources>(
     initial.inputSources,
   );
+  const [cachedRemoteSources, setCachedRemoteSourcesState] = useState<CachedRemoteSources>(
+    initial.cachedRemoteSources ?? {},
+  );
 
   const writeStoragePayload = useCallback((payload: StoredWorkflow) => {
     const write = () => {
       try {
-        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        writeActiveWorkflow(payload);
       } catch {
-        // sessionStorage quota — workflow still lives in memory
+        // localStorage quota — workflow still lives in memory
       }
     };
     if (typeof requestIdleCallback !== "undefined") {
@@ -147,24 +146,78 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const saveToStorage = useCallback(() => {
-    writeStoragePayload({
+  const buildSnapshot = useCallback(
+    (): WorkflowSnapshot => ({
       invention,
       sections,
       figures,
       brief_description_of_drawings: briefDescriptionOfDrawings,
+      filingInfo,
       uploadedFiles,
       inputSources,
-    });
-  }, [
-    invention,
-    sections,
-    figures,
-    briefDescriptionOfDrawings,
-    uploadedFiles,
-    inputSources,
-    writeStoragePayload,
-  ]);
+      cachedRemoteSources,
+    }),
+    [
+      invention,
+      sections,
+      figures,
+      briefDescriptionOfDrawings,
+      filingInfo,
+      uploadedFiles,
+      inputSources,
+      cachedRemoteSources,
+    ],
+  );
+
+  const saveToStorage = useCallback(() => {
+    writeStoragePayload(buildSnapshot());
+  }, [buildSnapshot, writeStoragePayload]);
+
+  const getWorkflowSnapshot = useCallback(() => buildSnapshot(), [buildSnapshot]);
+
+  const importWorkflow = useCallback(
+    (workflow: WorkflowSnapshot) => {
+      const next = normalizeWorkflow(workflow);
+      setInventionState(next.invention);
+      setSectionsState(next.sections);
+      setFigures(next.figures);
+      setBriefDescriptionOfDrawings(next.brief_description_of_drawings);
+      setFilingInfoState(next.filingInfo ?? EMPTY_FILING_INFO);
+      setUploadedFilesState(next.uploadedFiles);
+      setInputSourcesState(next.inputSources);
+      setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
+      writeStoragePayload(next);
+    },
+    [writeStoragePayload],
+  );
+
+  const getSavedDrafts = useCallback(() => listSavedDrafts(), []);
+
+  const saveNamedDraft = useCallback(
+    (name: string) => {
+      const record = saveDraftToLibrary(name, buildSnapshot());
+      writeStoragePayload(buildSnapshot());
+      return record;
+    },
+    [buildSnapshot, writeStoragePayload],
+  );
+
+  const removeSavedDraft = useCallback((id: string) => {
+    deleteSavedDraft(id);
+  }, []);
+
+  const exportDraftFile = useCallback(
+    (name: string) => {
+      downloadDraftFile(name || defaultDraftName(buildSnapshot()), buildSnapshot());
+    },
+    [buildSnapshot],
+  );
+
+  const importDraftFile = useCallback(async (file: File) => {
+    const parsed = await readDraftFile(file);
+    importWorkflow(parsed.workflow);
+    return parsed.workflow;
+  }, [importWorkflow]);
 
   const loadFromStorage = useCallback(() => {
     const stored = readStorage();
@@ -172,8 +225,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     setSectionsState(stored.sections);
     setFigures(stored.figures);
     setBriefDescriptionOfDrawings(stored.brief_description_of_drawings);
+    setFilingInfoState(stored.filingInfo ?? EMPTY_FILING_INFO);
     setUploadedFilesState(stored.uploadedFiles);
     setInputSourcesState(stored.inputSources);
+    setCachedRemoteSourcesState(stored.cachedRemoteSources ?? {});
   }, []);
 
   const setInvention = useCallback((details: InventionDetails) => {
@@ -203,6 +258,36 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const setFilingInfo = useCallback(
+    (patch: Partial<FilingInfo>) => {
+      setFilingInfoState((prev) => {
+        const next = { ...prev, ...patch };
+        writeStoragePayload({
+          invention,
+          sections,
+          figures,
+          brief_description_of_drawings: briefDescriptionOfDrawings,
+          filingInfo: next,
+          uploadedFiles,
+          inputSources,
+          cachedRemoteSources,
+        });
+        return next;
+      });
+    },
+    [
+      invention,
+      sections,
+      figures,
+      briefDescriptionOfDrawings,
+      filingInfo,
+      uploadedFiles,
+      inputSources,
+      cachedRemoteSources,
+      writeStoragePayload,
+    ],
+  );
+
   const updateBriefDescriptionOfDrawings = useCallback((text: string) => {
     setBriefDescriptionOfDrawings(text);
     setSectionsState((prev) => ({
@@ -228,8 +313,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
           sections,
           figures,
           brief_description_of_drawings: briefDescriptionOfDrawings,
+          filingInfo,
           uploadedFiles: next,
           inputSources,
+          cachedRemoteSources,
         });
         return next;
       });
@@ -239,7 +326,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       sections,
       figures,
       briefDescriptionOfDrawings,
+      filingInfo,
       inputSources,
+      cachedRemoteSources,
       writeStoragePayload,
     ],
   );
@@ -265,14 +354,36 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     return parts.join("\n\n");
   }, [uploadedFiles, inputSources.pastedText]);
 
+  const gatherSourceText = useCallback(async () => {
+    const result = await gatherCombinedSourceText({
+      buildLocalText: buildCombinedSourceText,
+      inputSources,
+      cached: cachedRemoteSources,
+    });
+    setCachedRemoteSourcesState(result.cache);
+    writeStoragePayload({
+      ...buildSnapshot(),
+      cachedRemoteSources: result.cache,
+    });
+    return result.combined;
+  }, [
+    buildCombinedSourceText,
+    inputSources,
+    cachedRemoteSources,
+    buildSnapshot,
+    writeStoragePayload,
+  ]);
+
   const clearWorkflow = useCallback(() => {
-    sessionStorage.removeItem(STORAGE_KEY);
+    clearActiveWorkflow();
     setInventionState(null);
     setSectionsState({});
     setFigures([]);
     setBriefDescriptionOfDrawings("");
+    setFilingInfoState(EMPTY_FILING_INFO);
     setUploadedFilesState([]);
     setInputSourcesState(emptyInputSources);
+    setCachedRemoteSourcesState({});
   }, []);
 
   const value = useMemo(
@@ -281,6 +392,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       sections,
       figures,
       briefDescriptionOfDrawings,
+      filingInfo,
       uploadedFiles,
       inputSources,
       setInvention,
@@ -289,12 +401,21 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setFiguresResult,
       updateFigure,
       setBriefDescriptionOfDrawings: updateBriefDescriptionOfDrawings,
+      setFilingInfo,
       setUploadedFiles,
       addUploadedFiles,
       addUploadedFilesAndPersist,
       removeUploadedFile,
       setInputSources,
       buildCombinedSourceText,
+      gatherSourceText,
+      getWorkflowSnapshot,
+      importWorkflow,
+      getSavedDrafts,
+      saveNamedDraft,
+      removeSavedDraft,
+      exportDraftFile,
+      importDraftFile,
       loadFromStorage,
       saveToStorage,
       clearWorkflow,
@@ -304,6 +425,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       sections,
       figures,
       briefDescriptionOfDrawings,
+      filingInfo,
       uploadedFiles,
       inputSources,
       setInvention,
@@ -312,12 +434,21 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setFiguresResult,
       updateFigure,
       updateBriefDescriptionOfDrawings,
+      setFilingInfo,
       setUploadedFiles,
       addUploadedFiles,
       addUploadedFilesAndPersist,
       removeUploadedFile,
       setInputSources,
       buildCombinedSourceText,
+      gatherSourceText,
+      getWorkflowSnapshot,
+      importWorkflow,
+      getSavedDrafts,
+      saveNamedDraft,
+      removeSavedDraft,
+      exportDraftFile,
+      importDraftFile,
       loadFromStorage,
       saveToStorage,
       clearWorkflow,

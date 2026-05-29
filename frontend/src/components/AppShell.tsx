@@ -1,5 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { StepNav, type WorkflowStep } from "./StepNav";
+import { DraftManagerModal } from "./DraftManagerModal";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 
 interface AppShellProps {
@@ -19,6 +20,7 @@ export function AppShell({
   layout = "fixed",
 }: AppShellProps) {
   const { saveToStorage } = usePatentWorkflow();
+  const [draftManagerOpen, setDraftManagerOpen] = useState(false);
   const isDocument = layout === "document";
 
   return (
@@ -37,10 +39,14 @@ export function AppShell({
         <div className="flex items-center gap-4">
           <button
             type="button"
-            onClick={() => saveToStorage()}
-            className="bg-primary-container/20 hover:bg-primary-container/40 text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md transition-all active:scale-95"
+            onClick={() => {
+              saveToStorage();
+              setDraftManagerOpen(true);
+            }}
+            className="bg-primary-container/20 hover:bg-primary-container/40 text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center gap-2"
           >
-            Save Draft
+            <span className="material-symbols-outlined text-[18px]">folder_open</span>
+            Drafts
           </button>
           <span
             className="material-symbols-outlined text-on-primary cursor-default opacity-60 p-2 rounded-full"
@@ -68,6 +74,8 @@ export function AppShell({
       </main>
 
       {footer}
+
+      <DraftManagerModal open={draftManagerOpen} onClose={() => setDraftManagerOpen(false)} />
     </div>
   );
 }

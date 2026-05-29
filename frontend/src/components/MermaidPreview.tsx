@@ -1,19 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import mermaid from "mermaid";
-
-let mermaidInitialized = false;
-
-function ensureMermaidInit() {
-  if (!mermaidInitialized) {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: "neutral",
-      securityLevel: "strict",
-      flowchart: { htmlLabels: true, curve: "linear" },
-    });
-    mermaidInitialized = true;
-  }
-}
+import { ensureMermaidInit } from "../utils/mermaidPatentTheme";
+import { sanitizeMermaidSource } from "../utils/mermaidSanitize";
+import { enqueueMermaidRender } from "../utils/mermaidRenderQueue";
 
 interface MermaidPreviewProps {
   source: string;
@@ -29,7 +18,7 @@ export default function MermaidPreview({ source, className = "" }: MermaidPrevie
     const container = containerRef.current;
     if (!container) return;
 
-    const diagram = source.trim();
+    const diagram = sanitizeMermaidSource(source);
     if (!diagram) {
       setError(null);
       container.innerHTML = "";
@@ -37,12 +26,14 @@ export default function MermaidPreview({ source, className = "" }: MermaidPrevie
     }
 
     let cancelled = false;
-    ensureMermaidInit();
+    ensureMermaidInit("preview");
 
     const render = async () => {
       try {
         setError(null);
-        const { svg } = await mermaid.render(`mermaid-${renderId}`, diagram);
+        const { svg } = await enqueueMermaidRender(() =>
+          mermaid.render(`mermaid-${renderId}`, diagram),
+        );
         if (!cancelled) {
           container.innerHTML = svg;
         }
@@ -69,7 +60,7 @@ export default function MermaidPreview({ source, className = "" }: MermaidPrevie
       )}
       <div
         ref={containerRef}
-        className="overflow-x-auto bg-white border border-outline-variant rounded-lg p-4 min-h-[200px] flex items-center justify-center"
+        className="patent-mermaid-preview overflow-x-auto bg-white border border-outline-variant rounded-lg p-4 min-h-[200px] flex items-center justify-center"
       />
     </div>
   );

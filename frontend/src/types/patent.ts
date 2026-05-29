@@ -21,10 +21,34 @@ export interface FiguresResult {
   figures: PatentFigure[];
 }
 
+export interface FilingInfo {
+  inventor_name: string;
+  inventor_city: string;
+  inventor_state: string;
+  inventor_country: string;
+  correspondence_name: string;
+  correspondence_address: string;
+  correspondence_email: string;
+}
+
+export const EMPTY_FILING_INFO: FilingInfo = {
+  inventor_name: "",
+  inventor_city: "",
+  inventor_state: "",
+  inventor_country: "",
+  correspondence_name: "",
+  correspondence_address: "",
+  correspondence_email: "",
+};
+
 export interface PatentDraft {
   sections: Record<string, string>;
   figures: PatentFigure[];
   brief_description_of_drawings: string;
+  invention_title?: string;
+  filing_info?: FilingInfo | null;
+  /** Base64 PNGs keyed by figure number — from /export/prerender-figures */
+  figure_pngs?: Record<string, string>;
 }
 
 export const PATENT_SECTION_IDS = [

@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import MermaidPreview from "../components/MermaidPreview";
 import { AppShell } from "../components/AppShell";
+import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
@@ -11,6 +12,7 @@ import {
   generateFigures,
   renderFigurePng,
 } from "../services/api";
+import { prerenderFigurePngs, figuresSignature } from "../utils/figurePngPrerender";
 import type { PatentFigure } from "../types/patent";
 import "../styles/patent-drafter.css";
 
@@ -20,6 +22,7 @@ export default function Figures() {
     sections,
     figures,
     briefDescriptionOfDrawings,
+    filingInfo,
     setFiguresResult,
     updateFigure,
     setBriefDescriptionOfDrawings,
@@ -30,13 +33,36 @@ export default function Figures() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pngLoading, setPngLoading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const previewSections = useMemo(
+    () => ({
+      ...sections,
+      ...(briefDescriptionOfDrawings
+        ? { brief_description_of_drawings: briefDescriptionOfDrawings }
+        : {}),
+    }),
+    [sections, briefDescriptionOfDrawings],
+  );
 
   const current =
     figures.find((f) => f.number === activeFigure) ?? figures[0] ?? null;
 
+  const figureRenderSignature = useMemo(() => figuresSignature(figures), [figures]);
+
   useEffect(() => {
     saveToStorage();
   }, [figures, briefDescriptionOfDrawings, saveToStorage]);
+
+  useEffect(() => {
+    if (figures.length === 0) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void prerenderFigurePngs(figures);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [figureRenderSignature, figures]);
 
   const handleGenerate = async () => {
     setError(null);
@@ -71,7 +97,11 @@ export default function Figures() {
       const blob = await renderFigurePng(current.mermaid);
       downloadBlob(blob, `fig-${current.number}.png`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to render PNG.");
+      const message =
+        err instanceof Error
+          ? err.message
+          : "Failed to render PNG.";
+      setError(message);
     } finally {
       setPngLoading(false);
     }
@@ -110,13 +140,23 @@ export default function Figures() {
         />
       }
     >
-      <div className="mb-8">
-        <h1 className="font-headline-lg text-headline-lg text-primary mb-2">Patent Figures</h1>
-        <p className="font-body-md text-body-md text-on-surface-variant">
-          Generate system architecture, method flowchart, and data-flow diagrams as Mermaid
-          source. Preview here—figures are embedded as PNG images when you export Word (.docx), not
-          in the PDF export.
-        </p>
+      <div className="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div>
+          <h1 className="font-headline-lg text-headline-lg text-primary mb-2">Patent Figures</h1>
+          <p className="font-body-md text-body-md text-on-surface-variant">
+            Generate system architecture, method flowchart, and data-flow diagrams as Mermaid
+            source. Preview here—figures are embedded as PNG images when you export Word (.docx), not
+            in the PDF export.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPreviewOpen(true)}
+          className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:text-primary hover:border-secondary font-label-md text-label-md transition-all active:scale-95"
+        >
+          <span className="material-symbols-outlined text-[20px]">visibility</span>
+          Preview document
+        </button>
       </div>
 
       {error && (
@@ -244,6 +284,16 @@ export default function Figures() {
           </section>
         </div>
       )}
+
+      <DocumentPreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        inventionTitle={invention?.invention_title}
+        filingInfo={filingInfo}
+        sections={previewSections}
+        figures={figures}
+        footerNote="Drawing sheets appear after Brief Description of the Drawings with sheet numbers 1/3–3/3."
+      />
     </AppShell>
   );
 }

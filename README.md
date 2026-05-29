@@ -35,6 +35,7 @@ An internal tool for drafting US provisional patent applications. Upload inventi
 - Python 3.11+
 - Node.js 18+
 - pnpm (`npm install -g pnpm`)
+- `@mermaid-js/mermaid-cli` for local Mermaid→PNG export (`npm install -g @mermaid-js/mermaid-cli`, provides `mmdc`)
 - An OpenAI-compatible LLM endpoint (see `.env.example`)
 
 ## Setup
@@ -78,6 +79,15 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 
 The API will be available at `http://127.0.0.1:8000`. Health check: `GET /health`.
 
+For figure PNG export, install the Mermaid CLI globally (used before the Kroki fallback):
+
+```bash
+npm install -g @mermaid-js/mermaid-cli
+pnpm exec puppeteer browsers install chrome-headless-shell   # first-time headless Chrome for mmdc
+```
+
+Verify with `mmdc --version`. Optional: set `MMDC_PATH` in `.env` if `mmdc` is not on your PATH.
+
 ### 4. Start the frontend
 
 In a separate terminal:
@@ -118,7 +128,7 @@ patent-drafter/
 | `POST` | `/upload` | Upload PDF, DOCX, or PPTX files |
 | `POST` | `/connect/confluence` | Fetch content from Confluence |
 | `POST` | `/scrape` | Scrape text from a URL |
-| `POST` | `/extract` | Extract invention details from combined text |
+| `POST` | `/extract` | Extract invention details (grouped parallel LLM by default; see `EXTRACT_MODE`) |
 | `POST` | `/extract/field` | Re-extract a single invention field |
 | `POST` | `/draft` | Draft one section (single agent) |
 | `POST` | `/draft/all` | Draft multiple sections in parallel (one agent per section) |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -15,6 +16,38 @@ log = logging.getLogger(__name__)
 
 DEFAULT_KROKI_BASE = "https://kroki.io"
 RENDER_TIMEOUT_SECONDS = 45.0
+
+# Black-and-white patent drawing theme (USPTO requires B/W line art).
+_PATENT_MERMAID_INIT = (
+    "%%{init: {'theme':'base', 'themeVariables': {"
+    "'primaryColor':'#ffffff', 'primaryTextColor':'#000000', "
+    "'primaryBorderColor':'#000000', 'lineColor':'#000000', "
+    "'secondaryColor':'#ffffff', 'tertiaryColor':'#ffffff', "
+    "'background':'#ffffff', 'mainBkg':'#ffffff', 'nodeBorder':'#000000', "
+    "'clusterBkg':'#ffffff', 'titleColor':'#000000', "
+    "'edgeLabelBackground':'#ffffff'"
+    "}}}%%"
+)
+
+
+def sanitize_mermaid_for_headless(mermaid_source: str) -> str:
+    """
+    Normalize Mermaid for mmdc/Kroki.
+
+    Bare ``&`` in node/edge labels often breaks headless renderers while browser
+    Mermaid.js accepts them.
+    """
+    return re.sub(r"\s+&\s+", " and ", mermaid_source)
+
+
+def apply_patent_mermaid_theme(mermaid_source: str) -> str:
+    """Prepend a black-and-white Mermaid theme when not already configured."""
+    source = sanitize_mermaid_for_headless(mermaid_source.strip())
+    if not source:
+        return source
+    if "%%{init:" in source:
+        return source
+    return f"{_PATENT_MERMAID_INIT}\n{source}"
 
 
 def _kroki_base_url() -> str:
@@ -34,9 +67,29 @@ def _render_via_kroki(mermaid_source: str) -> bytes:
     return response.content
 
 
+def _mmdc_executable() -> str | None:
+    """Resolve mmdc from MMDC_PATH, PATH, or common pnpm/npm global bins."""
+    override = os.getenv("MMDC_PATH", "").strip()
+    if override:
+        path = Path(override)
+        if path.is_file():
+            return str(path)
+    found = shutil.which("mmdc")
+    if found:
+        return found
+    home = Path.home()
+    for candidate in (
+        home / "Library/pnpm/mmdc",
+        home / ".local/share/pnpm/mmdc",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def _render_via_mmdc(mermaid_source: str) -> bytes:
     """Render Mermaid to PNG using @mermaid-js/mermaid-cli if installed."""
-    mmdc = shutil.which("mmdc")
+    mmdc = _mmdc_executable()
     if not mmdc:
         raise FileNotFoundError("mmdc not found on PATH")
 
@@ -70,7 +123,7 @@ def render_mermaid_to_png(mermaid_source: str) -> bytes:
 
     Tries local mmdc first, then falls back to Kroki.
     """
-    source = mermaid_source.strip()
+    source = apply_patent_mermaid_theme(mermaid_source)
     if not source:
         raise ValueError("Mermaid source is empty.")
 

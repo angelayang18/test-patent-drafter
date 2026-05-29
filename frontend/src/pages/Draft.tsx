@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../components/WorkflowFooter";
@@ -16,7 +17,7 @@ import "../styles/patent-drafter.css";
 
 export default function Draft() {
   const navigate = useNavigate();
-  const { invention, sections, setSection, setSections, saveToStorage } =
+  const { invention, sections, filingInfo, setSection, setSections, saveToStorage } =
     usePatentWorkflow();
 
   const [activeSection, setActiveSection] = useState<PatentSectionId>("field");
@@ -26,7 +27,9 @@ export default function Draft() {
   const [regeneratingSection, setRegeneratingSection] = useState<PatentSectionId | null>(
     null,
   );
+  const [regeneratingAll, setRegeneratingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const activeSectionRef = useRef(activeSection);
   const sectionsRef = useRef(sections);
@@ -191,6 +194,16 @@ export default function Draft() {
     (id) => !sections[id]?.trim() && !pendingSectionIds.includes(id),
   );
 
+  const handleRegenerateAll = async () => {
+    if (!invention || isBusy) return;
+    setRegeneratingAll(true);
+    try {
+      await startParallelDraft([...PATENT_SECTION_IDS]);
+    } finally {
+      setRegeneratingAll(false);
+    }
+  };
+
   const handleRegenerateSection = async () => {
     if (!invention) return;
     const sectionId = activeSection;
@@ -218,6 +231,32 @@ export default function Draft() {
       setError("Could not copy to clipboard.");
     }
   };
+
+  const previewSections = useMemo(() => {
+    const merged = { ...sections };
+    const activePending = pendingSectionIds.includes(activeSection);
+    const activeRegenerating = regeneratingSection === activeSection;
+    if (!activePending && !activeRegenerating) {
+      merged[activeSection] = draftText;
+    }
+    return merged;
+  }, [sections, activeSection, draftText, pendingSectionIds, regeneratingSection]);
+
+  const openPreview = useCallback(() => {
+    const activePending = pendingSectionIdsRef.current.includes(activeSection);
+    const activeRegenerating = regeneratingSection === activeSection;
+    if (!activePending && !activeRegenerating) {
+      flushActiveSection(activeSection, draftText);
+    }
+    setPreviewOpen(true);
+  }, [activeSection, draftText, flushActiveSection, regeneratingSection]);
+
+  const handlePreviewSectionClick = useCallback(
+    (sectionId: PatentSectionId) => {
+      selectSection(sectionId);
+    },
+    [selectSection],
+  );
 
   return (
     <AppShell
@@ -274,6 +313,19 @@ export default function Draft() {
             Six dedicated agents draft sections in parallel using the US provisional filing
             template. Each agent only sees invention details—not other sections.
           </p>
+          <button
+            type="button"
+            disabled={isBusy}
+            onClick={() => void handleRegenerateAll()}
+            className="mx-2 mb-2 px-3 py-2 text-left rounded-lg border border-secondary/40 text-secondary font-label-sm text-label-sm hover:bg-secondary/10 disabled:opacity-50 flex items-center gap-2"
+          >
+            <span
+              className={`material-symbols-outlined text-[18px] ${regeneratingAll ? "loading-spin" : ""}`}
+            >
+              autorenew
+            </span>
+            Regenerate all sections
+          </button>
           {hasEmptySections && (
             <button
               type="button"
@@ -282,7 +334,7 @@ export default function Draft() {
               className="mx-2 mb-2 px-3 py-2 text-left rounded-lg border border-secondary/40 text-secondary font-label-sm text-label-sm hover:bg-secondary/10 disabled:opacity-50 flex items-center gap-2"
             >
               <span
-                className={`material-symbols-outlined text-[18px] ${parallelDrafting ? "loading-spin" : ""}`}
+                className={`material-symbols-outlined text-[18px] ${parallelDrafting && !regeneratingAll ? "loading-spin" : ""}`}
               >
                 auto_awesome
               </span>
@@ -340,7 +392,11 @@ export default function Draft() {
             {parallelDrafting && (
               <GenerationProgress
                 active
-                label={`${parallelAgentCount} section agents drafting in parallel (provisional filing template)`}
+                label={
+                  regeneratingAll
+                    ? "Regenerating all document sections"
+                    : `${parallelAgentCount} section agents drafting in parallel (provisional filing template)`
+                }
               />
             )}
 
@@ -351,7 +407,7 @@ export default function Draft() {
               />
             )}
 
-            <div className="mb-2 flex justify-between items-end">
+            <div className="mb-2 flex justify-between items-end gap-4">
               <div>
                 <span className="font-label-sm text-label-sm text-secondary uppercase tracking-widest mb-2 block">
                   Document Section {sectionIndex + 1} of {PATENT_SECTION_IDS.length}
@@ -360,6 +416,14 @@ export default function Draft() {
                   {SECTION_LABELS[activeSection]}
                 </h1>
               </div>
+              <button
+                type="button"
+                onClick={openPreview}
+                className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:text-primary hover:border-secondary font-label-md text-label-md transition-all active:scale-95"
+              >
+                <span className="material-symbols-outlined text-[20px]">visibility</span>
+                Preview document
+              </button>
             </div>
 
             {!isGeneratingActive && !draftText.trim() && !isSectionPending(activeSection) && (
@@ -440,6 +504,17 @@ export default function Draft() {
           </div>
         </div>
       </div>
+
+      <DocumentPreviewModal
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        inventionTitle={invention?.invention_title}
+        filingInfo={filingInfo}
+        sections={previewSections}
+        pendingSectionIds={pendingSectionIds}
+        onSectionClick={handlePreviewSectionClick}
+        footerNote="Click a section heading to jump back and edit it."
+      />
     </AppShell>
   );
 }

@@ -203,14 +203,37 @@ export async function renderFigurePng(mermaid: string): Promise<Blob> {
   return response.blob();
 }
 
+export async function prerenderExportFigures(
+  figures: PatentDraft["figures"],
+): Promise<Record<string, string>> {
+  const data = await requestJson<{ figure_pngs: Record<string, string> }>(
+    "/export/prerender-figures",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ figures }),
+    },
+  );
+  return data.figure_pngs ?? {};
+}
+
+function exportPayloadBody(draft: PatentDraft): string {
+  return JSON.stringify({
+    sections: draft.sections,
+    figures: draft.figures,
+    invention_title: draft.invention_title ?? "",
+    filing_info: draft.filing_info ?? null,
+    ...(draft.figure_pngs && Object.keys(draft.figure_pngs).length > 0
+      ? { figure_pngs: draft.figure_pngs }
+      : {}),
+  });
+}
+
 export async function exportDocx(draft: PatentDraft): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/docx`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sections: draft.sections,
-      figures: draft.figures,
-    }),
+    body: exportPayloadBody(draft),
   });
 
   if (!response.ok) {
@@ -225,10 +248,7 @@ export async function exportPdf(draft: PatentDraft): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/pdf`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sections: draft.sections,
-      figures: draft.figures,
-    }),
+    body: exportPayloadBody(draft),
   });
 
   if (!response.ok) {

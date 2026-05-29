@@ -7,46 +7,36 @@ from io import BytesIO
 from typing import Any
 
 from docx import Document
-from docx.shared import Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
+from docx.shared import Inches, Pt
 
-from exporter.mermaid_render import render_mermaid_to_png
-from exporter.text_format import split_paragraphs
+from exporter.cover_sheet import add_cover_sheet_docx
+from exporter.figure_png import prerender_figure_pngs
+from exporter.section_format import (
+    SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
+    ordered_section_keys,
+    section_heading,
+)
+from exporter.text_format import parse_numbered_list_item_header, split_paragraphs
 
 MAX_FIGURE_WIDTH_IN = 6.0
 MAX_FIGURE_HEIGHT_IN = 4.5
 
-SECTION_DISPLAY_ORDER = [
-    "field",
-    "background",
-    "summary",
-    "brief_description_of_drawings",
-    "description",
-    "claims",
-    "abstract",
-]
 
-SECTION_TITLES = {
-    "field": "Field of the Invention",
-    "background": "Background of the Invention",
-    "summary": "Summary of the Invention",
-    "brief_description_of_drawings": "Brief Description of the Drawings",
-    "description": "Detailed Description of Preferred Embodiments",
-    "claims": "Claims",
-    "abstract": "Abstract",
-}
+def _add_page_break(doc: Document) -> None:
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run()
+    run.add_break(WD_BREAK.PAGE)
 
 
-def _section_heading(key: str) -> str:
-    return SECTION_TITLES.get(key, key.replace("_", " ").title())
-
-
-def _ordered_section_keys(sections: dict[str, str]) -> list[str]:
-    """Return section keys in patent document order."""
-    ordered = [key for key in SECTION_DISPLAY_ORDER if key in sections and sections[key].strip()]
-    for key in sections:
-        if key not in ordered and sections[key].strip():
-            ordered.append(key)
-    return ordered
+def _add_section_heading(doc: Document, key: str) -> None:
+    """Add an underlined ALL CAPS section heading matching USPTO sample format."""
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run(section_heading(key))
+    run.bold = True
+    run.underline = True
+    run.font.size = Pt(12)
+    paragraph.paragraph_format.space_after = Pt(6)
 
 
 def _png_dimensions(png_bytes: bytes) -> tuple[int, int]:
@@ -71,6 +61,14 @@ def _add_picture_fitted(doc: Document, png_bytes: bytes) -> None:
     doc.add_picture(BytesIO(png_bytes), width=Inches(width_in))
 
 
+def _add_list_item_with_header(doc: Document, prefix: str, title: str, body: str) -> None:
+    """Render a numbered list line with a bold title clause before the body."""
+    paragraph = doc.add_paragraph()
+    header_run = paragraph.add_run(f"{prefix}{title}")
+    header_run.bold = True
+    paragraph.add_run(f": {body}")
+
+
 def _add_section_body(doc: Document, body: str, section_key: str) -> None:
     """Add section text as one or more Word paragraphs with markdown stripped."""
     paragraphs = split_paragraphs(body)
@@ -78,36 +76,52 @@ def _add_section_body(doc: Document, body: str, section_key: str) -> None:
         return
 
     for index, paragraph in enumerate(paragraphs):
-        if section_key == "claims" and index == 0 and not paragraph[:1].isdigit():
+        list_header = parse_numbered_list_item_header(paragraph)
+        if list_header:
+            prefix, title, list_body = list_header
+            _add_list_item_with_header(doc, prefix, title, list_body)
+        elif section_key == "claims" and index == 0 and not paragraph[:1].isdigit():
             doc.add_paragraph(paragraph, style="List Number")
         else:
             doc.add_paragraph(paragraph)
 
 
-def _add_figures_to_doc(doc: Document, figures: list[dict[str, Any]]) -> None:
-    """Insert rendered figure images and captions into the document."""
+def _add_drawing_sheets(
+    doc: Document,
+    figures: list[dict[str, Any]],
+    png_by_number: dict[int, bytes],
+) -> None:
+    """Insert each figure on its own page with a centered sheet-number header."""
     if not figures:
         return
 
-    doc.add_heading("Drawings", level=1)
     sorted_figures = sorted(figures, key=lambda f: int(f.get("number", 0)))
+    total_sheets = len(sorted_figures)
 
-    for figure in sorted_figures:
+    for sheet_index, figure in enumerate(sorted_figures, start=1):
         number = int(figure.get("number", 0))
-        title = str(figure.get("title", f"Figure {number}"))
-        brief = str(figure.get("brief_description", ""))
         mermaid = str(figure.get("mermaid", ""))
 
-        doc.add_heading(f"FIG. {number} — {title}", level=2)
-        if brief:
-            doc.add_paragraph(brief)
+        _add_page_break(doc)
 
-        try:
-            png_bytes = render_mermaid_to_png(mermaid)
-            _add_picture_fitted(doc, png_bytes)
-        except Exception as exc:
+        header = doc.add_paragraph()
+        header.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        header_run = header.add_run(f"{sheet_index}/{total_sheets}")
+        header_run.font.size = Pt(11)
+
+        png_bytes = png_by_number.get(number)
+        if png_bytes:
+            try:
+                _add_picture_fitted(doc, png_bytes)
+            except Exception as exc:
+                doc.add_paragraph(
+                    f"[FIG. {number} could not be embedded: {exc}. "
+                    f"Mermaid source preserved below for manual export.]"
+                )
+                doc.add_paragraph(mermaid)
+        else:
             doc.add_paragraph(
-                f"[Figure {number} could not be rendered: {exc}. "
+                f"[FIG. {number} could not be rendered. "
                 f"Mermaid source preserved below for manual export.]"
             )
             doc.add_paragraph(mermaid)
@@ -116,22 +130,38 @@ def _add_figures_to_doc(doc: Document, figures: list[dict[str, Any]]) -> None:
 def export_patent_docx(
     sections: dict[str, str],
     figures: list[dict[str, Any]] | None = None,
+    *,
+    invention_title: str = "",
+    filing_info: dict[str, Any] | None = None,
+    client_figure_pngs: dict[int, bytes] | None = None,
 ) -> BytesIO:
     """
     Build a DOCX patent draft from text sections and optional figures.
 
-    Figures are rendered to PNG and inserted after Brief Description of the Drawings
-    when that section is present, otherwise before Detailed Description.
+    Figures are rendered to PNG and inserted as separate drawing sheets after
+    Brief Description of the Drawings. Claims and Abstract each begin on a new page.
     """
     doc = Document()
-    doc.add_heading("Patent Application Draft", level=0)
+    add_cover_sheet_docx(
+        doc,
+        invention_title=invention_title,
+        filing_info=filing_info,
+    )
 
     figure_list = figures or []
-    keys = _ordered_section_keys(sections)
+    png_by_number = (
+        prerender_figure_pngs(figure_list, client_pngs=client_figure_pngs)
+        if figure_list
+        else {}
+    )
+    keys = ordered_section_keys(sections)
     figures_inserted = False
 
     for key in keys:
-        doc.add_heading(_section_heading(key), level=1)
+        if key in SECTIONS_REQUIRING_PAGE_BREAK_BEFORE:
+            _add_page_break(doc)
+
+        _add_section_heading(doc, key)
         _add_section_body(doc, sections[key], key)
 
         if (
@@ -139,11 +169,11 @@ def export_patent_docx(
             and figure_list
             and key == "brief_description_of_drawings"
         ):
-            _add_figures_to_doc(doc, figure_list)
+            _add_drawing_sheets(doc, figure_list, png_by_number)
             figures_inserted = True
 
     if figure_list and not figures_inserted:
-        _add_figures_to_doc(doc, figure_list)
+        _add_drawing_sheets(doc, figure_list, png_by_number)
 
     buffer = BytesIO()
     doc.save(buffer)

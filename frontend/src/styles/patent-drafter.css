@@ -79,3 +79,45 @@ body {
 .generation-progress-bar {
   animation: generation-progress 1.6s ease-in-out infinite;
 }
+
+.patent-section-heading {
+  font-variant: normal;
+  letter-spacing: 0.04em;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.patent-page-break-before {
+  break-before: page;
+  page-break-before: always;
+}
+
+.patent-drawing-sheet {
+  break-before: page;
+  page-break-before: always;
+}
+
+.patent-mermaid-preview svg .node rect,
+.patent-mermaid-preview svg .node polygon,
+.patent-mermaid-preview svg .node circle,
+.patent-mermaid-preview svg .node path {
+  fill: #ffffff !important;
+  stroke: #000000 !important;
+}
+
+.patent-mermaid-preview svg .edgePath path,
+.patent-mermaid-preview svg .flowchart-link {
+  stroke: #000000 !important;
+}
+
+.patent-mermaid-preview svg .edgeLabel rect {
+  fill: #ffffff !important;
+  stroke: #000000 !important;
+}
+
+.patent-mermaid-preview svg text,
+.patent-mermaid-preview svg .nodeLabel,
+.patent-mermaid-preview svg .label {
+  fill: #000000 !important;
+  color: #000000 !important;
+}

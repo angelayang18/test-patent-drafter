@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
 import {
@@ -8,14 +8,9 @@ import {
 } from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
-import {
-  ApiError,
-  connectConfluence,
-  extractInvention,
-  scrapeUrl,
-  uploadDocuments,
-} from "../services/api";
+import { ApiError, extractInvention, uploadDocuments } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
+import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
 import "../styles/patent-drafter.css";
 
 const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".pptx"];
@@ -34,17 +29,23 @@ export default function InputPage() {
   const {
     uploadedFiles,
     inputSources,
+    invention,
     addUploadedFilesAndPersist,
     removeUploadedFile,
     setInputSources,
-    buildCombinedSourceText,
+    gatherSourceText,
     setInvention,
+    getWorkflowSnapshot,
     saveToStorage,
   } = usePatentWorkflow();
+
+  const resumePath = getResumePath(getWorkflowSnapshot());
+  const hasSavedProgress = workflowHasProgress(getWorkflowSnapshot());
 
   const [showToken, setShowToken] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const uploading = uploadQueue.some(
@@ -171,29 +172,16 @@ export default function InputPage() {
     setError(null);
     setSubmitting(true);
     try {
-      let combined = buildCombinedSourceText();
-
-      if (inputSources.websiteUrl.trim()) {
-        const scraped = await scrapeUrl(inputSources.websiteUrl.trim());
-        combined = combined
-          ? `${combined}\n\n--- ${scraped.url ?? "Website"} ---\n${scraped.content}`
-          : `--- Website ---\n${scraped.content}`;
+      if (
+        inputSources.confluenceUrl.trim() &&
+        inputSources.confluenceToken.trim() &&
+        !inputSources.confluenceSpaceKey.trim()
+      ) {
+        throw new ApiError("Confluence space key is required.", 400);
       }
 
-      if (inputSources.confluenceUrl.trim() && inputSources.confluenceToken.trim()) {
-        if (!inputSources.confluenceSpaceKey.trim()) {
-          throw new ApiError("Confluence space key is required.", 400);
-        }
-        const pages = await connectConfluence(
-          inputSources.confluenceUrl.trim(),
-          inputSources.confluenceSpaceKey.trim(),
-          inputSources.confluenceToken.trim(),
-        );
-        const confluenceText = pages
-          .map((p) => `--- ${p.title ?? "Confluence page"} ---\n${p.content}`)
-          .join("\n\n");
-        combined = combined ? `${combined}\n\n${confluenceText}` : confluenceText;
-      }
+      setExtractPhase("Gathering sources (files, web, Confluence)…");
+      const combined = await gatherSourceText();
 
       if (!combined.trim()) {
         setError(
@@ -202,6 +190,7 @@ export default function InputPage() {
         return;
       }
 
+      setExtractPhase("Extracting invention details (parallel AI analysis)…");
       const details = await extractInvention(combined);
       setInvention(details);
       saveToStorage();
@@ -210,6 +199,7 @@ export default function InputPage() {
       setError(err instanceof ApiError ? err.message : "Failed to extract invention details.");
     } finally {
       setSubmitting(false);
+      setExtractPhase(null);
     }
   };
 
@@ -240,13 +230,39 @@ export default function InputPage() {
     >
       {submitting && (
         <div className="mb-6">
-          <GenerationProgress active label="Extracting invention details from your sources" />
+          <GenerationProgress
+            active
+            label={extractPhase ?? "Extracting invention details from your sources"}
+          />
         </div>
       )}
 
       {error && (
         <div className="mb-6 p-4 rounded-lg bg-error-container/20 text-error border border-error/30">
           {error}
+        </div>
+      )}
+
+      {hasSavedProgress && (
+        <div className="mb-6 p-4 rounded-lg bg-secondary-container/15 border border-secondary/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <p className="font-title-md text-title-md text-on-surface">
+              {invention?.invention_title?.trim()
+                ? `Continue “${invention.invention_title}”?`
+                : "Continue your saved draft?"}
+            </p>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+              Your progress is saved in this browser. Use <strong>Drafts</strong> in the header to
+              upload a draft file or manage saved copies.
+            </p>
+          </div>
+          <Link
+            to={resumePath}
+            onClick={() => saveToStorage()}
+            className="px-6 py-2.5 rounded-lg bg-secondary text-on-secondary font-label-md text-label-md hover:bg-secondary/90 transition-all active:scale-95 shrink-0 text-center"
+          >
+            Continue draft
+          </Link>
         </div>
       )}
 

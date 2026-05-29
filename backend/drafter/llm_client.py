@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 
 from openai import OpenAI
 
+log = logging.getLogger(__name__)
+
 DEFAULT_LLM_BASE_URL = "http://96.248.110.124:8024/v1"
 DEFAULT_LLM_MODEL = "Qwen3.6-35B-A3B-FP8"
+
+_REASONING_BLOCK = re.compile(
+    r"<think(?:ing)?>.*?</think(?:ing)?>",
+    re.DOTALL | re.IGNORECASE,
+)
 
 
 def get_llm_api_key() -> str:
@@ -47,6 +55,43 @@ def _strip_json_fences(content: str) -> str:
     return text.strip()
 
 
+def _strip_reasoning_blocks(content: str) -> str:
+    """Remove optional model reasoning blocks before JSON parsing."""
+    return _REASONING_BLOCK.sub("", content).strip()
+
+
+def _parse_json_object(content: str) -> dict:
+    """Parse a JSON object from raw LLM output."""
+    text = _strip_json_fences(_strip_reasoning_blocks(content))
+    if not text:
+        raise ValueError(
+            f"LLM ({get_llm_model()}) returned empty content. "
+            "Check LLM_BASE_URL, LLM_MODEL, and LLM_API_KEY in .env, then restart the backend."
+        )
+
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(text[start : end + 1])
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    preview = text[:240].replace("\n", " ")
+    raise ValueError(
+        f"LLM ({get_llm_model()}) response was not a JSON object. Preview: {preview}"
+    )
+
+
 def _build_messages(system_instruction: str | None, user_prompt: str) -> list[dict[str, str]]:
     messages: list[dict[str, str]] = []
     if system_instruction:
@@ -76,14 +121,12 @@ def generate_json(system_instruction: str, user_prompt: str) -> dict:
             messages=messages,
             response_format={"type": "json_object"},
         )
-    except Exception:
+    except Exception as exc:
+        log.debug("JSON response_format unsupported, falling back: %s", exc)
         response = client.chat.completions.create(
             model=get_llm_model(),
             messages=messages,
         )
 
-    content = _strip_json_fences(response.choices[0].message.content or "{}")
-    parsed = json.loads(content)
-    if not isinstance(parsed, dict):
-        raise ValueError("LLM response was not a JSON object.")
-    return parsed
+    content = response.choices[0].message.content or ""
+    return _parse_json_object(content)

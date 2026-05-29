@@ -8,10 +8,8 @@ import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowCo
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import {
   ApiError,
-  connectConfluence,
   extractInvention,
   extractInventionField,
-  scrapeUrl,
   type ExtractableInventionField,
 } from "../services/api";
 import type { InventionDetails } from "../types/patent";
@@ -125,8 +123,7 @@ export default function Review() {
     invention,
     setInvention,
     uploadedFiles,
-    inputSources,
-    buildCombinedSourceText,
+    gatherSourceText,
     saveToStorage,
   } = usePatentWorkflow();
 
@@ -169,31 +166,6 @@ export default function Review() {
     setInvention(form);
     saveToStorage();
   }, [form, setInvention, saveToStorage]);
-
-  const gatherSourceText = useCallback(async (): Promise<string> => {
-    let combined = buildCombinedSourceText();
-
-    if (inputSources.websiteUrl.trim()) {
-      const scraped = await scrapeUrl(inputSources.websiteUrl.trim());
-      combined = combined
-        ? `${combined}\n\n--- ${scraped.url ?? "Website"} ---\n${scraped.content}`
-        : `--- Website ---\n${scraped.content}`;
-    }
-
-    if (inputSources.confluenceUrl.trim() && inputSources.confluenceToken.trim()) {
-      const pages = await connectConfluence(
-        inputSources.confluenceUrl.trim(),
-        inputSources.confluenceSpaceKey.trim(),
-        inputSources.confluenceToken.trim(),
-      );
-      const confluenceText = pages
-        .map((p) => `--- ${p.title ?? "Confluence page"} ---\n${p.content}`)
-        .join("\n\n");
-      combined = combined ? `${combined}\n\n${confluenceText}` : confluenceText;
-    }
-
-    return combined;
-  }, [buildCombinedSourceText, inputSources]);
 
   const handleRegenerateAll = async () => {
     setError(null);

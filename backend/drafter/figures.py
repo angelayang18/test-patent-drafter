@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .llm_client import generate_json
+from exporter.mermaid_render import apply_patent_mermaid_theme
+
+from .llm_client import generate_json, get_llm_model
+from .mermaid_sanitize import sanitize_mermaid_source
 from .prompts import FIGURES_SYSTEM, get_figures_prompt
 
 _MERMAID_FORBIDDEN = re.compile(
@@ -33,6 +36,7 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
         raw.get("brief_description", f"FIG. {number} illustrates the invention.")
     ).strip()
     mermaid = str(raw.get("mermaid", "")).strip()
+    mermaid = sanitize_mermaid_source(mermaid)
     numerals_raw = raw.get("reference_numerals") or {}
     reference_numerals: dict[str, str] = {}
     if isinstance(numerals_raw, dict):
@@ -58,6 +62,8 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
             f"Figure {number} mermaid contains disallowed styling directives."
         )
 
+    mermaid = apply_patent_mermaid_theme(mermaid)
+
     return {
         "number": number,
         "title": title,
@@ -65,6 +71,45 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
         "reference_numerals": reference_numerals,
         "mermaid": mermaid,
     }
+
+
+def _extract_figures_list(raw: dict[str, Any]) -> list[Any]:
+    """Normalize figure lists from common LLM JSON shapes."""
+    for key in ("figures", "Figures", "figure_list", "drawings"):
+        value = raw.get(key)
+        if isinstance(value, list) and value:
+            return value
+        if isinstance(value, dict) and value:
+            return list(value.values())
+    return []
+
+
+def _figures_from_response(raw: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """Parse brief description and normalized figures from LLM JSON."""
+    brief = str(raw.get("brief_description_of_drawings", "")).strip()
+    figures_raw = _extract_figures_list(raw)
+    if not figures_raw:
+        keys = ", ".join(sorted(raw.keys())) or "(none)"
+        raise ValueError(
+            f"LLM ({get_llm_model()}) did not return a non-empty figures list "
+            f"(response keys: {keys}). "
+            "Verify LLM_BASE_URL, LLM_MODEL, and LLM_API_KEY in .env, then restart the backend."
+        )
+
+    figures = [
+        _normalize_figure(item, index + 1)
+        for index, item in enumerate(figures_raw)
+        if isinstance(item, dict)
+    ]
+    if not figures:
+        raise ValueError(
+            f"No valid figures were parsed from LLM ({get_llm_model()}) output."
+        )
+
+    if not brief:
+        brief = "\n\n".join(f["brief_description"] for f in figures)
+
+    return brief, figures
 
 
 def generate_patent_figures(
@@ -81,27 +126,26 @@ def generate_patent_figures(
         }
     """
     prompt = get_figures_prompt(invention, description_text)
-    raw = generate_json(FIGURES_SYSTEM, prompt)
+    retry_suffix = (
+        "\n\nIMPORTANT: Return a JSON object with a non-empty figures array "
+        "containing exactly 3 figure objects. Do not omit the figures key."
+    )
 
-    brief = str(
-        raw.get("brief_description_of_drawings", "")
-    ).strip()
-    figures_raw = raw.get("figures")
-    if not isinstance(figures_raw, list) or not figures_raw:
-        raise ValueError("Gemini did not return a non-empty figures list.")
+    last_error: ValueError | None = None
+    for attempt, user_prompt in enumerate((prompt, prompt + retry_suffix)):
+        raw = generate_json(FIGURES_SYSTEM, user_prompt)
+        try:
+            brief, figures = _figures_from_response(raw)
+            return {
+                "brief_description_of_drawings": brief,
+                "figures": figures,
+            }
+        except ValueError as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+            raise exc from None
 
-    figures = [
-        _normalize_figure(item, index + 1)
-        for index, item in enumerate(figures_raw)
-        if isinstance(item, dict)
-    ]
-    if not figures:
-        raise ValueError("No valid figures were parsed from Gemini output.")
-
-    if not brief:
-        brief = "\n\n".join(f["brief_description"] for f in figures)
-
-    return {
-        "brief_description_of_drawings": brief,
-        "figures": figures,
-    }
+    if last_error:
+        raise last_error
+    raise ValueError(f"Failed to generate figures with LLM ({get_llm_model()}).")

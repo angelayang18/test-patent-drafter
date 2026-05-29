@@ -1,19 +1,119 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
-import { ApiError, downloadBlob, exportDocx, exportPdf } from "../services/api";
+import {
+  ApiError,
+  downloadBlob,
+  exportDocx,
+  exportPdf,
+} from "../services/api";
+import {
+  figuresSignature,
+  getCachedFigurePngs,
+  prerenderFigurePngs,
+} from "../utils/figurePngPrerender";
+import type { FilingInfo } from "../types/patent";
 import "../styles/patent-drafter.css";
 
 type DownloadState = "idle" | "preparing" | "done" | "error";
 
+function filingField(
+  id: keyof FilingInfo,
+  label: string,
+  value: string,
+  onChange: (patch: Partial<FilingInfo>) => void,
+  options?: { multiline?: boolean; placeholder?: string },
+) {
+  const common =
+    "w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-4 py-2.5 font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-secondary/40";
+
+  return (
+    <label className="block space-y-1.5" htmlFor={id}>
+      <span className="font-label-md text-label-md text-on-surface">{label}</span>
+      {options?.multiline ? (
+        <textarea
+          id={id}
+          rows={3}
+          value={value}
+          placeholder={options.placeholder}
+          onChange={(event) => onChange({ [id]: event.target.value })}
+          className={common}
+        />
+      ) : (
+        <input
+          id={id}
+          type="text"
+          value={value}
+          placeholder={options?.placeholder}
+          onChange={(event) => onChange({ [id]: event.target.value })}
+          className={common}
+        />
+      )}
+    </label>
+  );
+}
+
 export default function Export() {
-  const { sections, figures, briefDescriptionOfDrawings, clearWorkflow } =
-    usePatentWorkflow();
+  const {
+    invention,
+    sections,
+    figures,
+    briefDescriptionOfDrawings,
+    filingInfo,
+    setFilingInfo,
+    clearWorkflow,
+  } = usePatentWorkflow();
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
+  const [prerenderingFigures, setPrerenderingFigures] = useState(false);
+  const [figurePngCache, setFigurePngCache] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const figuresSignatureRef = useRef("");
+
+  const signature = figuresSignature(figures);
+
+  useEffect(() => {
+    if (figures.length === 0) {
+      setFigurePngCache({});
+      figuresSignatureRef.current = "";
+      return;
+    }
+    if (signature === figuresSignatureRef.current) {
+      return;
+    }
+    figuresSignatureRef.current = signature;
+
+    const cached = getCachedFigurePngs(signature);
+    if (cached) {
+      setFigurePngCache(cached);
+      return;
+    }
+
+    let cancelled = false;
+    setPrerenderingFigures(true);
+    void prerenderFigurePngs(figures)
+      .then((pngs) => {
+        if (!cancelled) {
+          setFigurePngCache(pngs);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFigurePngCache({});
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setPrerenderingFigures(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [figures, signature]);
 
   const exportSections: Record<string, string> = {
     ...sections,
@@ -23,7 +123,30 @@ export default function Export() {
   };
 
   const hasContent = Object.values(exportSections).some((body) => body.trim().length > 0);
-  const exporting = docxState === "preparing" || pdfState === "preparing";
+  const exporting =
+    docxState === "preparing" || pdfState === "preparing" || prerenderingFigures;
+
+  const buildExportPayload = () => ({
+    sections: exportSections,
+    figures,
+    brief_description_of_drawings: briefDescriptionOfDrawings,
+    invention_title: invention?.invention_title ?? "",
+    filing_info: filingInfo,
+    figure_pngs: figurePngCache,
+  });
+
+  const updateFilingInfo = (patch: Partial<FilingInfo>) => {
+    setFilingInfo(patch);
+  };
+
+  const ensureFigurePngsReady = async (): Promise<Record<string, string>> => {
+    if (figures.length === 0) {
+      return figurePngCache;
+    }
+    const fresh = await prerenderFigurePngs(figures);
+    setFigurePngCache(fresh);
+    return fresh;
+  };
 
   const handleDownloadDocx = async () => {
     if (!hasContent) {
@@ -33,10 +156,10 @@ export default function Export() {
     setError(null);
     setDocxState("preparing");
     try {
+      const figurePngs = await ensureFigurePngsReady();
       const blob = await exportDocx({
-        sections: exportSections,
-        figures,
-        brief_description_of_drawings: briefDescriptionOfDrawings,
+        ...buildExportPayload(),
+        figure_pngs: figurePngs,
       });
       downloadBlob(blob, "patent-draft.docx");
       setDocxState("done");
@@ -56,10 +179,10 @@ export default function Export() {
     setError(null);
     setPdfState("preparing");
     try {
+      const figurePngs = await ensureFigurePngsReady();
       const blob = await exportPdf({
-        sections: exportSections,
-        figures,
-        brief_description_of_drawings: briefDescriptionOfDrawings,
+        ...buildExportPayload(),
+        figure_pngs: figurePngs,
       });
       downloadBlob(blob, "patent-draft.pdf");
       setPdfState("done");
@@ -78,8 +201,15 @@ export default function Export() {
       mainClassName="px-margin-mobile md:px-margin-desktop py-10 pb-16"
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
-        {exporting && (
-          <GenerationProgress active label="Preparing your download" />
+        {prerenderingFigures && (
+          <GenerationProgress
+            active
+            label="Preparing figure drawings for export…"
+          />
+        )}
+
+        {(docxState === "preparing" || pdfState === "preparing") && (
+          <GenerationProgress active label="Assembling your document" />
         )}
 
         <div className="bg-surface-container-lowest border border-outline-variant canvas-shadow rounded-xl overflow-hidden">
@@ -96,20 +226,8 @@ export default function Export() {
               Your Patent Draft Is Ready
             </h1>
             <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto">
-              Download your provisional patent application.
-              {figures.length > 0 ? (
-                <>
-                  {" "}
-                  Word (.docx) embeds {figures.length} figure{figures.length === 1 ? "" : "s"} as
-                  PNG images in the Drawings section. PDF export includes text sections only.
-                </>
-              ) : (
-                <>
-                  {" "}
-                  Generate figures on the Figures step to embed PNG diagrams in your Word export.
-                  PDF includes text sections only.
-                </>
-              )}
+              Download your provisional patent application with USPTO-style section headings,
+              separate Claims and Abstract pages, and black-and-white drawing sheets.
             </p>
           </section>
 
@@ -118,6 +236,47 @@ export default function Export() {
               {error}
             </div>
           )}
+
+          <section className="p-10 border-b border-outline-variant">
+            <h2 className="font-title-lg text-title-lg text-primary mb-2">
+              Cover Sheet (PTO/SB/16)
+            </h2>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+              Optional filing information included as the first page of your export. The invention
+              title comes from your Review step.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
+              {filingField("inventor_name", "Inventor name", filingInfo.inventor_name, updateFilingInfo, {
+                placeholder: "Jane Doe",
+              })}
+              {filingField("inventor_city", "City", filingInfo.inventor_city, updateFilingInfo)}
+              {filingField("inventor_state", "State / Province", filingInfo.inventor_state, updateFilingInfo)}
+              {filingField("inventor_country", "Country", filingInfo.inventor_country, updateFilingInfo, {
+                placeholder: "United States",
+              })}
+              {filingField(
+                "correspondence_name",
+                "Correspondence name",
+                filingInfo.correspondence_name,
+                updateFilingInfo,
+              )}
+              {filingField(
+                "correspondence_email",
+                "Correspondence email",
+                filingInfo.correspondence_email,
+                updateFilingInfo,
+              )}
+              <div className="md:col-span-2">
+                {filingField(
+                  "correspondence_address",
+                  "Correspondence address",
+                  filingInfo.correspondence_address,
+                  updateFilingInfo,
+                  { multiline: true, placeholder: "Street address\nCity, State ZIP" },
+                )}
+              </div>
+            </div>
+          </section>
 
           <section className="p-10">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
@@ -129,13 +288,13 @@ export default function Export() {
                   <h3 className="font-title-lg text-title-lg text-primary">Word Document (.docx)</h3>
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-8 flex-grow">
-                  Editable format with embedded figure PNGs when you have generated figures on the
-                  Figures step. Recommended for attorney review and USPTO filing prep.
+                  Editable format with cover sheet, USPTO-style headings, drawing sheets numbered
+                  1/3–3/3, and Claims and Abstract on separate pages.
                 </p>
                 <button
                   type="button"
                   onClick={() => void handleDownloadDocx()}
-                  disabled={docxState === "preparing"}
+                  disabled={exporting || !hasContent}
                   className={`w-full px-6 py-3 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm ${
                     docxState === "done"
                       ? "bg-secondary text-on-primary"
@@ -170,13 +329,13 @@ export default function Export() {
                   <h3 className="font-title-lg text-title-lg text-primary">PDF Document (.pdf)</h3>
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-8 flex-grow">
-                  Read-only PDF of all drafted text sections. Figures are not embedded in PDF—use
-                  DOCX for diagram images.
+                  Read-only PDF with the same section layout, cover sheet, drawing sheets, and page
+                  breaks for Claims and Abstract.
                 </p>
                 <button
                   type="button"
                   onClick={() => void handleDownloadPdf()}
-                  disabled={pdfState === "preparing"}
+                  disabled={exporting || !hasContent}
                   className={`w-full px-6 py-3 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm ${
                     pdfState === "done"
                       ? "bg-secondary text-on-primary"
@@ -212,7 +371,7 @@ export default function Export() {
               {[
                 {
                   title: "Review figures and reference numerals",
-                  body: "Ensure FIG. 1–3 match the Detailed Description and use consistent numerals (10, 12, 14…).",
+                  body: "Ensure FIG. 1–3 match the Detailed Description and use consistent numerals (200, 202, 204…).",
                 },
                 {
                   title: "Review the draft with a patent attorney",

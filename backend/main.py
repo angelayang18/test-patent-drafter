@@ -5,19 +5,21 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.figures import generate_patent_figures
+from drafter.llm_client import get_llm_base_url, get_llm_model
 from drafter.sections import draft_all_sections_parallel, draft_section
 from exporter.docx_export import export_patent_docx
+from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
 from parsers.confluence import ConfluenceClient
@@ -107,6 +109,14 @@ class RenderMermaidRequest(BaseModel):
 class ExportRequest(BaseModel):
     sections: dict[str, str] = Field(default_factory=dict)
     figures: list[PatentFigureModel] = Field(default_factory=list)
+    invention_title: str = ""
+    filing_info: Optional[Dict[str, str]] = None
+    """Optional base64 PNGs keyed by figure number — skips re-render when exporting."""
+    figure_pngs: Optional[Dict[str, str]] = None
+
+
+class PrerenderFiguresRequest(BaseModel):
+    figures: list[PatentFigureModel] = Field(default_factory=list)
 
 
 def _confluence_base_url(url: str) -> str:
@@ -137,8 +147,13 @@ def _extract_uploaded_text(filename: str, file_bytes: bytes) -> str:
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"status": "ok"}
+def health() -> Dict[str, Union[str, bool]]:
+    return {
+        "status": "ok",
+        "llm_model": get_llm_model(),
+        "llm_base_url": get_llm_base_url(),
+        "llm_api_key_configured": bool(os.getenv("LLM_API_KEY", "").strip()),
+    }
 
 
 @app.post("/upload")
@@ -334,7 +349,7 @@ def generate_figures(body: GenerateFiguresRequest) -> dict:
 
 
 @app.post("/figures/render")
-def render_figure_png(body: RenderMermaidRequest) -> StreamingResponse:
+def render_figure_png(body: RenderMermaidRequest) -> Response:
     """Render Mermaid source to a PNG image for preview or download."""
     if not body.mermaid.strip():
         raise HTTPException(status_code=400, detail="mermaid is required.")
@@ -350,22 +365,53 @@ def render_figure_png(body: RenderMermaidRequest) -> StreamingResponse:
             detail=f"Failed to render diagram: {exc}",
         ) from exc
 
-    return StreamingResponse(
-        png_bytes,
+    return Response(
+        content=png_bytes,
         media_type="image/png",
         headers={"Content-Disposition": 'inline; filename="figure.png"'},
     )
 
 
+@app.post("/export/prerender-figures")
+def prerender_figures(body: PrerenderFiguresRequest) -> dict:
+    """
+    Render all figure Mermaid diagrams to PNG in parallel.
+
+    Returns base64-encoded PNGs for the frontend to cache so DOCX/PDF export
+    does not re-render diagrams on each download.
+    """
+    if not body.figures:
+        return {"figure_pngs": {}}
+
+    figure_dicts = [fig.model_dump() for fig in body.figures]
+    try:
+        png_by_number = prerender_figure_pngs(figure_dicts)
+    except Exception as exc:
+        log.exception("Figure prerender failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to prerender figures: {exc}",
+        ) from exc
+
+    return {"figure_pngs": encode_png_map_for_client(png_by_number)}
+
+
 @app.post("/export/docx")
-def export_docx(body: ExportRequest) -> StreamingResponse:
+def export_docx(body: ExportRequest) -> Response:
     """Export the full patent draft as a downloadable DOCX file."""
     if not body.sections:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
         figure_dicts = [fig.model_dump() for fig in body.figures]
-        buffer = export_patent_docx(body.sections, figure_dicts)
+        client_pngs = decode_client_pngs(body.figure_pngs)
+        buffer = export_patent_docx(
+            body.sections,
+            figure_dicts,
+            invention_title=body.invention_title,
+            filing_info=body.filing_info,
+            client_figure_pngs=client_pngs,
+        )
     except Exception as exc:
         log.exception("DOCX export failed")
         raise HTTPException(
@@ -373,21 +419,29 @@ def export_docx(body: ExportRequest) -> StreamingResponse:
             detail=f"Failed to generate DOCX export: {exc}",
         ) from exc
 
-    return StreamingResponse(
-        buffer,
+    return Response(
+        content=buffer.getvalue(),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         headers={"Content-Disposition": 'attachment; filename="patent-draft.docx"'},
     )
 
 
 @app.post("/export/pdf")
-def export_pdf(body: ExportRequest) -> StreamingResponse:
+def export_pdf(body: ExportRequest) -> Response:
     """Export the full patent draft as a downloadable PDF file."""
     if not body.sections:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
-        buffer = export_patent_pdf(body.sections)
+        figure_dicts = [fig.model_dump() for fig in body.figures]
+        client_pngs = decode_client_pngs(body.figure_pngs)
+        buffer = export_patent_pdf(
+            body.sections,
+            figure_dicts,
+            invention_title=body.invention_title,
+            filing_info=body.filing_info,
+            client_figure_pngs=client_pngs,
+        )
     except Exception as exc:
         log.exception("PDF export failed")
         raise HTTPException(
@@ -395,8 +449,8 @@ def export_pdf(body: ExportRequest) -> StreamingResponse:
             detail=f"Failed to generate PDF export: {exc}",
         ) from exc
 
-    return StreamingResponse(
-        buffer,
+    return Response(
+        content=buffer.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="patent-draft.pdf"'},
     )

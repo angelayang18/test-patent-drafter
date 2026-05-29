@@ -41,7 +41,9 @@ PATENT_DRAFTER_SYSTEM = (
     "transformer architectures, attention mechanisms, tokenization, vector embeddings, "
     "cosine similarity, and retrieval-augmented generation where relevant. "
     "Avoid vague business language — focus on what is mechanically novel and inventive. "
-    "Output plain text only — no markdown (no **, #, bullet lists, or code fences)."
+    "Output plain text only — no markdown (no **, #, bullet lists, or code fences). "
+    "Do not use internal document delimiter markers (%%qa, %%Header 1%%), template "
+    "placeholders ({item_1_desc}), or incomplete scaffold text; write complete patent prose."
 )
 
 
@@ -61,6 +63,37 @@ these keys and value types:
 - problem_being_solved: str (the technical limitation of prior art)
 - core_technical_solution: str (how the invention solves it mechanically)
 - novel_mechanism: str (the specific technical novelty — what no one else does)
+- alternative_embodiments: list[str] (variations of the invention)
+- key_components: list[str] (main system components or method steps)
+
+Technical documentation:
+{combined_text}
+"""
+
+EXTRACT_GROUP_OVERVIEW_USER = """\
+Analyze the technical documentation and return a JSON object with exactly these keys:
+
+- invention_title: str
+- technical_field: str (1-2 sentences on the domain)
+- problem_being_solved: str (the technical limitation of prior art)
+
+Technical documentation:
+{combined_text}
+"""
+
+EXTRACT_GROUP_SOLUTION_USER = """\
+Analyze the technical documentation and return a JSON object with exactly these keys:
+
+- core_technical_solution: str (how the invention solves it mechanically)
+- novel_mechanism: str (the specific technical novelty — what no one else does)
+
+Technical documentation:
+{combined_text}
+"""
+
+EXTRACT_GROUP_STRUCTURE_USER = """\
+Analyze the technical documentation and return a JSON object with exactly these keys:
+
 - alternative_embodiments: list[str] (variations of the invention)
 - key_components: list[str] (main system components or method steps)
 
@@ -230,8 +263,9 @@ REQUIREMENTS:
   5. Alternative Embodiments — describe at least 2 concrete variations of the invention
      using 'In one embodiment...' and 'In another embodiment...'
 - Where natural, reference drawing figures as FIG. 1 (system), FIG. 2 (method), and FIG. 3
-  (data flow), e.g. 'as illustrated in FIG. 1'. Use reference numerals 10, 12, 14, ...
-  consistently for named components.
+  (data flow), e.g. 'as illustrated in FIG. 1'. Use reference numerals 200, 202, 204, ...
+  consistently for named components (component name followed by numeral, e.g.
+  'LLM Document Understanding Engine 200').
 
 PATENT LANGUAGE CONVENTIONS (use throughout):
 - 'comprises' instead of 'includes'
@@ -247,6 +281,11 @@ TECHNICAL SPECIFICITY REQUIRED:
 - Describe the vector embedding process and how metadata is stored alongside embeddings
 - Explain hybrid search mechanics (vector similarity + structural metadata filtering)
 - Reference specific data structures (e.g. JSON schema for chunk metadata)
+- Do not copy internal chunk delimiter syntax or template braces from source documents
+  (write 'qa' not '%%qa'; never leave {{item_1_desc}}-style placeholders)
+- For numbered method or component lists, put each item on its own line. Use a short
+  title after the number, then a colon and the description (e.g. '1. Ingestion: The
+  system receives...'), not %%wrapped%% headers or merged title+body on one line
 
 Draft the section now:"""
 
@@ -330,9 +369,12 @@ Draft the abstract now (output ONLY the abstract text, no word count or commenta
 
 FIGURES_SYSTEM = (
     "You are an expert US patent illustrator and technical writer. "
-    "You produce black-and-white patent-style diagrams as valid Mermaid flowchart syntax. "
-    "Use reference numerals (10, 12, 14, ...) on components matching the detailed description. "
-    "Keep diagrams simple: rectangles for modules, arrows for data/control flow, no colors or styling. "
+    "You produce black-and-white patent-style line-art diagrams as valid Mermaid flowchart syntax. "
+    "Each component must display its reference numeral as plain Arabic digits (no brackets) "
+    "on a separate line below the component name, e.g. A[\"Ingestion module<br/>200\"]. "
+    "Use reference numerals (200, 202, 204, ...) matching the detailed description. "
+    "Keep diagrams simple: rectangles for modules, black borders on white fill, "
+    "arrows for data/control flow, no colors or styling. "
     "Output only valid JSON matching the requested schema."
 )
 
@@ -360,7 +402,7 @@ Return a JSON object with exactly these keys:
   - number: int (1, 2, 3)
   - title: str (short title, e.g. "System architecture")
   - brief_description: str (single sentence for the figure caption, starting with "FIG. N is...")
-  - reference_numerals: object mapping numeral strings to component names (e.g. {{"10": "ingestion module", "12": "structural parser"}})
+  - reference_numerals: object mapping numeral strings to component names (e.g. {{"200": "ingestion module", "202": "structural parser"}})
   - mermaid: str — valid Mermaid flowchart for black-and-white patent figures
 
 REQUIREMENTS:
@@ -370,8 +412,12 @@ REQUIREMENTS:
   3. FIG. 3 — data flow diagram showing data types/formats between stages
 - Mermaid rules:
   - Use "flowchart TB" or "flowchart LR" only
-  - Node labels must include reference numerals, e.g. A["10 Ingestion module"]
+  - Node labels MUST show the component name on the first line and the reference numeral alone
+    on the second line using <br/>, e.g. A["Ingestion module<br/>200"]
+  - Reference numerals must be plain Arabic digits with no brackets or parentheses
   - No classDef, no style directives, no colors, no subgraph styling
+  - Do NOT use subgraphs — use branching node chains for multi-column layouts instead
+  - Do NOT use direction statements inside the diagram (only the top-level flowchart TB/LR)
   - Maximum 12 nodes per diagram
   - Use --> for arrows; label critical flows on arrows when helpful
 - Layout rules (critical for Word export — target ~4:3 aspect ratio on one page):
@@ -381,7 +427,8 @@ REQUIREMENTS:
   - FIG. 1: flowchart TB with components arranged in 2 parallel columns
   - FIG. 2: flowchart TB with method steps in a zigzag or two-column layout
   - FIG. 3: flowchart TB with data stages split across parallel branches (not one straight chain)
-- reference_numerals must use even numbers starting at 10 (10, 12, 14, ...) and match labels in mermaid
+- reference_numerals must use even numbers starting at 200 (200, 202, 204, ...) and match labels in mermaid
+- The same reference numeral must designate the same component across all three figures
 - brief_description_of_drawings must list FIG. 1, FIG. 2, and FIG. 3 in order
 
 Output ONLY the JSON object, no markdown fences."""

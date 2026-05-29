@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
+
 from .llm_client import generate_json
-from .prompts import EXTRACT_INVENTION_SYSTEM, EXTRACT_INVENTION_USER
+from .prompts import (
+    EXTRACT_GROUP_OVERVIEW_USER,
+    EXTRACT_GROUP_SOLUTION_USER,
+    EXTRACT_GROUP_STRUCTURE_USER,
+    EXTRACT_INVENTION_SYSTEM,
+    EXTRACT_INVENTION_USER,
+)
+from .source_text import prepare_source_text
 
 EXTRACTABLE_FIELDS = frozenset(
     {
@@ -26,6 +37,12 @@ _FIELD_LABELS = {
     "alternative_embodiments": "Alternative Embodiments",
     "key_components": "Key Components",
 }
+
+_GROUP_EXTRACTORS: list[tuple[str, str]] = [
+    ("overview", EXTRACT_GROUP_OVERVIEW_USER),
+    ("solution", EXTRACT_GROUP_SOLUTION_USER),
+    ("structure", EXTRACT_GROUP_STRUCTURE_USER),
+]
 
 
 def _as_str(value: object) -> str:
@@ -57,29 +74,90 @@ def _normalize_extraction(data: dict) -> dict:
     }
 
 
-def extract_invention_details(combined_text: str) -> dict:
+def get_extract_mode() -> str:
     """
-    Analyze combined source text and extract structured invention details.
+    Extraction strategy (env EXTRACT_MODE):
 
-    Args:
-        combined_text: Raw text from uploaded documents, Confluence, or web sources.
-
-    Returns:
-        Dict with invention_title, technical_field, problem_being_solved,
-        core_technical_solution, novel_mechanism, alternative_embodiments,
-        and key_components.
+    - single: one LLM call for all fields (legacy)
+    - grouped: three parallel LLM calls (default, faster wall-clock)
+    - parallel: seven parallel per-field calls (slowest token use, max parallelism)
     """
-    if not combined_text.strip():
-        raise ValueError("combined_text is required.")
+    mode = os.getenv("EXTRACT_MODE", "grouped").strip().lower()
+    if mode in ("single", "grouped", "parallel"):
+        return mode
+    return "grouped"
 
+
+def _extract_single_pass(source: str) -> dict:
     parsed = generate_json(
         EXTRACT_INVENTION_SYSTEM,
-        EXTRACT_INVENTION_USER.format(combined_text=combined_text),
+        EXTRACT_INVENTION_USER.format(combined_text=source),
     )
     return _normalize_extraction(parsed)
 
 
-def extract_invention_field(combined_text: str, field: str, current: dict | None = None) -> dict:
+def _run_group_pass(_label: str, user_template: str, source: str) -> dict:
+    parsed = generate_json(
+        EXTRACT_INVENTION_SYSTEM,
+        user_template.format(combined_text=source),
+    )
+    return parsed
+
+
+def _extract_grouped(source: str) -> dict:
+    """Three parallel LLM calls, each returning a subset of fields."""
+    merged: dict = {}
+    max_workers = min(len(_GROUP_EXTRACTORS), 3)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_run_group_pass, label, template, source): label
+            for label, template in _GROUP_EXTRACTORS
+        }
+        for future in as_completed(futures):
+            merged.update(future.result())
+    return _normalize_extraction(merged)
+
+
+def _extract_parallel_fields(source: str) -> dict:
+    """One LLM call per field, all in parallel."""
+    merged: dict = {}
+    fields = list(EXTRACTABLE_FIELDS)
+    max_workers = min(len(fields), 7)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(extract_invention_field, source, field, None): field
+            for field in fields
+        }
+        for future in as_completed(futures):
+            merged.update(future.result())
+    return _normalize_extraction(merged)
+
+
+def extract_invention_details(combined_text: str) -> dict:
+    """
+    Analyze combined source text and extract structured invention details.
+
+    Source text is truncated per EXTRACT_MAX_SOURCE_CHARS. Strategy is controlled
+    by EXTRACT_MODE (default: grouped parallel calls).
+    """
+    if not combined_text.strip():
+        raise ValueError("combined_text is required.")
+
+    source = prepare_source_text(combined_text)
+    mode = get_extract_mode()
+
+    if mode == "single":
+        return _extract_single_pass(source)
+    if mode == "parallel":
+        return _extract_parallel_fields(source)
+    return _extract_grouped(source)
+
+
+def extract_invention_field(
+    combined_text: str,
+    field: str,
+    current: Optional[dict] = None,
+) -> dict:
     """
     Re-extract a single invention field from source text.
 
@@ -90,6 +168,7 @@ def extract_invention_field(combined_text: str, field: str, current: dict | None
     if field not in EXTRACTABLE_FIELDS:
         raise ValueError(f"Unknown field: {field}")
 
+    source = prepare_source_text(combined_text)
     label = _FIELD_LABELS[field]
     context_block = ""
     if current:
@@ -111,7 +190,7 @@ Analyze the technical documentation below and extract only the field "{label}" (
 Return a JSON object with exactly one key "{field}".
 
 Technical documentation:
-{combined_text}
+{source}
 {context_block}
 """
 
