@@ -14,14 +14,15 @@ The written description must meet 35 U.S.C. §112(a) enablement: a person skille
 be able to reproduce the invention from the text alone.
 
 Required specification sections (in filing order):
-  1. Title of the Invention — clear, specific (from invention_title in context)
-  2. Field of the Invention — one paragraph on the technical domain only
-  3. Background / Prior Art — technical problem and limitations of prior approaches
-  4. Summary of the Invention — high-level overview of what the invention is and does
-  5. Detailed Description of Embodiments — step-by-step technical walkthrough (most critical)
-  6. Drawings / Diagrams — handled separately (FIG. 1, FIG. 2, …)
-  7. Claims — informal claims recommended for provisional scope
-  8. Abstract — optional for provisional; if included: one paragraph, ≤150 words
+  1. Title of the Invention — as short and specific as possible (from invention_title)
+  2. Cross-Reference to Related Applications — required; "Not Applicable." if no prior filing
+  3. Field of the Invention — one sentence on the technical domain only
+  4. Background / Prior Art — technical problem and limitations of prior approaches
+  5. Summary of the Invention — high-level overview of what the invention is and does
+  6. Detailed Description of Embodiments — step-by-step technical walkthrough (most critical)
+  7. Drawings / Diagrams — handled separately (FIG. 1, FIG. 2, …)
+  8. Claims — informal claims recommended for provisional scope; each on a new page
+  9. Abstract — optional for provisional; if included: one paragraph, ≤150 words
 
 AI/software inventions must describe HOW, not only WHAT: system architecture, data flow,
 algorithms, novel mechanisms, alternative embodiments, and specific parameters (models,
@@ -31,9 +32,10 @@ tokenization, embeddings, etc.). Avoid vague phrases like "the AI processes the 
 SECTION_TEMPLATE_INSTRUCTIONS: dict[str, str] = {
     "field": """\
 TEMPLATE SLOT: Field of the Invention (Required)
-- One short section: 2–3 sentences in formal patent language
+- Exactly ONE sentence in formal patent language
 - Names the technical domain only (e.g., NLP, document processing, ML)
 - Begin with "The present invention relates to..."
+- Use plain language; avoid jargon
 - Do NOT describe the invention, solution, or novelty in this section
 """,
     "background": """\
@@ -59,18 +61,23 @@ Per the filing guide, include where applicable:
   - Alternative embodiments
   - Specific parameters (formats, model types, chunking, embeddings, indexing)
 Use "comprising", "wherein", "configured to", and "in one embodiment..." throughout.
+MANDATORY: Reference figures (FIG. 1, FIG. 2, FIG. 3) and reference numerals (200, 202, 204...)
+on every named component, e.g. "the parser module 202... as shown in FIG. 1".
 """,
     "claims": """\
 TEMPLATE SLOT: Informal Claims (Optional for provisional — strongly recommended)
 - Establish intended scope for a future non-provisional
 - Independent system claim, independent method claim, dependent claims with technical detail
 - Use "A system comprising...", "A method comprising...", "The system of claim N, wherein..."
+- Each claim is one complete sentence; elements after "comprising:" on indented lines
+- Claims section begins on a new page in the exported document
 """,
     "abstract": """\
 TEMPLATE SLOT: Abstract (Optional for provisional — good practice)
-- Exactly ONE paragraph, maximum 150 words
+- Exactly ONE paragraph, target 100-120 words, hard maximum 150 words
 - Do NOT begin with "The present invention"
-- Third person; cover field, problem, solution, novelty, and primary benefit
+- Third person; concise statement of what is new in the art — not a full summary
+- Abstract section begins on a new page in the exported document
 """,
 }
 

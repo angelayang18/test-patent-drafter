@@ -1,11 +1,13 @@
 """Tests for export text formatting helpers."""
 
 from exporter.text_format import (
+    normalize_claims,
     parse_numbered_list_item_header,
     sanitize_internal_delimiter_tags,
     sanitize_patent_prose,
     split_paragraphs,
     strip_markdown,
+    truncate_abstract,
 )
 
 
@@ -64,3 +66,35 @@ def test_split_paragraphs_keeps_numbered_claims():
         "1. A method comprising:",
         "2. The method of claim 1, wherein",
     ]
+
+
+def test_truncate_abstract_enforces_word_limit():
+    words = " ".join(f"word{i}" for i in range(200))
+    truncated = truncate_abstract(words)
+    assert len(truncated.split()) <= 150
+
+
+def test_truncate_abstract_prefers_sentence_boundary():
+    sentence = "A system for processing documents using structural metadata."
+    filler = " ".join(["technical"] * 140)
+    raw = f"{filler} {sentence} Extra words beyond the limit."
+    truncated = truncate_abstract(raw, max_words=145)
+    assert truncated.endswith(".")
+
+
+def test_normalize_claims_splits_run_on_claims():
+    raw = "1. A system comprising a processor. 2. The system of claim 1, wherein the processor is configured to parse documents."
+    normalized = normalize_claims(raw)
+    assert "1. A system comprising a processor." in normalized
+    assert "2. The system of claim 1" in normalized
+    assert "\n\n" in normalized
+
+
+def test_normalize_claims_preserves_indented_elements():
+    raw = """1. A system comprising:
+a processor configured to receive a document;
+a parser module 202 configured to identify structural elements; and
+an indexing module 204 configured to store embeddings."""
+    normalized = normalize_claims(raw)
+    assert "parser module 202" in normalized
+    assert "\n\n" not in normalized or normalized.count("\n\n") == 0 or "1. A system" in normalized

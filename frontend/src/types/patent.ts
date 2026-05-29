@@ -29,6 +29,8 @@ export interface FilingInfo {
   correspondence_name: string;
   correspondence_address: string;
   correspondence_email: string;
+  /** Prior filing reference text; empty means "Not Applicable." in export */
+  related_applications: string;
 }
 
 export const EMPTY_FILING_INFO: FilingInfo = {
@@ -39,6 +41,7 @@ export const EMPTY_FILING_INFO: FilingInfo = {
   correspondence_name: "",
   correspondence_address: "",
   correspondence_email: "",
+  related_applications: "",
 };
 
 export interface PatentDraft {

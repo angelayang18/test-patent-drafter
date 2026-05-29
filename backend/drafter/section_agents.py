@@ -5,7 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable
 
-from exporter.text_format import sanitize_patent_prose
+from exporter.text_format import sanitize_section_output
 
 from .llm_client import generate_text
 from .patent_template import (
@@ -59,7 +59,7 @@ def draft_section_agent(invention: dict, section_name: str) -> str:
         )
     system = get_section_agent_system(section)
     user_prompt = get_prompt(section, invention)
-    return sanitize_patent_prose(generate_text(system, user_prompt))
+    return sanitize_section_output(section, generate_text(system, user_prompt))
 
 
 def draft_all_sections_parallel(

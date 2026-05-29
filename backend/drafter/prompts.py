@@ -58,7 +58,7 @@ EXTRACT_INVENTION_USER = """\
 Analyze the following technical documentation and return a JSON object with exactly \
 these keys and value types:
 
-- invention_title: str
+- invention_title: str (as short and specific as possible; maximum 15 words; no marketing adjectives or taglines)
 - technical_field: str (1-2 sentences on the domain)
 - problem_being_solved: str (the technical limitation of prior art)
 - core_technical_solution: str (how the invention solves it mechanically)
@@ -73,7 +73,7 @@ Technical documentation:
 EXTRACT_GROUP_OVERVIEW_USER = """\
 Analyze the technical documentation and return a JSON object with exactly these keys:
 
-- invention_title: str
+- invention_title: str (as short and specific as possible; maximum 15 words; no marketing adjectives or taglines)
 - technical_field: str (1-2 sentences on the domain)
 - problem_being_solved: str (the technical limitation of prior art)
 
@@ -150,7 +150,7 @@ def get_field_prompt(invention: dict) -> str:
     """
     Returns the Gemini prompt for drafting the 'Field of the Invention' section.
 
-    This section is 2-3 sentences naming the technical domain only —
+    This section is one sentence naming the technical domain only —
     no description of the invention itself.
     """
     context = _format_invention_context(invention)
@@ -159,11 +159,11 @@ def get_field_prompt(invention: dict) -> str:
 TASK: Write the 'Field of the Invention' section for a US provisional patent application.
 
 REQUIREMENTS:
-- Exactly 2-3 sentences in formal patent language
-- Names the technical domain only — do NOT describe the invention or its novelty
-- Situates the invention within its technical field (AI, NLP, document processing, etc.)
+- Exactly ONE sentence in formal patent language — no more
+- Names the technical domain only — do NOT describe the invention, solution, or novelty
+- Use plain language; avoid jargon and acronyms unless essential
 - Begin with: 'The present invention relates to...'
-- End the section after the 3rd sentence. No additional commentary.
+- End after that single sentence. No additional commentary.
 
 Draft the section now:"""
 
@@ -262,10 +262,16 @@ REQUIREMENTS:
      each processing stage
   5. Alternative Embodiments — describe at least 2 concrete variations of the invention
      using 'In one embodiment...' and 'In another embodiment...'
-- Where natural, reference drawing figures as FIG. 1 (system), FIG. 2 (method), and FIG. 3
-  (data flow), e.g. 'as illustrated in FIG. 1'. Use reference numerals 200, 202, 204, ...
-  consistently for named components (component name followed by numeral, e.g.
-  'LLM Document Understanding Engine 200').
+FIGURE REFERENCE REQUIREMENTS (mandatory — USPTO sample format):
+- Every subsection MUST reference at least one figure, e.g. 'as shown in FIG. 1',
+  'as illustrated in FIG. 2', 'referring to FIG. 3'
+- Every named component MUST include a reference numeral on first mention, e.g.
+  'parser module 202', 'indexing engine 204' (component name followed by numeral)
+- Use reference numerals 200, 202, 204, 206... (even numbers) consistently throughout
+- Tie physical or structural descriptions to figure labels, e.g. 'the ingestion module 200
+  receives documents... as shown in FIG. 1'
+- FIG. 1 = system architecture, FIG. 2 = method flow, FIG. 3 = data flow
+- Do NOT describe components in generic terms without figure ties and reference numerals
 
 PATENT LANGUAGE CONVENTIONS (use throughout):
 - 'comprises' instead of 'includes'
@@ -318,15 +324,24 @@ CLAIM STRUCTURE REQUIRED:
 6. One dependent claim covering the metadata schema stored with each chunk
 7. (Optional) One dependent claim covering a specific industry application or use case
 
-FORMATTING RULES:
-- Number each claim (1, 2, 3, ...)
-- Independent system claims begin: 'A system comprising...'
-- Independent method claims begin: 'A method comprising...'
+FORMATTING RULES (USPTO sample format — follow exactly):
+- Put each claim on its own line, starting with the claim number (1., 2., 3., ...)
+- Leave a blank line between consecutive claims
+- Each claim must be exactly ONE complete sentence ending with a period
+- Independent claims with multiple elements after 'comprising:' must list each element
+  on its own indented line, separated by semicolons, with 'and' before the final element
+- Example format:
+  1. A system comprising:
+     a processor configured to receive a document;
+     a parser module 202 configured to identify structural elements in the document; and
+     an indexing module 204 configured to store embeddings with structural metadata.
+- Independent system claims begin: 'A system comprising:'
+- Independent method claims begin: 'A method comprising:'
 - Dependent claims begin: 'The system of claim N, wherein...' or 'The method of claim N,
   further comprising...'
-- Each claim is a single sentence (no periods mid-claim)
 - Use 'comprising', 'wherein', 'configured to' throughout
 - Each dependent claim adds ONE specific technical limitation
+- Keep each claim concise — avoid run-on sentences with more than 4-5 elements
 
 Draft the claims now:"""
 
@@ -348,17 +363,18 @@ TASK: Write the Abstract for a US provisional patent application.
 
 USPTO REQUIREMENTS (these are strict):
 - Exactly ONE paragraph — no line breaks
-- Maximum 150 words (count carefully)
+- Target 100-120 words; hard maximum 150 words (count carefully before finishing)
 - Do NOT begin with 'The present invention' — this is prohibited by USPTO rules
 - Written in the third person
 - Formal, technical patent language
 
-CONTENT TO COVER (in this order, within 150 words):
-1. The technical field
-2. The problem in prior art
-3. The core technical solution
-4. The key novel mechanism
-5. The primary benefit/advantage
+CONTENT PRIORITY (concise 'what is new in the art' — NOT a full summary):
+1. One brief phrase naming the technical field
+2. One brief phrase on the prior-art problem (omit exhaustive background)
+3. The core technical solution and key novel mechanism (most of the word budget)
+4. The primary technical benefit in one closing phrase
+
+Do NOT write a lengthy summary of every feature. State what is new and why it matters.
 
 Draft the abstract now (output ONLY the abstract text, no word count or commentary):"""
 

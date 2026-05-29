@@ -1,6 +1,7 @@
 import { PATENT_SECTION_IDS } from "../types/patent";
 
 export const DOCUMENT_SECTION_ORDER = [
+  "cross_reference",
   "field",
   "background",
   "summary",
@@ -11,6 +12,7 @@ export const DOCUMENT_SECTION_ORDER = [
 ] as const;
 
 export const DOCUMENT_SECTION_TITLES: Record<string, string> = {
+  cross_reference: "CROSS-REFERENCE TO RELATED APPLICATIONS",
   field: "FIELD",
   background: "BACKGROUND",
   summary: "SUMMARY",
@@ -21,6 +23,13 @@ export const DOCUMENT_SECTION_TITLES: Record<string, string> = {
 };
 
 export const SECTIONS_REQUIRING_PAGE_BREAK_BEFORE = new Set(["claims", "abstract"]);
+
+export const STATIC_SECTION_KEYS = new Set(["cross_reference"]);
+
+export function crossReferenceBody(filingInfo?: { related_applications?: string } | null): string {
+  const related = filingInfo?.related_applications?.trim();
+  return related || "Not Applicable.";
+}
 
 const HEADING_RE = /^#{1,6}\s+/gm;
 const BOLD_RE = /\*\*(.+?)\*\*/g;
@@ -121,13 +130,16 @@ export function splitParagraphs(text: string): string[] {
 export function draftPreviewSectionKeys(sections: Record<string, string>): string[] {
   return DOCUMENT_SECTION_ORDER.filter(
     (key) =>
+      STATIC_SECTION_KEYS.has(key) ||
       (PATENT_SECTION_IDS as readonly string[]).includes(key) ||
       Boolean(sections[key]?.trim()),
   );
 }
 
 export function orderedPreviewSectionKeys(sections: Record<string, string>): string[] {
-  return draftPreviewSectionKeys(sections).filter((key) => sections[key]?.trim());
+  return draftPreviewSectionKeys(sections).filter(
+    (key) => STATIC_SECTION_KEYS.has(key) || Boolean(sections[key]?.trim()),
+  );
 }
 
 export function sectionDisplayTitle(key: string): string {

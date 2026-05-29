@@ -275,6 +275,19 @@ export default function Export() {
                   { multiline: true, placeholder: "Street address\nCity, State ZIP" },
                 )}
               </div>
+              <div className="md:col-span-2">
+                {filingField(
+                  "related_applications",
+                  "Cross-reference to related applications",
+                  filingInfo.related_applications,
+                  updateFilingInfo,
+                  {
+                    multiline: true,
+                    placeholder:
+                      'Leave blank for "Not Applicable." — or enter prior filing reference, e.g. "This application claims the benefit of U.S. Provisional Application No. 63/123,456, filed January 1, 2025."',
+                  },
+                )}
+              </div>
             </div>
           </section>
 

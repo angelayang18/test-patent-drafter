@@ -28,7 +28,7 @@ const REVIEW_FIELDS: {
   {
     key: "invention_title",
     label: "Invention Title",
-    hint: "Concise name for the invention as it would appear on a patent cover sheet.",
+    hint: "Short, specific title for the patent cover sheet (maximum 15 words; no marketing language).",
     multiline: false,
   },
   {

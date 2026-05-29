@@ -25,6 +25,87 @@ _SUBSECTION_TITLE_RUN_IN_RE = re.compile(
 )
 # Numbered list item with a short title before the body: "1. Header 1: body..."
 _LIST_ITEM_WITH_TITLE_RE = re.compile(r"^(\d+\.\s+)([^:]+):\s+(.+)$", re.DOTALL)
+_CLAIM_NUMBER_RE = re.compile(r"^\d+\.\s+")
+_CLAIM_ELEMENT_LINE_RE = re.compile(r"^\s{2,}\S")
+_ABSTRACT_MAX_WORDS = 150
+
+
+def truncate_abstract(text: str, max_words: int = _ABSTRACT_MAX_WORDS) -> str:
+    """Trim abstract to USPTO word limit, preferring sentence boundaries."""
+    cleaned = sanitize_patent_prose(text).replace("\n", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    words = cleaned.split()
+    if len(words) <= max_words:
+        return cleaned
+
+    truncated = " ".join(words[:max_words])
+    last_period = truncated.rfind(".")
+    if last_period > len(truncated) * 0.6:
+        return truncated[: last_period + 1].strip()
+    return f"{truncated.rstrip(' ,;')}."
+
+
+def normalize_claims(text: str) -> str:
+    """
+    Normalize claim formatting: one claim per block, blank lines between claims,
+    indented element lines preserved.
+    """
+    cleaned = sanitize_patent_prose(text)
+    if not cleaned:
+        return cleaned
+
+    lines = cleaned.split("\n")
+    claims: list[str] = []
+    current_lines: list[str] = []
+
+    def flush_claim() -> None:
+        if not current_lines:
+            return
+        claim_text = "\n".join(current_lines).strip()
+        if claim_text:
+            claims.append(claim_text)
+        current_lines.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if current_lines:
+                flush_claim()
+            continue
+
+        if _CLAIM_NUMBER_RE.match(stripped):
+            if current_lines:
+                flush_claim()
+            current_lines.append(stripped)
+        elif _CLAIM_ELEMENT_LINE_RE.match(line) or (
+            current_lines and stripped.endswith(";")
+        ):
+            current_lines.append(f"   {stripped.lstrip()}")
+        elif current_lines:
+            current_lines[-1] = f"{current_lines[-1]} {stripped}"
+        else:
+            current_lines.append(stripped)
+
+    flush_claim()
+
+    if len(claims) <= 1 and not any("\n" in claim for claim in claims):
+        # Fallback: split run-on claims like "1. ... 2. ..."
+        single = claims[0] if claims else cleaned
+        parts = re.split(r"(?<=\.)\s+(?=\d+\.\s+)", single)
+        if len(parts) > 1:
+            claims = [part.strip() for part in parts if part.strip()]
+
+    return "\n\n".join(claims)
+
+
+def sanitize_section_output(section: str, text: str) -> str:
+    """Apply section-specific post-processing after LLM generation."""
+    cleaned = sanitize_patent_prose(text)
+    if section == "abstract":
+        return truncate_abstract(cleaned)
+    if section == "claims":
+        return normalize_claims(cleaned)
+    return cleaned
 
 
 def sanitize_patent_prose(text: str) -> str:
@@ -71,7 +152,8 @@ def split_paragraphs(text: str) -> list[str]:
     Split section body into paragraphs for document export.
 
     Blank lines separate paragraphs. Single newlines within a paragraph are
-    collapsed to spaces unless the line looks like a numbered claim.
+    collapsed to spaces unless the line looks like a numbered claim or
+    an indented claim element.
     """
     normalized = strip_markdown(text)
     if not normalized:
@@ -98,6 +180,9 @@ def split_paragraphs(text: str) -> list[str]:
             if _ORDERED_BULLET_RE.match(line):
                 paragraphs.append(current)
                 current = line
+            elif _CLAIM_ELEMENT_LINE_RE.match(f"   {line}"):
+                paragraphs.append(current)
+                current = line
             elif current.endswith(("-", "—")):
                 current = current[:-1] + line
             else:
@@ -105,6 +190,26 @@ def split_paragraphs(text: str) -> list[str]:
         paragraphs.append(current)
 
     return paragraphs
+
+
+def split_claim_blocks(text: str) -> list[list[str]]:
+    """Split claims text into blocks of lines (one block per claim)."""
+    normalized = strip_markdown(text)
+    if not normalized:
+        return []
+
+    blocks = re.split(r"\n\s*\n", normalized)
+    claim_blocks: list[list[str]] = []
+    for block in blocks:
+        lines = [line.rstrip() for line in block.split("\n") if line.strip()]
+        if lines:
+            claim_blocks.append(lines)
+    return claim_blocks
+
+
+def is_claim_element_line(line: str) -> bool:
+    """True if line is an indented claim element (not the claim preamble)."""
+    return bool(_CLAIM_ELEMENT_LINE_RE.match(line))
 
 
 def parse_numbered_list_item_header(paragraph: str) -> tuple[str, str, str] | None:

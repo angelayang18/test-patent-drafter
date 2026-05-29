@@ -14,10 +14,15 @@ from exporter.cover_sheet import add_cover_sheet_docx
 from exporter.figure_png import prerender_figure_pngs
 from exporter.section_format import (
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
+    cross_reference_body,
     ordered_section_keys,
     section_heading,
 )
-from exporter.text_format import parse_numbered_list_item_header, split_paragraphs
+from exporter.text_format import (
+    parse_numbered_list_item_header,
+    split_claim_blocks,
+    split_paragraphs,
+)
 
 MAX_FIGURE_WIDTH_IN = 6.0
 MAX_FIGURE_HEIGHT_IN = 4.5
@@ -69,8 +74,26 @@ def _add_list_item_with_header(doc: Document, prefix: str, title: str, body: str
     paragraph.add_run(f": {body}")
 
 
+def _add_claim_block(doc: Document, lines: list[str]) -> None:
+    """Render one claim with hanging indent on element lines."""
+    for index, line in enumerate(lines):
+        paragraph = doc.add_paragraph()
+        if index == 0:
+            paragraph.add_run(line.strip())
+        else:
+            paragraph.paragraph_format.left_indent = Inches(0.5)
+            paragraph.add_run(line.strip())
+
+
 def _add_section_body(doc: Document, body: str, section_key: str) -> None:
     """Add section text as one or more Word paragraphs with markdown stripped."""
+    if section_key == "claims":
+        claim_blocks = split_claim_blocks(body)
+        if claim_blocks:
+            for block in claim_blocks:
+                _add_claim_block(doc, block)
+            return
+
     paragraphs = split_paragraphs(body)
     if not paragraphs:
         return
@@ -162,7 +185,10 @@ def export_patent_docx(
             _add_page_break(doc)
 
         _add_section_heading(doc, key)
-        _add_section_body(doc, sections[key], key)
+        if key == "cross_reference":
+            _add_section_body(doc, cross_reference_body(filing_info), key)
+        else:
+            _add_section_body(doc, sections[key], key)
 
         if (
             not figures_inserted

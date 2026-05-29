@@ -12,10 +12,11 @@ from exporter.cover_sheet import add_cover_sheet_pdf
 from exporter.figure_png import prerender_figure_pngs
 from exporter.section_format import (
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
+    cross_reference_body,
     ordered_section_keys,
     section_heading,
 )
-from exporter.text_format import split_paragraphs
+from exporter.text_format import split_claim_blocks, split_paragraphs
 
 FONT_SIZE_BODY = 11
 FONT_SIZE_HEADING = 12
@@ -43,7 +44,16 @@ def _sanitize_text(text: str) -> str:
     )
 
 
-def _write_section_body(pdf: FPDF, text: str) -> None:
+def _write_section_body(pdf: FPDF, text: str, section_key: str = "") -> None:
+    if section_key == "claims":
+        for block in split_claim_blocks(text):
+            for index, line in enumerate(block):
+                if index > 0:
+                    pdf.set_x(pdf.l_margin + 10)
+                pdf.multi_cell(0, LINE_HEIGHT, line.strip())
+            pdf.ln(2)
+        return
+
     for paragraph in split_paragraphs(text):
         pdf.multi_cell(0, LINE_HEIGHT, paragraph)
         pdf.ln(2)
@@ -146,7 +156,10 @@ def export_patent_pdf(
     figures_inserted = False
 
     for key in keys:
-        body = sections[key].strip()
+        if key == "cross_reference":
+            body = cross_reference_body(filing_info)
+        else:
+            body = sections.get(key, "").strip()
         if not body:
             continue
 
@@ -156,7 +169,7 @@ def export_patent_pdf(
         pdf.set_font("Helvetica", style="BU", size=FONT_SIZE_HEADING)
         pdf.cell(0, 10, _sanitize_text(section_heading(key)), ln=True)
         pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
-        _write_section_body(pdf, _sanitize_text(body))
+        _write_section_body(pdf, _sanitize_text(body), key)
         pdf.ln(4)
 
         if (

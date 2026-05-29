@@ -7,6 +7,7 @@ import {
 } from "../types/patent";
 import MermaidPreview from "./MermaidPreview";
 import {
+  crossReferenceBody,
   draftPreviewSectionKeys,
   orderedPreviewSectionKeys,
   SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
@@ -141,7 +142,10 @@ export function PatentDocumentPreview({
       ) : (
         <div className="space-y-10">
           {sectionKeys.map((key) => {
-            const body = sections[key] ?? "";
+            const body =
+              key === "cross_reference"
+                ? crossReferenceBody(filingInfo)
+                : (sections[key] ?? "");
             const isPending = pending.has(key as PatentSectionId);
             const isEmpty = !body.trim();
             const paragraphs = splitParagraphs(body);
@@ -198,7 +202,10 @@ export function PatentDocumentPreview({
                       {paragraphs.map((paragraph, index) => {
                         const listHeader = parseNumberedListItemHeader(paragraph);
                         const claimIndent =
-                          key === "claims" && /^\d+\./.test(paragraph) ? "pl-4" : "";
+                          key === "claims" &&
+                          (/^\d+\./.test(paragraph) || /^\s{2,}\S/.test(paragraph))
+                            ? "pl-8"
+                            : "";
                         return (
                           <p
                             key={`${key}-${index}`}
