@@ -43,6 +43,7 @@ const TEMPLATE_PLACEHOLDER_RE = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 const SUBSECTION_TITLE_RUN_IN_RE =
   /(^|\n)(\d+\.\s+)([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,5})(\s+)(?=(?:The|A|An|Each|This|Unlike|Upon|In|Each|Where)\s)/gm;
 const LIST_ITEM_WITH_TITLE_RE = /^(\d+\.\s+)([^:]+):\s+(.+)$/s;
+const LIST_ITEM_WITH_EMDASH_TITLE_RE = /^(\d+\.\s+)(.+?)\s*[—–-]\s*(.+)$/s;
 
 /** Normalize LLM/source-artifact markup into readable patent prose. */
 export function sanitizePatentProse(text: string): string {
@@ -64,8 +65,14 @@ export function sanitizeInternalDelimiterTags(text: string): string {
 
 export function parseNumberedListItemHeader(
   paragraph: string,
-): { prefix: string; title: string; body: string } | null {
-  const match = paragraph.trim().match(LIST_ITEM_WITH_TITLE_RE);
+): { prefix: string; title: string; body: string; separator: string } | null {
+  const trimmed = paragraph.trim();
+  let match = trimmed.match(LIST_ITEM_WITH_TITLE_RE);
+  let separator = ": ";
+  if (!match) {
+    match = trimmed.match(LIST_ITEM_WITH_EMDASH_TITLE_RE);
+    separator = " — ";
+  }
   if (!match) {
     return null;
   }
@@ -75,7 +82,7 @@ export function parseNumberedListItemHeader(
   if (!title || !body || title.length > 80) {
     return null;
   }
-  return { prefix, title, body };
+  return { prefix, title, body, separator };
 }
 
 export function stripMarkdown(text: string): string {

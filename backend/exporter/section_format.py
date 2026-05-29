@@ -26,6 +26,7 @@ SECTION_TITLES = {
 }
 
 SECTIONS_REQUIRING_PAGE_BREAK_BEFORE = frozenset({"claims", "abstract"})
+SECTIONS_REQUIRING_PAGE_BREAK_AFTER = frozenset({"claims"})
 
 # Sections always included in export/preview even when not in the drafted sections dict.
 STATIC_SECTION_KEYS = frozenset({"cross_reference"})

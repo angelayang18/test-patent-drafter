@@ -252,15 +252,15 @@ comprehensive and leave no ambiguity about how the invention works.
 
 REQUIREMENTS:
 - Minimum length: 600 words. Be thorough.
-- Structure as follows (use these as sub-headings in the prose):
-  1. System Overview — describe the overall architecture and main components as an integrated system
-  2. Component-by-Component Description — describe each key component in detail, what it does
+- Structure as follows (use these as sub-headings, with a colon before the body text):
+  1. System Overview: describe the overall architecture and main components as an integrated system
+  2. Component-by-Component Description: describe each key component in detail, what it does
      and how it interfaces with adjacent components
-  3. Method Steps — describe the full processing flow as numbered steps (Step 1, Step 2, etc.)
+  3. Method Steps: describe the full processing flow as numbered steps (Step 1, Step 2, etc.)
      from document ingestion through final output
-  4. Data Flow — describe precisely what data (types, formats, schemas) enters and exits
+  4. Data Flow: describe precisely what data (types, formats, schemas) enters and exits
      each processing stage
-  5. Alternative Embodiments — describe at least 2 concrete variations of the invention
+  5. Alternative Embodiments: describe at least 2 concrete variations of the invention
      using 'In one embodiment...' and 'In another embodiment...'
 FIGURE REFERENCE REQUIREMENTS (mandatory — USPTO sample format):
 - Every subsection MUST reference at least one figure, e.g. 'as shown in FIG. 1',
@@ -268,6 +268,9 @@ FIGURE REFERENCE REQUIREMENTS (mandatory — USPTO sample format):
 - Every named component MUST include a reference numeral on first mention, e.g.
   'parser module 202', 'indexing engine 204' (component name followed by numeral)
 - Use reference numerals 200, 202, 204, 206... (even numbers) consistently throughout
+- Assign sub-component numerals for nested parts: vision-language model 203 (within parsing
+  module 202), vector database 209 (within indexing engine 208), cluster index 211 (within
+  retrieval module 210)
 - Tie physical or structural descriptions to figure labels, e.g. 'the ingestion module 200
   receives documents... as shown in FIG. 1'
 - FIG. 1 = system architecture, FIG. 2 = method flow, FIG. 3 = data flow
@@ -310,19 +313,21 @@ def get_claims_prompt(invention: dict) -> str:
     context = _format_invention_context(invention)
     return f"""{context}
 
-TASK: Write 8-10 informal patent claims for a US provisional patent application.
+TASK: Write exactly 10 informal patent claims for a US provisional patent application.
 
 NOTE: These are informal claims for a provisional — they establish intended scope.
 They will be formalized by a patent attorney in the non-provisional application.
 
-CLAIM STRUCTURE REQUIRED:
+CLAIM STRUCTURE REQUIRED (exactly 10 claims, numbered 1. through 10. consecutively):
 1. One broad independent SYSTEM claim (covers the widest possible version of the invention)
 2. One broad independent METHOD claim
-3. Three dependent claims narrowing the SYSTEM claim with specific technical detail
-4. Two dependent claims narrowing the METHOD claim
-5. One dependent claim covering a specific AI model type or architecture used
-6. One dependent claim covering the metadata schema stored with each chunk
-7. (Optional) One dependent claim covering a specific industry application or use case
+3. Three dependent claims narrowing the SYSTEM claim with specific technical detail (claims 3–5)
+4. Two dependent claims narrowing the METHOD claim (claims 6–7)
+5. One dependent claim covering a specific AI model type or architecture used (claim 8)
+6. One dependent claim covering the metadata schema stored with each chunk (claim 9)
+7. One dependent claim covering a specific industry application or use case (claim 10)
+
+Do NOT stop at 9 claims — claim 10 is mandatory. Number all claims consecutively with no gaps.
 
 FORMATTING RULES (USPTO sample format — follow exactly):
 - Put each claim on its own line, starting with the claim number (1., 2., 3., ...)
@@ -330,11 +335,19 @@ FORMATTING RULES (USPTO sample format — follow exactly):
 - Each claim must be exactly ONE complete sentence ending with a period
 - Independent claims with multiple elements after 'comprising:' must list each element
   on its own indented line, separated by semicolons, with 'and' before the final element
-- Example format:
+- NEVER join multiple method steps on one line — each step gets its own indented line
+- Example format (system claim):
   1. A system comprising:
      a processor configured to receive a document;
      a parser module 202 configured to identify structural elements in the document; and
      an indexing module 204 configured to store embeddings with structural metadata.
+- Example format (method claim — one step per line):
+  2. A method comprising:
+     receiving a document through an ingestion module 200;
+     parsing the document using a vision-language model 203 to extract hierarchical structure;
+     generating structurally-aware chunks with parent-child metadata;
+     indexing the chunks in a vector database 209; and
+     executing a cascading retrieval operation using a cluster index 211.
 - Independent system claims begin: 'A system comprising:'
 - Independent method claims begin: 'A method comprising:'
 - Dependent claims begin: 'The system of claim N, wherein...' or 'The method of claim N,
@@ -342,6 +355,9 @@ FORMATTING RULES (USPTO sample format — follow exactly):
 - Use 'comprising', 'wherein', 'configured to' throughout
 - Each dependent claim adds ONE specific technical limitation
 - Keep each claim concise — avoid run-on sentences with more than 4-5 elements
+- Capitalize standard technical acronyms consistently with the detailed description,
+  e.g. PDF, GPU, JSON, AI, API, LANCZOS, vLLM, OCR, RAG, LLM — never lowercase forms
+  like 'pdf', 'gpu', 'json', 'ai', 'api', 'lanczos', or 'vllm'
 
 Draft the claims now:"""
 
@@ -388,9 +404,11 @@ FIGURES_SYSTEM = (
     "You produce black-and-white patent-style line-art diagrams as valid Mermaid flowchart syntax. "
     "Each component must display its reference numeral as plain Arabic digits (no brackets) "
     "on a separate line below the component name, e.g. A[\"Ingestion module<br/>200\"]. "
-    "Use reference numerals (200, 202, 204, ...) matching the detailed description. "
+    "Use reference numerals (200, 202, 204, ...) matching the detailed description exactly. "
+    "NEVER assign the same numeral to two different parts — each numeral designates one part only. "
     "Keep diagrams simple: rectangles for modules, black borders on white fill, "
     "arrows for data/control flow, no colors or styling. "
+    "Always use vertical top-to-bottom layout (flowchart TB) — never horizontal layouts. "
     "Output only valid JSON matching the requested schema."
 )
 
@@ -413,7 +431,8 @@ DETAILED DESCRIPTION (use for consistency of names, steps, and reference numeral
 TASK: Generate patent drawing content for a US provisional patent application covering an AI/ML invention.
 
 Return a JSON object with exactly these keys:
-- brief_description_of_drawings: str — one paragraph per figure, each starting with "FIG. N is a ..." (formal patent style)
+- brief_description_of_drawings: str — three sentences (one per figure), each starting with
+  "FIG. N is a ...", separated by blank lines (formal USPTO sample format — NOT one paragraph)
 - figures: list of objects, each with:
   - number: int (1, 2, 3)
   - title: str (short title, e.g. "System architecture")
@@ -423,28 +442,63 @@ Return a JSON object with exactly these keys:
 
 REQUIREMENTS:
 - Produce exactly 3 figures:
-  1. FIG. 1 — system block diagram of key components and their connections (use key_components from invention details)
-  2. FIG. 2 — method flowchart with numbered method steps from ingestion through output
-  3. FIG. 3 — data flow diagram showing data types/formats between stages
+  1. FIG. 1 — system block diagram of top-level modules only in the main processing chain
+  2. FIG. 2 — method flowchart showing the processing flow from ingestion through output;
+     must include every top-level module from FIG. 1 as a labeled box in flow order
+  3. FIG. 3 — data flow diagram showing data types/formats between the SAME modules as FIG. 1;
+     must include every top-level module from FIG. 1 as a labeled box
+
+REFERENCE NUMERAL RULES (mandatory — USPTO sample format):
+- Extract numerals and component names from the detailed description and use them exactly
+- Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
+- NEVER reuse a numeral for a different part (e.g. do NOT label "Layout preservation 200" if
+  200 is already the ingestion module)
+- In FIG. 3, every node must use the same module name and numeral as in FIG. 1; put data-type
+  annotations on an optional third label line, e.g. A["Ingestion module<br/>200<br/>(binary data)"]
+
+FIG. 1 LAYOUT RULES (system architecture):
+- Show ONE single top-to-bottom processing chain — each top-level module appears exactly ONCE
+- Do NOT use parallel columns that duplicate modules (e.g. a left column of subgraph headers
+  labeled "Parsing module 202" alongside the same module 202 in the main flow on the right)
+- Main processing chain shows ONLY top-level modules in order, e.g.:
+  200 (ingestion) → 202 (parsing) → 204 (chunking) → 206 (enrichment) → 208 (indexing) → 210 (retrieval)
+- Sub-components must NOT appear as separate downstream boxes after their parent module:
+  - vision-language model 203 is a sub-component OF parsing module 202
+  - vector database 209 is a sub-component OF indexing engine 208
+  - cluster index 211 is a sub-component OF retrieval module 210 (NOT a step after 210)
+- Nest sub-components inside their parent module box using a Mermaid subgraph that wraps
+  ONLY the sub-component nodes — the parent module must NOT also appear separately elsewhere;
+  or omit sub-components from the diagram entirely rather than placing them downstream
+
 - Mermaid rules:
-  - Use "flowchart TB" or "flowchart LR" only
+  - Use "flowchart TB" only — NEVER use LR, RL, or any horizontal layout (hard to format in Word)
   - Node labels MUST show the component name on the first line and the reference numeral alone
     on the second line using <br/>, e.g. A["Ingestion module<br/>200"]
   - Reference numerals must be plain Arabic digits with no brackets or parentheses
   - No classDef, no style directives, no colors, no subgraph styling
-  - Do NOT use subgraphs — use branching node chains for multi-column layouts instead
-  - Do NOT use direction statements inside the diagram (only the top-level flowchart TB/LR)
+  - Subgraphs are allowed ONLY to nest sub-components inside a parent module (FIG. 1)
+  - Do NOT use direction statements inside the diagram
   - Maximum 12 nodes per diagram
   - Use --> for arrows; label critical flows on arrows when helpful
 - Layout rules (critical for Word export — target ~4:3 aspect ratio on one page):
-  - Do NOT draw a single long horizontal row (max 3 nodes before branching or wrapping)
+  - Arrange nodes top-to-bottom; use branching and parallel columns instead of horizontal rows
   - Do NOT draw a single long vertical column (max 5 nodes before splitting into parallel branches)
-  - Use branching and parallel columns to keep each diagram compact and roughly square
-  - FIG. 1: flowchart TB with components arranged in 2 parallel columns
-  - FIG. 2: flowchart TB with method steps in a zigzag or two-column layout
+  - Use branching only to shorten vertical length — never to duplicate the same module
+  - FIG. 1: one linear or lightly branched top-to-bottom chain; each module/numeral appears
+    AT MOST ONCE (no parallel column headers duplicating modules from the main flow)
+  - FIG. 2: flowchart TB with method steps in a zigzag or two-column layout; label each
+    node with the same module name and numeral as FIG. 1 (e.g. "Ingestion module<br/>200"),
+    NOT numbered prefixes like "1. Ingestion<br/>200"; each module/numeral must appear
+    AT MOST ONCE as a box — never show the same component twice (e.g. do not duplicate
+    "Parsing module 202" as two separate nodes)
   - FIG. 3: flowchart TB with data stages split across parallel branches (not one straight chain)
 - reference_numerals must use even numbers starting at 200 (200, 202, 204, ...) and match labels in mermaid
 - The same reference numeral must designate the same component across all three figures
+- FIG. 2 and FIG. 3 must each include EVERY top-level module shown in FIG. 1 as a labeled
+  box with the same name and numeral — do not omit modules (e.g. if FIG. 1 shows a synthesis
+  engine 206, FIG. 2 and FIG. 3 must also show synthesis engine 206 as a labeled box)
+- brief_description_of_drawings: exactly three sentences (one per figure), each starting
+  with "FIG. N is a ...", separated by blank lines — NOT one combined paragraph
 - brief_description_of_drawings must list FIG. 1, FIG. 2, and FIG. 3 in order
 
 Output ONLY the JSON object, no markdown fences."""

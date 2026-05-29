@@ -13,6 +13,7 @@ from docx.shared import Inches, Pt
 from exporter.cover_sheet import add_cover_sheet_docx
 from exporter.figure_png import prerender_figure_pngs
 from exporter.section_format import (
+    SECTIONS_REQUIRING_PAGE_BREAK_AFTER,
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
     cross_reference_body,
     ordered_section_keys,
@@ -20,6 +21,8 @@ from exporter.section_format import (
 )
 from exporter.text_format import (
     parse_numbered_list_item_header,
+    prepare_sections_for_export,
+    split_brief_description_paragraphs,
     split_claim_blocks,
     split_paragraphs,
 )
@@ -66,12 +69,22 @@ def _add_picture_fitted(doc: Document, png_bytes: bytes) -> None:
     doc.add_picture(BytesIO(png_bytes), width=Inches(width_in))
 
 
-def _add_list_item_with_header(doc: Document, prefix: str, title: str, body: str) -> None:
-    """Render a numbered list line with a bold title clause before the body."""
+def _add_list_item_with_header(
+    doc: Document,
+    prefix: str,
+    title: str,
+    body: str,
+    *,
+    separator: str = ": ",
+    underline_title: bool = False,
+) -> None:
+    """Render a numbered list line with a bold (optionally underlined) title clause."""
     paragraph = doc.add_paragraph()
     header_run = paragraph.add_run(f"{prefix}{title}")
     header_run.bold = True
-    paragraph.add_run(f": {body}")
+    if underline_title:
+        header_run.underline = True
+    paragraph.add_run(f"{separator}{body}")
 
 
 def _add_claim_block(doc: Document, lines: list[str]) -> None:
@@ -94,6 +107,12 @@ def _add_section_body(doc: Document, body: str, section_key: str) -> None:
                 _add_claim_block(doc, block)
             return
 
+    if section_key == "brief_description_of_drawings":
+        paragraphs = split_brief_description_paragraphs(body)
+        for paragraph in paragraphs:
+            doc.add_paragraph(paragraph)
+        return
+
     paragraphs = split_paragraphs(body)
     if not paragraphs:
         return
@@ -101,8 +120,15 @@ def _add_section_body(doc: Document, body: str, section_key: str) -> None:
     for index, paragraph in enumerate(paragraphs):
         list_header = parse_numbered_list_item_header(paragraph)
         if list_header:
-            prefix, title, list_body = list_header
-            _add_list_item_with_header(doc, prefix, title, list_body)
+            prefix, title, list_body, separator = list_header
+            _add_list_item_with_header(
+                doc,
+                prefix,
+                title,
+                list_body,
+                separator=separator,
+                underline_title=section_key == "description",
+            )
         elif section_key == "claims" and index == 0 and not paragraph[:1].isdigit():
             doc.add_paragraph(paragraph, style="List Number")
         else:
@@ -164,6 +190,7 @@ def export_patent_docx(
     Figures are rendered to PNG and inserted as separate drawing sheets after
     Brief Description of the Drawings. Claims and Abstract each begin on a new page.
     """
+    sections = prepare_sections_for_export(sections)
     doc = Document()
     add_cover_sheet_docx(
         doc,
@@ -181,14 +208,24 @@ def export_patent_docx(
     figures_inserted = False
 
     for key in keys:
+        if key == "cross_reference":
+            body = cross_reference_body(filing_info)
+        else:
+            body = sections.get(key, "").strip()
+        if not body:
+            continue
+
         if key in SECTIONS_REQUIRING_PAGE_BREAK_BEFORE:
             _add_page_break(doc)
 
         _add_section_heading(doc, key)
         if key == "cross_reference":
-            _add_section_body(doc, cross_reference_body(filing_info), key)
+            _add_section_body(doc, body, key)
         else:
             _add_section_body(doc, sections[key], key)
+
+        if key in SECTIONS_REQUIRING_PAGE_BREAK_AFTER:
+            _add_page_break(doc)
 
         if (
             not figures_inserted

@@ -2,6 +2,7 @@
 
 from exporter.section_format import (
     SECTION_TITLES,
+    SECTIONS_REQUIRING_PAGE_BREAK_AFTER,
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
     cross_reference_body,
     ordered_section_keys,
@@ -16,8 +17,9 @@ def test_section_titles_are_uppercase_without_suffixes():
     assert SECTION_TITLES["claims"] == "CLAIMS"
 
 
-def test_claims_and_abstract_require_page_breaks():
+def test_claims_require_page_breaks():
     assert "claims" in SECTIONS_REQUIRING_PAGE_BREAK_BEFORE
+    assert "claims" in SECTIONS_REQUIRING_PAGE_BREAK_AFTER
     assert "abstract" in SECTIONS_REQUIRING_PAGE_BREAK_BEFORE
     assert "summary" not in SECTIONS_REQUIRING_PAGE_BREAK_BEFORE
 

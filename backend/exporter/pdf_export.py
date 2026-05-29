@@ -11,12 +11,19 @@ from fpdf import FPDF
 from exporter.cover_sheet import add_cover_sheet_pdf
 from exporter.figure_png import prerender_figure_pngs
 from exporter.section_format import (
+    SECTIONS_REQUIRING_PAGE_BREAK_AFTER,
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
     cross_reference_body,
     ordered_section_keys,
     section_heading,
 )
-from exporter.text_format import split_claim_blocks, split_paragraphs
+from exporter.text_format import (
+    parse_numbered_list_item_header,
+    prepare_sections_for_export,
+    split_brief_description_paragraphs,
+    split_claim_blocks,
+    split_paragraphs,
+)
 
 FONT_SIZE_BODY = 11
 FONT_SIZE_HEADING = 12
@@ -44,6 +51,20 @@ def _sanitize_text(text: str) -> str:
     )
 
 
+def _write_description_paragraph(pdf: FPDF, paragraph: str) -> None:
+    """Write a detailed-description paragraph, styling numbered sub-headings."""
+    header = parse_numbered_list_item_header(paragraph)
+    if header:
+        prefix, title, body, separator = header
+        pdf.set_font("Helvetica", style="BU", size=FONT_SIZE_BODY)
+        pdf.write(LINE_HEIGHT, _sanitize_text(f"{prefix}{title}{separator}"))
+        pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
+        pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(body))
+    else:
+        pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(paragraph))
+    pdf.ln(2)
+
+
 def _write_section_body(pdf: FPDF, text: str, section_key: str = "") -> None:
     if section_key == "claims":
         for block in split_claim_blocks(text):
@@ -54,9 +75,18 @@ def _write_section_body(pdf: FPDF, text: str, section_key: str = "") -> None:
             pdf.ln(2)
         return
 
+    if section_key == "brief_description_of_drawings":
+        for paragraph in split_brief_description_paragraphs(text):
+            pdf.multi_cell(0, LINE_HEIGHT, paragraph)
+            pdf.ln(2)
+        return
+
     for paragraph in split_paragraphs(text):
-        pdf.multi_cell(0, LINE_HEIGHT, paragraph)
-        pdf.ln(2)
+        if section_key == "description":
+            _write_description_paragraph(pdf, paragraph)
+        else:
+            pdf.multi_cell(0, LINE_HEIGHT, paragraph)
+            pdf.ln(2)
 
 
 def _png_dimensions(png_bytes: bytes) -> tuple[int, int]:
@@ -133,6 +163,7 @@ def export_patent_pdf(
     client_figure_pngs: dict[int, bytes] | None = None,
 ) -> BytesIO:
     """Build a multi-section patent draft PDF and return it as a BytesIO buffer."""
+    sections = prepare_sections_for_export(sections)
     pdf = _PatentPdf()
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=MARGIN_MM)
@@ -171,6 +202,9 @@ def export_patent_pdf(
         pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
         _write_section_body(pdf, _sanitize_text(body), key)
         pdf.ln(4)
+
+        if key in SECTIONS_REQUIRING_PAGE_BREAK_AFTER:
+            pdf.add_page()
 
         if (
             not figures_inserted

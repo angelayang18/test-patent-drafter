@@ -213,11 +213,17 @@ export function PatentDocumentPreview({
                           >
                             {listHeader ? (
                               <>
-                                <span className="font-label-md text-label-md text-on-surface">
+                                <span
+                                  className={`font-label-md text-label-md text-on-surface ${
+                                    key === "description"
+                                      ? "underline underline-offset-2"
+                                      : ""
+                                  }`}
+                                >
                                   {listHeader.prefix}
                                   {listHeader.title}
                                 </span>
-                                {": "}
+                                {listHeader.separator}
                                 {listHeader.body}
                               </>
                             ) : (

@@ -6,7 +6,13 @@ import re
 from typing import Any
 
 from exporter.mermaid_render import apply_patent_mermaid_theme
+from exporter.text_format import normalize_brief_description_of_drawings
 
+from .figure_numerals import (
+    format_numeral_validation_errors,
+    reconcile_figure_labels,
+    validate_figure_numerals,
+)
 from .llm_client import generate_json, get_llm_model
 from .mermaid_sanitize import sanitize_mermaid_source
 from .prompts import FIGURES_SYSTEM, get_figures_prompt
@@ -47,15 +53,6 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
     if not mermaid.lower().startswith("flowchart"):
         direction = _default_flowchart_direction(number)
         mermaid = f"flowchart {direction}\n{mermaid}"
-    elif re.match(r"^flowchart\s+LR\b", mermaid, re.IGNORECASE):
-        # Avoid purely horizontal layouts that are hard to read in Word.
-        mermaid = re.sub(
-            r"^flowchart\s+LR\b",
-            f"flowchart {_default_flowchart_direction(number)}",
-            mermaid,
-            count=1,
-            flags=re.IGNORECASE,
-        )
 
     if _MERMAID_FORBIDDEN.search(mermaid):
         raise ValueError(
@@ -106,8 +103,22 @@ def _figures_from_response(raw: dict[str, Any]) -> tuple[str, list[dict[str, Any
             f"No valid figures were parsed from LLM ({get_llm_model()}) output."
         )
 
-    if not brief:
-        brief = "\n\n".join(f["brief_description"] for f in figures)
+    if not brief and figures:
+        brief = "\n\n".join(
+            f["brief_description"]
+            for f in sorted(figures, key=lambda f: int(f["number"]))
+            if f.get("brief_description")
+        )
+    elif figures:
+        per_figure = "\n\n".join(
+            f["brief_description"]
+            for f in sorted(figures, key=lambda f: int(f["number"]))
+            if f.get("brief_description")
+        )
+        if per_figure:
+            brief = per_figure
+
+    brief = normalize_brief_description_of_drawings(brief)
 
     return brief, figures
 
@@ -126,23 +137,36 @@ def generate_patent_figures(
         }
     """
     prompt = get_figures_prompt(invention, description_text)
-    retry_suffix = (
-        "\n\nIMPORTANT: Return a JSON object with a non-empty figures array "
-        "containing exactly 3 figure objects. Do not omit the figures key."
-    )
 
     last_error: ValueError | None = None
-    for attempt, user_prompt in enumerate((prompt, prompt + retry_suffix)):
+    user_prompt = prompt
+    for attempt in range(3):
         raw = generate_json(FIGURES_SYSTEM, user_prompt)
         try:
             brief, figures = _figures_from_response(raw)
+            figures = reconcile_figure_labels(figures, description_text)
+            numeral_errors = validate_figure_numerals(figures, description_text)
+            if numeral_errors and attempt < 2:
+                user_prompt = prompt + format_numeral_validation_errors(numeral_errors)
+                continue
+            if numeral_errors:
+                raise ValueError(
+                    "Figure reference numerals are inconsistent after retries: "
+                    + "; ".join(numeral_errors)
+                )
             return {
                 "brief_description_of_drawings": brief,
                 "figures": figures,
             }
         except ValueError as exc:
             last_error = exc
-            if attempt == 0:
+            if attempt < 2 and "figures list" in str(exc).lower():
+                user_prompt = prompt + (
+                    "\n\nIMPORTANT: Return a JSON object with a non-empty figures array "
+                    "containing exactly 3 figure objects. Do not omit the figures key."
+                )
+                continue
+            if attempt < 2:
                 continue
             raise exc from None
 
