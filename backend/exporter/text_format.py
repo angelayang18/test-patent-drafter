@@ -266,9 +266,6 @@ def normalize_claims(text: str) -> str:
     return "\n\n".join(claims)
 
 
-_REQUIRED_CLAIM_COUNT = 10
-
-
 def count_claims(text: str) -> int:
     """Return the number of numbered claims in the text."""
     normalized = normalize_claims(text)
@@ -277,8 +274,8 @@ def count_claims(text: str) -> int:
     return len(re.findall(r"^\d+\.\s+", normalized, flags=re.MULTILINE))
 
 
-def validate_claim_count(text: str, required: int = _REQUIRED_CLAIM_COUNT) -> list[str]:
-    """Return errors when claims are missing or not consecutively numbered."""
+def validate_claim_count(text: str) -> list[str]:
+    """Return errors when claims are missing or not consecutively numbered from 1."""
     errors: list[str] = []
     normalized = normalize_claims(text)
     if not normalized:
@@ -288,19 +285,22 @@ def validate_claim_count(text: str, required: int = _REQUIRED_CLAIM_COUNT) -> li
     if not numbers:
         return ["No numbered claims were found in the output."]
 
-    if len(numbers) != required:
-        errors.append(
-            f"Expected exactly {required} claims but found {len(numbers)} "
-            f"(numbered: {', '.join(str(n) for n in numbers)})."
-        )
-
-    expected = list(range(1, required + 1))
+    expected = list(range(1, len(numbers) + 1))
     if numbers != expected:
         missing = [str(n) for n in expected if n not in numbers]
         if missing:
             errors.append(
-                "Claims must be numbered consecutively from 1 — missing claim(s): "
+                "Claims must be numbered consecutively in Arabic numerals from 1 — "
+                "missing claim(s): "
                 + ", ".join(missing)
+                + "."
+            )
+        extra = [str(n) for n in numbers if n not in expected]
+        if extra and not missing:
+            errors.append(
+                "Claims must be numbered consecutively in Arabic numerals from 1 — "
+                "unexpected numbering: "
+                + ", ".join(str(n) for n in numbers)
                 + "."
             )
 

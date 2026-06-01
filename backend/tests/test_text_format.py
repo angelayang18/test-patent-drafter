@@ -188,13 +188,15 @@ def test_normalize_claims_text_applies_acronym_fixes():
     assert "GPU" in normalized
 
 
-def test_count_claims_and_validate_exactly_ten():
+def test_count_claims_and_validate_consecutive_numbering():
     nine_claims = "\n\n".join(f"{n}. Claim {n} text." for n in range(1, 10))
     assert count_claims(nine_claims) == 9
-    errors = validate_claim_count(nine_claims)
-    assert any("exactly 10" in err for err in errors)
-    assert any("10" in err for err in errors)
+    assert not validate_claim_count(nine_claims)
 
     ten_claims = "\n\n".join(f"{n}. Claim {n} text." for n in range(1, 11))
     assert count_claims(ten_claims) == 10
     assert not validate_claim_count(ten_claims)
+
+    gap_claims = "1. First claim.\n\n3. Third claim."
+    errors = validate_claim_count(gap_claims)
+    assert any("missing claim" in err.lower() for err in errors)

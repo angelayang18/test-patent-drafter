@@ -162,8 +162,8 @@ def generate_patent_figures(
             last_error = exc
             if attempt < 2 and "figures list" in str(exc).lower():
                 user_prompt = prompt + (
-                    "\n\nIMPORTANT: Return a JSON object with a non-empty figures array "
-                    "containing exactly 3 figure objects. Do not omit the figures key."
+                    "\n\nIMPORTANT: Return a JSON object with a non-empty figures array. "
+                    "Do not omit the figures key."
                 )
                 continue
             if attempt < 2:

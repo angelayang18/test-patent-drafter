@@ -61,8 +61,9 @@ Per the filing guide, include where applicable:
   - Alternative embodiments
   - Specific parameters (formats, model types, chunking, embeddings, indexing)
 Use "comprising", "wherein", "configured to", and "in one embodiment..." throughout.
-MANDATORY: Reference figures (FIG. 1, FIG. 2, FIG. 3) and reference numerals (200, 202, 204...)
-on every named component, e.g. "the parser module 202... as shown in FIG. 1".
+MANDATORY: Reference figures where they illustrate the text and use reference numerals
+(200, 202, 204...) on every named component, e.g. "the parser module 202... as shown in
+FIG. 1". Every element in the description must appear in the drawings and vice versa.
 """,
     "claims": """\
 TEMPLATE SLOT: Informal Claims (Optional for provisional — strongly recommended)
@@ -76,7 +77,9 @@ TEMPLATE SLOT: Informal Claims (Optional for provisional — strongly recommende
 TEMPLATE SLOT: Abstract (Optional for provisional — good practice)
 - Exactly ONE paragraph, target 100-120 words, hard maximum 150 words
 - Do NOT begin with "The present invention"
-- Third person; concise statement of what is new in the art — not a full summary
+- Third person; concise statement of what is NEW in the art — not a Summary recap
+- Lead with the inventive technical advance / novel mechanism; minimize field and background
+- Do NOT inventory components, method steps, or embodiments — state the distinguishing advance only
 - Abstract section begins on a new page in the exported document
 """,
 }

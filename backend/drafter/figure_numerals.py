@@ -406,7 +406,7 @@ def format_numeral_validation_errors(errors: list[str]) -> str:
     return (
         "\n\nREFERENCE NUMERAL ERRORS TO FIX (mandatory — USPTO requires unique numerals):\n"
         f"{bullet_lines}\n"
-        "Regenerate all three figures correcting these issues. "
+        "Regenerate all figures correcting these issues. "
         "Use ONLY numerals and names from the detailed description. "
         "In FIG. 1, nest sub-components (203, 209, 211) inside their parent modules. "
         "In FIG. 2 and FIG. 3, label nodes with the same module names and numerals as FIG. 1 "

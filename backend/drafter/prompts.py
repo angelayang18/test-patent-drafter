@@ -263,8 +263,8 @@ REQUIREMENTS:
   5. Alternative Embodiments: describe at least 2 concrete variations of the invention
      using 'In one embodiment...' and 'In another embodiment...'
 FIGURE REFERENCE REQUIREMENTS (mandatory — USPTO sample format):
-- Every subsection MUST reference at least one figure, e.g. 'as shown in FIG. 1',
-  'as illustrated in FIG. 2', 'referring to FIG. 3'
+- Reference figures where they illustrate the text, e.g. 'as shown in FIG. 1',
+  'as illustrated in FIG. 2'
 - Every named component MUST include a reference numeral on first mention, e.g.
   'parser module 202', 'indexing engine 204' (component name followed by numeral)
 - Use reference numerals 200, 202, 204, 206... (even numbers) consistently throughout
@@ -273,7 +273,8 @@ FIGURE REFERENCE REQUIREMENTS (mandatory — USPTO sample format):
   retrieval module 210)
 - Tie physical or structural descriptions to figure labels, e.g. 'the ingestion module 200
   receives documents... as shown in FIG. 1'
-- FIG. 1 = system architecture, FIG. 2 = method flow, FIG. 3 = data flow
+- Every element described here must also appear in the drawings (and vice versa) — do not
+  name components or steps that would not be shown in a corresponding figure
 - Do NOT describe components in generic terms without figure ties and reference numerals
 
 PATENT LANGUAGE CONVENTIONS (use throughout):
@@ -313,21 +314,21 @@ def get_claims_prompt(invention: dict) -> str:
     context = _format_invention_context(invention)
     return f"""{context}
 
-TASK: Write exactly 10 informal patent claims for a US provisional patent application.
+TASK: Write informal patent claims for a US provisional patent application.
 
 NOTE: These are informal claims for a provisional — they establish intended scope.
 They will be formalized by a patent attorney in the non-provisional application.
+The USPTO sample does not require a specific number of claims — only that claims are
+numbered consecutively in Arabic numerals starting at 1.
 
-CLAIM STRUCTURE REQUIRED (exactly 10 claims, numbered 1. through 10. consecutively):
-1. One broad independent SYSTEM claim (covers the widest possible version of the invention)
-2. One broad independent METHOD claim
-3. Three dependent claims narrowing the SYSTEM claim with specific technical detail (claims 3–5)
-4. Two dependent claims narrowing the METHOD claim (claims 6–7)
-5. One dependent claim covering a specific AI model type or architecture used (claim 8)
-6. One dependent claim covering the metadata schema stored with each chunk (claim 9)
-7. One dependent claim covering a specific industry application or use case (claim 10)
+RECOMMENDED CONTENT (adapt count to the invention — typically 8–12 claims):
+- At least one broad independent SYSTEM claim (widest version of the invention)
+- At least one broad independent METHOD claim
+- Dependent claims narrowing the system and method claims with specific technical detail
+- Dependent claims covering notable AI model types, metadata schemas, or use cases where
+  they add meaningful scope
 
-Do NOT stop at 9 claims — claim 10 is mandatory. Number all claims consecutively with no gaps.
+Number all claims consecutively from 1 with no gaps or duplicates.
 
 FORMATTING RULES (USPTO sample format — follow exactly):
 - Put each claim on its own line, starting with the claim number (1., 2., 3., ...)
@@ -371,26 +372,39 @@ def get_abstract_prompt(invention: dict) -> str:
     Returns the Gemini prompt for drafting the patent Abstract.
 
     USPTO requires: one paragraph, ≤150 words, no 'The present invention' opening.
+    Content must state what is new in the art — not recap the invention like Summary.
     """
     context = _format_invention_context(invention)
+    novel = invention.get("novel_mechanism", "Not specified")
     return f"""{context}
 
 TASK: Write the Abstract for a US provisional patent application.
 
-USPTO REQUIREMENTS (these are strict):
+PURPOSE: Disclose what is NEW in the art in one paragraph — not a shortened Summary of the
+Invention. A reader should learn the inventive advance and how it differs from prior art,
+not receive a feature walkthrough or system overview.
+
+USPTO REQUIREMENTS (strict):
 - Exactly ONE paragraph — no line breaks
 - Target 100-120 words; hard maximum 150 words (count carefully before finishing)
-- Do NOT begin with 'The present invention' — this is prohibited by USPTO rules
-- Written in the third person
-- Formal, technical patent language
+- Do NOT begin with 'The present invention' — prohibited by USPTO rules
+- Third person; formal, technical patent language
 
-CONTENT PRIORITY (concise 'what is new in the art' — NOT a full summary):
-1. One brief phrase naming the technical field
-2. One brief phrase on the prior-art problem (omit exhaustive background)
-3. The core technical solution and key novel mechanism (most of the word budget)
-4. The primary technical benefit in one closing phrase
+CONTENT — NOVELTY FIRST (allocate most words here):
+- Center the abstract on this specific technical novelty: {novel}
+- Open with the inventive technical advance or distinguishing mechanism — not the field alone
+- In one short clause, note the prior-art limitation the novelty overcomes; do not dwell on background
+- Name only the minimum structure needed to explain WHY the mechanism is novel; omit exhaustive
+  architecture, numbered method steps, and embodiment lists
+- Close with the primary technical benefit that follows directly from that novelty
 
-Do NOT write a lengthy summary of every feature. State what is new and why it matters.
+DO NOT write a summary. Avoid:
+- 'The system comprises...' followed by a component inventory
+- Step-by-step pipeline recaps (e.g. ingestion → parsing → indexing → retrieval)
+- Restating every key component from the invention details
+- Summary-style phrasing ('In one aspect...', lists of multiple advantages)
+- Generic capability statements without the distinguishing mechanism
+  ('an AI system that processes documents', 'a method for analyzing data')
 
 Draft the abstract now (output ONLY the abstract text, no word count or commentary):"""
 
@@ -431,17 +445,23 @@ DETAILED DESCRIPTION (use for consistency of names, steps, and reference numeral
 TASK: Generate patent drawing content for a US provisional patent application covering an AI/ML invention.
 
 Return a JSON object with exactly these keys:
-- brief_description_of_drawings: str — three sentences (one per figure), each starting with
-  "FIG. N is a ...", separated by blank lines (formal USPTO sample format — NOT one paragraph)
+- brief_description_of_drawings: str — one sentence per figure, each starting with
+  "FIG. N is a ...", listing every figure in consecutive order and separated by blank lines
+  (formal USPTO sample format — NOT one paragraph)
 - figures: list of objects, each with:
-  - number: int (1, 2, 3)
+  - number: int (consecutive Arabic numerals starting at 1)
   - title: str (short title, e.g. "System architecture")
   - brief_description: str (single sentence for the figure caption, starting with "FIG. N is...")
   - reference_numerals: object mapping numeral strings to component names (e.g. {{"200": "ingestion module", "202": "structural parser"}})
   - mermaid: str — valid Mermaid flowchart for black-and-white patent figures
 
 REQUIREMENTS:
-- Produce exactly 3 figures:
+- The USPTO sample does not require a specific number of figures — the applicant chooses
+  how many drawings to include. Where drawings are present, the brief description must list
+  every figure by number with a statement of what it depicts, and every element in the
+  detailed description must appear in the drawings (and vice versa).
+- For this AI/ML invention, generate a complete default set of 3 figures unless the
+  detailed description clearly needs fewer or more:
   1. FIG. 1 — system block diagram of top-level modules only in the main processing chain
   2. FIG. 2 — method flowchart showing the processing flow from ingestion through output;
      must include every top-level module from FIG. 1 as a labeled box in flow order
@@ -493,13 +513,14 @@ FIG. 1 LAYOUT RULES (system architecture):
     "Parsing module 202" as two separate nodes)
   - FIG. 3: flowchart TB with data stages split across parallel branches (not one straight chain)
 - reference_numerals must use even numbers starting at 200 (200, 202, 204, ...) and match labels in mermaid
-- The same reference numeral must designate the same component across all three figures
-- FIG. 2 and FIG. 3 must each include EVERY top-level module shown in FIG. 1 as a labeled
-  box with the same name and numeral — do not omit modules (e.g. if FIG. 1 shows a synthesis
-  engine 206, FIG. 2 and FIG. 3 must also show synthesis engine 206 as a labeled box)
-- brief_description_of_drawings: exactly three sentences (one per figure), each starting
-  with "FIG. N is a ...", separated by blank lines — NOT one combined paragraph
-- brief_description_of_drawings must list FIG. 1, FIG. 2, and FIG. 3 in order
+- The same reference numeral must designate the same component across all figures
+- When FIG. 2 and FIG. 3 are included, each must include EVERY top-level module shown in
+  FIG. 1 as a labeled box with the same name and numeral — do not omit modules (e.g. if
+  FIG. 1 shows a synthesis engine 206, FIG. 2 and FIG. 3 must also show synthesis engine
+  206 as a labeled box)
+- brief_description_of_drawings: one sentence per figure, each starting with "FIG. N is a
+  ...", separated by blank lines — NOT one combined paragraph
+- brief_description_of_drawings must list every generated figure in consecutive numerical order
 
 Output ONLY the JSON object, no markdown fences."""
 
