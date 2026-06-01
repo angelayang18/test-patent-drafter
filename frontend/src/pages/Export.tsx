@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
@@ -73,24 +73,20 @@ export default function Export() {
   const [prerenderingFigures, setPrerenderingFigures] = useState(false);
   const [figurePngCache, setFigurePngCache] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const figuresSignatureRef = useRef("");
 
   const signature = figuresSignature(figures);
 
   useEffect(() => {
     if (figures.length === 0) {
       setFigurePngCache({});
-      figuresSignatureRef.current = "";
+      setPrerenderingFigures(false);
       return;
     }
-    if (signature === figuresSignatureRef.current) {
-      return;
-    }
-    figuresSignatureRef.current = signature;
 
     const cached = getCachedFigurePngs(signature);
     if (cached) {
       setFigurePngCache(cached);
+      setPrerenderingFigures(false);
       return;
     }
 
