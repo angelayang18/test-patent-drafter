@@ -334,9 +334,9 @@ export default function InputPage() {
                   {uploadedFiles.map((file) => (
                     <div
                       key={file.id}
-                      className="flex items-center justify-between p-4 bg-surface rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors"
+                      className="flex items-center gap-3 p-4 bg-surface rounded-lg border border-outline-variant hover:bg-surface-container-high transition-colors"
                     >
-                      <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
                         <span className="material-symbols-outlined text-primary shrink-0">
                           {fileIcon(file.filename)}
                         </span>
@@ -349,25 +349,27 @@ export default function InputPage() {
                           </span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        aria-label={`Preview ${file.filename}`}
-                        onClick={() => setPreviewFile(file)}
-                        className="text-on-surface-variant hover:text-primary hover:bg-primary/5 p-2 rounded-full transition-all shrink-0"
-                      >
-                        <span className="material-symbols-outlined">visibility</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${file.filename}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveFile(file.id);
-                        }}
-                        className="text-error hover:bg-error-container p-2 rounded-full transition-all active:scale-90 shrink-0"
-                      >
-                        <span className="material-symbols-outlined">close</span>
-                      </button>
+                      <div className="flex items-center shrink-0">
+                        <button
+                          type="button"
+                          aria-label={`Preview ${file.filename}`}
+                          onClick={() => setPreviewFile(file)}
+                          className="flex size-9 items-center justify-center text-on-surface-variant hover:text-primary hover:bg-primary/5 rounded-full transition-all"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">visibility</span>
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${file.filename}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveFile(file.id);
+                          }}
+                          className="flex size-9 items-center justify-center text-error hover:bg-error-container rounded-full transition-all active:scale-90"
+                        >
+                          <span className="material-symbols-outlined text-[20px]">close</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
