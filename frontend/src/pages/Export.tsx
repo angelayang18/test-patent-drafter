@@ -14,6 +14,11 @@ import {
   getCachedFigurePngs,
   prerenderFigurePngs,
 } from "../utils/figurePngPrerender";
+import {
+  PROVISIONAL_FILING_DISCLAIMER,
+  PROVISIONAL_FILING_NEXT_STEPS,
+  PROVISIONAL_FILING_RESOURCES,
+} from "../constants/provisionalFilingResources";
 import type { FilingInfo } from "../types/patent";
 import "../styles/patent-drafter.css";
 
@@ -241,9 +246,21 @@ export default function Export() {
             <h2 className="font-title-lg text-title-lg text-primary mb-2">
               Cover Sheet (PTO/SB/16)
             </h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
               Optional filing information included as the first page of your export. The invention
-              title comes from your Review step.
+              title comes from your Review step. For the official form, use the current{" "}
+              <a
+                href="https://www.uspto.gov/sites/default/files/documents/sb0016.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-secondary underline underline-offset-2 hover:text-primary"
+              >
+                PTO/SB/16 PDF
+              </a>{" "}
+              and verify names and addresses match before filing.
+            </p>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+              {PROVISIONAL_FILING_DISCLAIMER}
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
               {filingField("inventor_name", "Inventor name", filingInfo.inventor_name, updateFilingInfo, {
@@ -379,22 +396,13 @@ export default function Export() {
           </section>
 
           <section className="p-10 bg-surface-container-low/50 border-t border-outline-variant">
-            <h2 className="font-title-lg text-title-lg text-primary mb-6">What to do next</h2>
+            <h2 className="font-title-lg text-title-lg text-primary mb-2">What to do next</h2>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+              Your download is a draft specification. Filing with the USPTO also requires forms,
+              fees, and attorney review as needed.
+            </p>
             <div className="space-y-6">
-              {[
-                {
-                  title: "Review figures and reference numerals",
-                  body: "Ensure FIG. 1–3 match the Detailed Description and use consistent numerals (200, 202, 204…).",
-                },
-                {
-                  title: "Review the draft with a patent attorney",
-                  body: "Ensure all technical nuances are captured to maximize protection.",
-                },
-                {
-                  title: "File on patentcenter.uspto.gov",
-                  body: "Upload the DOCX or PDF and pay the provisional filing fee.",
-                },
-              ].map((step, i) => (
+              {PROVISIONAL_FILING_NEXT_STEPS.map((step, i) => (
                 <div key={step.title} className="flex gap-4">
                   <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-sm">
                     {i + 1}
@@ -406,6 +414,39 @@ export default function Export() {
                 </div>
               ))}
             </div>
+          </section>
+
+          <section className="p-10 border-t border-outline-variant">
+            <h2 className="font-title-lg text-title-lg text-primary mb-2">Filing resources</h2>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+              Compare your export to the open-source{" "}
+              <a
+                href="https://github.com/deftio/provisional-patent-template"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-secondary underline underline-offset-2 hover:text-primary"
+              >
+                deftio provisional template
+              </a>{" "}
+              and its filled example PDF for section structure and completeness.
+            </p>
+            <ul className="space-y-4">
+              {PROVISIONAL_FILING_RESOURCES.map((resource) => (
+                <li key={resource.href}>
+                  <a
+                    href={resource.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-label-md text-label-md text-secondary hover:text-primary underline underline-offset-2"
+                  >
+                    {resource.label}
+                  </a>
+                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                    {resource.description}
+                  </p>
+                </li>
+              ))}
+            </ul>
           </section>
         </div>
 

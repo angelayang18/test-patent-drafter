@@ -497,6 +497,9 @@ FIG. 1 LAYOUT RULES (system architecture):
   - Reference numerals must be plain Arabic digits with no brackets or parentheses
   - No classDef, no style directives, no colors, no subgraph styling
   - Subgraphs are allowed ONLY to nest sub-components inside a parent module (FIG. 1)
+  - Subgraph titles must NOT repeat a module numeral that also appears on a main-flow node
+    (use an untitled subgraph, e.g. subgraph parse202, or a title without numerals like
+    ["Parsing module"] — never subgraph x ["Parsing module<br/>202"] AND A["Parsing module<br/>202"])
   - Do NOT use direction statements inside the diagram
   - Maximum 12 nodes per diagram
   - Use --> for arrows; label critical flows on arrows when helpful

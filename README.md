@@ -9,7 +9,17 @@ An internal tool for drafting US provisional patent applications. Upload inventi
 - **Parallel section agents** — Six isolated LLM agents draft sections simultaneously (no cross-section context); follows the US provisional filing template from the Patent Filing Guide
 - **Figure generation** — Creates Mermaid-based patent figures with PNG rendering
 - **Review & edit** — Review and refine extracted details and drafted sections before export
-- **Export** — Download the finished application as `.docx` or `.pdf`
+- **Export** — Download the finished application as `.docx` or `.pdf`, with post-export filing guidance (USPTO links, 12-month deadline, ADS reminder)
+
+## Provisional filing references
+
+Draft structure follows the internal Patent Filing Guide and aligns with the open-source [deftio provisional patent template](https://github.com/deftio/provisional-patent-template) (BSD-2-Clause). Before filing:
+
+- Compare exports to [Prov-Patent-Template-Example.pdf](https://github.com/deftio/provisional-patent-template/blob/master/Prov-Patent-Template-Example.pdf) for section tone and completeness
+- Use the official [PTO/SB/16](https://www.uspto.gov/sites/default/files/documents/sb0016.pdf) cover sheet and an Application Data Sheet (ADS) in addition to the specification
+- File via [USPTO Patent Center](https://patentcenter.uspto.gov/); convert to a non-provisional within **12 months** of the provisional filing date
+
+This tool does not provide legal advice.
 
 ## Workflow
 

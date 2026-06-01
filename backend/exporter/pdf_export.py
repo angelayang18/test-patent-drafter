@@ -7,6 +7,7 @@ from io import BytesIO
 from typing import Any
 
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 
 from exporter.cover_sheet import add_cover_sheet_pdf
 from exporter.figure_png import prerender_figure_pngs
@@ -31,6 +32,10 @@ LINE_HEIGHT = 6
 MAX_FIGURE_WIDTH_MM = 170
 MAX_FIGURE_HEIGHT_MM = 200
 
+# fpdf2 leaves the cursor at the right margin after multi_cell; reset x so
+# back-to-back cells (e.g. multiline address, mermaid fallback) keep full width.
+_MULTI_CELL_KW = {"new_x": XPos.LMARGIN, "new_y": YPos.NEXT}
+
 
 class _PatentPdf(FPDF):
     def footer(self) -> None:
@@ -50,17 +55,30 @@ def _sanitize_text(text: str) -> str:
     )
 
 
+def _multi_cell_paragraph(
+    pdf: FPDF,
+    text: str,
+    *,
+    h: float = LINE_HEIGHT,
+    **kwargs,
+) -> None:
+    pdf.multi_cell(0, h, text, **_MULTI_CELL_KW, **kwargs)
+
+
 def _write_description_paragraph(pdf: FPDF, paragraph: str) -> None:
     """Write a detailed-description paragraph, styling numbered sub-headings."""
     header = parse_numbered_list_item_header(paragraph)
     if header:
         prefix, title, body, separator = header
+        # Header and body each get a full-width cell. write()+multi_cell() would
+        # start the body at the header's end-of-line x; when the header wraps,
+        # fpdf2 keeps that narrow width for every body line (ragged right column).
         pdf.set_font("Helvetica", style="BU", size=FONT_SIZE_BODY)
-        pdf.write(LINE_HEIGHT, _sanitize_text(f"{prefix}{title}{separator}"))
+        _multi_cell_paragraph(pdf, _sanitize_text(f"{prefix}{title}{separator}"))
         pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
-        pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(body))
+        _multi_cell_paragraph(pdf, _sanitize_text(body))
     else:
-        pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(paragraph))
+        _multi_cell_paragraph(pdf, _sanitize_text(paragraph))
     pdf.ln(2)
 
 
@@ -70,13 +88,13 @@ def _write_section_body(pdf: FPDF, text: str, section_key: str = "") -> None:
             for index, line in enumerate(block):
                 if index > 0:
                     pdf.set_x(pdf.l_margin + 10)
-                pdf.multi_cell(0, LINE_HEIGHT, line.strip())
+                _multi_cell_paragraph(pdf, line.strip())
             pdf.ln(2)
         return
 
     if section_key == "brief_description_of_drawings":
         for paragraph in split_brief_description_paragraphs(text):
-            pdf.multi_cell(0, LINE_HEIGHT, paragraph)
+            _multi_cell_paragraph(pdf, paragraph)
             pdf.ln(2)
         return
 
@@ -84,7 +102,7 @@ def _write_section_body(pdf: FPDF, text: str, section_key: str = "") -> None:
         if section_key == "description":
             _write_description_paragraph(pdf, paragraph)
         else:
-            pdf.multi_cell(0, LINE_HEIGHT, paragraph)
+            _multi_cell_paragraph(pdf, paragraph)
             pdf.ln(2)
 
 
@@ -131,26 +149,24 @@ def _add_drawing_sheets(
                 pdf.image(BytesIO(png_bytes), x=x, w=width_mm, h=height_mm)
             except Exception as exc:
                 pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
-                pdf.multi_cell(
-                    0,
-                    LINE_HEIGHT,
+                _multi_cell_paragraph(
+                    pdf,
                     _sanitize_text(
                         f"[FIG. {number} could not be embedded: {exc}. "
                         f"Mermaid source preserved below for manual export.]"
                     ),
                 )
-                pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(mermaid))
+                _multi_cell_paragraph(pdf, _sanitize_text(mermaid))
         else:
             pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
-            pdf.multi_cell(
-                0,
-                LINE_HEIGHT,
+            _multi_cell_paragraph(
+                pdf,
                 _sanitize_text(
                     f"[FIG. {number} could not be rendered. "
                     f"Mermaid source preserved below for manual export.]"
                 ),
             )
-            pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(mermaid))
+            _multi_cell_paragraph(pdf, _sanitize_text(mermaid))
 
 
 def export_patent_pdf(

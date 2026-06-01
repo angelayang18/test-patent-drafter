@@ -8,6 +8,10 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 from fpdf import FPDF
+from fpdf.enums import XPos, YPos
+
+_MULTI_CELL_KW = {"new_x": XPos.LMARGIN, "new_y": YPos.NEXT}
+_MIN_REMAINING_WIDTH_MM = 4
 
 COVER_SHEET_TITLE = "PROVISIONAL APPLICATION FOR PATENT COVER SHEET (PTO/SB/16)"
 
@@ -108,7 +112,7 @@ def add_cover_sheet_pdf(
     correspondence_email = str(info.get("correspondence_email", "")).strip()
 
     pdf.set_font("Helvetica", style="B", size=12)
-    pdf.multi_cell(0, 7, sanitize_text(COVER_SHEET_TITLE), align="C")
+    pdf.multi_cell(0, 7, sanitize_text(COVER_SHEET_TITLE), align="C", **_MULTI_CELL_KW)
     pdf.ln(6)
 
     pdf.set_font("Helvetica", size=11)
@@ -117,7 +121,9 @@ def add_cover_sheet_pdf(
         pdf.set_font("Helvetica", style="B", size=11)
         pdf.write(6, sanitize_text(f"{label}: "))
         pdf.set_font("Helvetica", size=11)
-        pdf.multi_cell(0, 6, sanitize_text(value))
+        if pdf.w - pdf.r_margin - pdf.get_x() < _MIN_REMAINING_WIDTH_MM:
+            pdf.ln(6)
+        pdf.multi_cell(0, 6, sanitize_text(value), **_MULTI_CELL_KW)
         pdf.ln(2)
 
     write_field("Title of the invention", title)
@@ -125,7 +131,7 @@ def add_cover_sheet_pdf(
     write_field("Correspondence address", correspondence_name)
     for line in correspondence_address.splitlines():
         if line.strip():
-            pdf.multi_cell(0, 6, sanitize_text(line.strip()))
+            pdf.multi_cell(0, 6, sanitize_text(line.strip()), **_MULTI_CELL_KW)
     if correspondence_email:
         write_field("Email", correspondence_email)
 

@@ -11,6 +11,7 @@ from exporter.text_format import normalize_brief_description_of_drawings
 from .figure_numerals import (
     format_numeral_validation_errors,
     reconcile_figure_labels,
+    repair_figure_numerals,
     validate_figure_numerals,
 )
 from .llm_client import generate_json, get_llm_model
@@ -145,6 +146,7 @@ def generate_patent_figures(
         try:
             brief, figures = _figures_from_response(raw)
             figures = reconcile_figure_labels(figures, description_text)
+            figures = repair_figure_numerals(figures, description_text)
             numeral_errors = validate_figure_numerals(figures, description_text)
             if numeral_errors and attempt < 2:
                 user_prompt = prompt + format_numeral_validation_errors(numeral_errors)

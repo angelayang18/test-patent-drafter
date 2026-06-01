@@ -4,6 +4,7 @@ from drafter.figure_numerals import (
     extract_description_numerals,
     extract_mermaid_numerals,
     reconcile_figure_labels,
+    repair_figure_numerals,
     validate_figure_numerals,
     _names_conflict,
 )
@@ -96,6 +97,30 @@ def test_validate_detects_duplicate_numeral_different_names():
     assert any("200" in err and "Layout preservation" in err for err in errors)
 
 
+def test_repair_removes_subcomponents_from_fig1_main_flow():
+    figures = [
+        {
+            "number": 1,
+            "mermaid": (
+                "flowchart TB\n"
+                'A["Ingestion module<br/>200"] --> B["Parsing module<br/>202"] --> '
+                'VLM["Vision-language model<br/>203"] --> C["Chunking module<br/>204"] --> '
+                'D["Indexing engine<br/>208"] --> DB["Vector database<br/>209"] --> '
+                'E["Retrieval module<br/>210"] --> CI["Cluster index<br/>211"]'
+            ),
+            "reference_numerals": {},
+        },
+    ]
+    repaired = repair_figure_numerals(figures, "")
+    mermaid = repaired[0]["mermaid"]
+    assert "203" in mermaid and "209" in mermaid and "211" in mermaid
+    assert " --> VLM" not in mermaid and "VLM -->" not in mermaid
+    assert " --> DB" not in mermaid and "DB -->" not in mermaid
+    assert " --> CI" not in mermaid and "CI -->" not in mermaid
+    assert "subgraph sg203" in mermaid
+    assert not validate_figure_numerals(repaired, "")
+
+
 def test_validate_detects_subcomponent_downstream_of_parent():
     figures = [
         {
@@ -157,6 +182,62 @@ def test_validate_detects_missing_top_level_module_in_fig2_and_fig3():
     errors = validate_figure_numerals(figures, "")
     assert any("206" in err and "FIG. 2" in err for err in errors)
     assert any("206" in err and "FIG. 3" in err for err in errors)
+
+
+def test_repair_strips_duplicate_subgraph_numerals_on_fig1():
+    figures = [
+        {
+            "number": 1,
+            "mermaid": (
+                "flowchart TB\n"
+                'subgraph left202 ["Parsing module<br/>202"]\n'
+                '  VLM["Vision-language model<br/>203"]\n'
+                "end\n"
+                'A["Ingestion module<br/>200"] --> B["Parsing module<br/>202"] --> '
+                'C["Indexing engine<br/>208"]'
+            ),
+            "reference_numerals": {},
+        },
+    ]
+    repaired = repair_figure_numerals(figures, "")
+    assert 'subgraph left202 ["Parsing module<br/>202"]' not in repaired[0]["mermaid"]
+    assert "subgraph left202" in repaired[0]["mermaid"]
+    assert not validate_figure_numerals(repaired, "")
+
+
+def test_repair_injects_missing_top_level_modules_in_fig2_and_fig3():
+    figures = [
+        {
+            "number": 1,
+            "mermaid": (
+                "flowchart TB\n"
+                'A["Ingestion module<br/>200"] --> B["Parsing module<br/>202"] --> '
+                'C["Synthesis engine<br/>206"] --> D["Indexing engine<br/>208"] --> '
+                'E["Structural reranker<br/>212"] --> F["Model optimization infrastructure<br/>216"]'
+            ),
+            "reference_numerals": {},
+        },
+        {
+            "number": 2,
+            "mermaid": (
+                "flowchart TB\n"
+                'A["Ingestion module<br/>200"] --> B["Parsing module<br/>202"] --> '
+                'D["Indexing engine<br/>208"]'
+            ),
+            "reference_numerals": {},
+        },
+        {
+            "number": 3,
+            "mermaid": 'flowchart TB\nA["Ingestion module<br/>200"] --> D["Indexing engine<br/>208"]',
+            "reference_numerals": {},
+        },
+    ]
+    repaired = repair_figure_numerals(figures, "")
+    fig2 = extract_mermaid_numerals(repaired[1]["mermaid"])
+    fig3 = extract_mermaid_numerals(repaired[2]["mermaid"])
+    assert "206" in fig2 and "212" in fig2 and "216" in fig2
+    assert "206" in fig3 and "212" in fig3 and "216" in fig3
+    assert not validate_figure_numerals(repaired, "")
 
 
 def test_validate_detects_fig1_double_representation():

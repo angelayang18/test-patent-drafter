@@ -1,6 +1,10 @@
 """
 US provisional patent specification template (opAIda Patent Filing Guide, May 2026).
 
+Section order and slot rules align with the widely used open-source deftio
+provisional template (https://github.com/deftio/provisional-patent-template, BSD-2),
+adapted for AI/NLP inventions.
+
 Each section agent receives only its slot instructions plus invention details —
 not text from other sections — to avoid cross-section context poisoning.
 """
@@ -9,9 +13,13 @@ from __future__ import annotations
 
 PROVISIONAL_FILING_OVERVIEW = """\
 PROVISIONAL PATENT APPLICATION TEMPLATE (USPTO / 35 U.S.C. §111(b)):
-This draft follows the opAIda Patent Filing Guide structure for a US provisional specification.
-The written description must meet 35 U.S.C. §112(a) enablement: a person skilled in AI/NLP must
-be able to reproduce the invention from the text alone.
+This draft follows the opAIda Patent Filing Guide and standard US provisional specification
+structure (cf. deftio provisional-patent-template). The written description must meet
+35 U.S.C. §112(a) enablement: a person skilled in AI/NLP must be able to make and use the
+invention from the description and drawings as a recipe — not from undocumented know-how.
+
+A provisional is not examined for patentability; it secures a filing date for 12 months, after
+which a non-provisional or PCT application claiming priority must be filed (strict deadline).
 
 Required specification sections (in filing order):
   1. Title of the Invention — as short and specific as possible (from invention_title)
@@ -66,8 +74,9 @@ MANDATORY: Reference figures where they illustrate the text and use reference nu
 FIG. 1". Every element in the description must appear in the drawings and vice versa.
 """,
     "claims": """\
-TEMPLATE SLOT: Informal Claims (Optional for provisional — strongly recommended)
-- Establish intended scope for a future non-provisional
+TEMPLATE SLOT: Informal Claims (Required for a complete provisional — at least one claim)
+- USPTO expects a description plus at least one claim; include multiple claims when appropriate
+- Establish intended scope for a future non-provisional conversion within 12 months
 - Independent system claim, independent method claim, dependent claims with technical detail
 - Use "A system comprising...", "A method comprising...", "The system of claim N, wherein..."
 - Each claim is one complete sentence; elements after "comprising:" on indented lines

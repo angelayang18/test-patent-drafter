@@ -6,7 +6,10 @@ import re
 from typing import Any
 
 _NODE_LABEL_RE = re.compile(r'\["([^"]+)"\]')
-_SUBGRAPH_TITLE_RE = re.compile(r'\bsubgraph\s+[\w-]+\s*\["([^"]+)"\]', re.IGNORECASE)
+_SUBGRAPH_TITLE_RE = re.compile(
+    r'\b(subgraph\s+[\w-]+)\s*\["([^"]+)"\]',
+    re.IGNORECASE,
+)
 _COMPONENT_SUFFIX = (
     r"(?:module|subsystem|engine|pipeline|index|reranker|parser|chunker|"
     r"extractor|classifier|generator|detector|processor|database|store|repository)"
@@ -22,6 +25,8 @@ _GENERIC_COMPONENT_WORDS = frozenset(
     {"module", "subsystem", "engine", "pipeline", "index", "system", "unit"}
 )
 _SUB_COMPONENT_NUMERALS = frozenset({"203", "209", "211"})
+_SUB_PARENT_MAP = {"203": "202", "209": "208", "211": "210"}
+_NODE_DEF_LINE_RE = re.compile(r'^(\s*)(\w+)\["([^"]+)"\]\s*$')
 
 
 def _label_parts(label: str) -> tuple[str, str | None]:
@@ -68,10 +73,208 @@ def _collect_labeled_parts(mermaid: str) -> list[tuple[str, str, str]]:
         if numeral:
             labeled.append((numeral, name, "node"))
     for match in _SUBGRAPH_TITLE_RE.finditer(mermaid):
-        name, numeral = _label_parts(match.group(1))
+        name, numeral = _label_parts(match.group(2))
         if numeral:
             labeled.append((numeral, name, "subgraph title"))
     return labeled
+
+
+def _strip_duplicate_subgraph_numerals(mermaid: str) -> str:
+    """
+    Remove subgraph title brackets when the same numeral labels a flow node.
+
+    LLMs often duplicate modules as parallel column subgraph headers and main-flow
+    boxes; dropping the titled subgraph header keeps nested sub-components valid.
+    """
+
+    node_numerals = set(extract_mermaid_numerals(mermaid).keys())
+    if not node_numerals:
+        return mermaid
+
+    def replacer(match: re.Match[str]) -> str:
+        prefix, title = match.group(1), match.group(2)
+        _, numeral = _label_parts(title)
+        if numeral and numeral in node_numerals:
+            return prefix
+        return match.group(0)
+
+    return _SUBGRAPH_TITLE_RE.sub(replacer, mermaid)
+
+
+def _inject_missing_top_level_nodes(
+    mermaid: str,
+    top_level: dict[str, str],
+) -> str:
+    """Append labeled boxes for FIG. 1 modules missing from FIG. 2 or FIG. 3."""
+    present = set(extract_mermaid_numerals(mermaid).keys())
+    missing = {
+        numeral: name
+        for numeral, name in top_level.items()
+        if numeral not in present
+    }
+    if not missing:
+        return mermaid
+
+    additions: list[str] = []
+    sorted_items = sorted(missing.items(), key=lambda item: int(item[0]))
+    for numeral, name in sorted_items:
+        node_id = f"auto{numeral}"
+        additions.append(f'{node_id}["{name}<br/>{numeral}"]')
+
+    if len(sorted_items) > 1:
+        for index in range(len(sorted_items) - 1):
+            left, right = sorted_items[index][0], sorted_items[index + 1][0]
+            additions.append(f"auto{left} --> auto{right}")
+
+    return mermaid.rstrip() + "\n" + "\n".join(additions)
+
+
+def _map_node_ids_to_numerals(mermaid: str) -> dict[str, str]:
+    """Map Mermaid node ids to reference numerals from bracket labels."""
+    mapping: dict[str, str] = {}
+    for match in re.finditer(r'(\w+)\["([^"]+)"\]', mermaid):
+        _, numeral = _label_parts(match.group(2))
+        if numeral:
+            mapping[match.group(1)] = numeral
+    return mapping
+
+
+def _repair_fig1_subcomponent_hierarchy(mermaid: str) -> str:
+    """
+    Remove sub-components (203, 209, 211) from the main --> chain and nest them
+    under their parent module in an untitled subgraph.
+    """
+    id_to_numeral = _map_node_ids_to_numerals(mermaid)
+    sub_ids = {
+        node_id
+        for node_id, numeral in id_to_numeral.items()
+        if numeral in _SUB_COMPONENT_NUMERALS
+    }
+    if not sub_ids:
+        return mermaid
+
+    numeral_to_id = {numeral: node_id for node_id, numeral in id_to_numeral.items()}
+    sub_defs: dict[str, str] = {}
+    out_lines: list[str] = []
+
+    for line in mermaid.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            out_lines.append(line)
+            continue
+
+        node_match = _NODE_DEF_LINE_RE.match(stripped)
+        if node_match and node_match.group(2) in sub_ids:
+            _, numeral = _label_parts(node_match.group(3))
+            if numeral:
+                sub_defs[numeral] = stripped
+            continue
+
+        if "-->" in stripped and not stripped.lower().startswith("subgraph"):
+            filtered_tokens: list[str] = []
+            for token in re.split(r"\s*-->\s*", stripped):
+                piece = token.strip()
+                if not piece:
+                    continue
+                node_id = piece.split("[")[0].strip()
+                if node_id in sub_ids:
+                    label_match = re.search(r'\["([^"]+)"\]', piece)
+                    if label_match:
+                        _, numeral = _label_parts(label_match.group(1))
+                        if numeral:
+                            sub_defs[numeral] = (
+                                f'{node_id}["{label_match.group(1)}"]'
+                            )
+                    continue
+                filtered_tokens.append(piece)
+            if len(filtered_tokens) >= 2:
+                indent = line[: len(line) - len(line.lstrip())]
+                out_lines.append(indent + " --> ".join(filtered_tokens))
+            continue
+
+        out_lines.append(line)
+
+    inserted: set[str] = set()
+    final_lines: list[str] = []
+    for line in out_lines:
+        final_lines.append(line)
+        stripped = line.strip()
+        indent = line[: len(line) - len(line.lstrip())]
+
+        for sub_numeral, parent in _SUB_PARENT_MAP.items():
+            if sub_numeral in inserted:
+                continue
+            sub_line = sub_defs.get(sub_numeral)
+            if not sub_line:
+                continue
+            parent_id = numeral_to_id.get(parent)
+            if not parent_id or f'{parent_id}["' not in stripped:
+                continue
+            final_lines.append(f"{indent}subgraph sg{sub_numeral}")
+            final_lines.append(f"{indent}    {sub_line}")
+            final_lines.append(f"{indent}end")
+            inserted.add(sub_numeral)
+
+    return "\n".join(final_lines)
+
+
+def _fig1_top_level_modules(fig1_mermaid: str) -> dict[str, str]:
+    fig1_map = extract_mermaid_numerals(fig1_mermaid)
+    return {
+        numeral: name
+        for numeral, name in fig1_map.items()
+        if numeral not in _SUB_COMPONENT_NUMERALS and "|CONFLICT|" not in name
+    }
+
+
+def repair_figure_numerals(
+    figures: list[dict[str, Any]],
+    description_text: str = "",
+) -> list[dict[str, Any]]:
+    """
+    Auto-fix common LLM figure issues before validation.
+
+    - FIG. 1: drop subgraph titles that duplicate a main-flow node numeral
+    - FIG. 1: pull sub-components 203/209/211 out of the main chain and nest under parents
+    - FIG. 2/3: inject any missing top-level module boxes from FIG. 1
+    """
+    fig1 = next((figure for figure in figures if int(figure.get("number", 0)) == 1), None)
+    top_level: dict[str, str] = {}
+    if fig1:
+        fig1_mermaid = _strip_duplicate_subgraph_numerals(str(fig1.get("mermaid", "")))
+        fig1_mermaid = _repair_fig1_subcomponent_hierarchy(fig1_mermaid)
+        top_level = _fig1_top_level_modules(fig1_mermaid)
+    else:
+        fig1_mermaid = None
+
+    canonical = build_canonical_numeral_map(figures, description_text)
+    repaired: list[dict[str, Any]] = []
+
+    for figure in figures:
+        number = int(figure.get("number", 0))
+        mermaid = str(figure.get("mermaid", ""))
+
+        if number == 1 and fig1_mermaid is not None:
+            mermaid = fig1_mermaid
+        elif number in (2, 3) and top_level:
+            mermaid = _inject_missing_top_level_nodes(mermaid, top_level)
+            if canonical:
+                mermaid = _apply_canonical_labels(mermaid, canonical)
+
+        reference_numerals = dict(figure.get("reference_numerals") or {})
+        for numeral, name in extract_mermaid_numerals(mermaid).items():
+            if "|CONFLICT|" not in name:
+                reference_numerals[numeral] = name
+
+        repaired.append(
+            {
+                **figure,
+                "mermaid": mermaid,
+                "reference_numerals": reference_numerals,
+            }
+        )
+
+    return repaired
 
 
 def extract_description_numerals(description_text: str) -> dict[str, str]:
@@ -383,8 +586,7 @@ def _validate_fig1_hierarchy(mermaid: str, figure_map: dict[str, str]) -> list[s
         if numeral:
             numeral_order.append(numeral)
 
-    parent_of = {"203": "202", "209": "208", "211": "210"}
-    for sub, parent in parent_of.items():
+    for sub, parent in _SUB_PARENT_MAP.items():
         if sub in numeral_order and parent in numeral_order:
             if numeral_order.index(sub) > numeral_order.index(parent):
                 sub_name = figure_map.get(sub, sub)
@@ -416,5 +618,7 @@ def format_numeral_validation_errors(errors: list[str]) -> str:
         "FIG. 2 and FIG. 3 must each include every top-level module from FIG. 1 "
         "as a labeled box — do not skip modules such as a synthesis engine 206. "
         "FIG. 1 must show one single processing chain — never duplicate a module as "
-        "both a subgraph/column header and a main-flow box."
+        "both a subgraph/column header and a main-flow box. "
+        "Use untitled subgraphs (subgraph id only) or subgraph titles without numerals "
+        "when nesting sub-components."
     )
