@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
+import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
+import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useUndoRedo } from "../hooks/useUndoRedo";
@@ -30,11 +32,14 @@ export default function Draft() {
   const [regeneratingAll, setRegeneratingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
 
   const activeSectionRef = useRef(activeSection);
   const sectionsRef = useRef(sections);
   const pendingSectionIdsRef = useRef<PatentSectionId[]>([]);
   const parallelDraftInitiated = useRef(false);
+  const suppressSavedIndicator = useRef(true);
+  const prevActiveSectionRef = useRef(activeSection);
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -61,9 +66,23 @@ export default function Draft() {
 
   useEffect(() => {
     resetDraftHistory(sectionsRef.current[activeSection] ?? "");
+    const timer = window.setTimeout(() => {
+      suppressSavedIndicator.current = false;
+    }, 0);
+    return () => window.clearTimeout(timer);
     // Load stored content for the initial section once on mount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (prevActiveSectionRef.current === activeSection) return;
+    prevActiveSectionRef.current = activeSection;
+    suppressSavedIndicator.current = true;
+    const timer = window.setTimeout(() => {
+      suppressSavedIndicator.current = false;
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [activeSection]);
 
   useEffect(() => {
     if (!invention) {
@@ -128,6 +147,7 @@ export default function Draft() {
           resetDraftHistory(drafted[active]);
         }
         saveToStorage();
+        flashSaved();
       } catch (err) {
         setError(
           err instanceof ApiError
@@ -147,6 +167,7 @@ export default function Draft() {
       saveToStorage,
       setPendingSections,
       setSections,
+      flashSaved,
     ],
   );
 
@@ -167,6 +188,9 @@ export default function Draft() {
       }
       flushActiveSection(activeSection, draftText);
       saveToStorage();
+      if (!suppressSavedIndicator.current) {
+        flashSaved();
+      }
     }, 500);
     return () => window.clearTimeout(timer);
   }, [
@@ -176,6 +200,7 @@ export default function Draft() {
     regeneratingSection,
     flushActiveSection,
     saveToStorage,
+    flashSaved,
   ]);
 
   const handleDraftAllEmpty = () => {
@@ -217,6 +242,7 @@ export default function Draft() {
         pushDraftText(content);
       }
       saveToStorage();
+      flashSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to regenerate section.");
     } finally {
@@ -264,41 +290,25 @@ export default function Draft() {
       mainClassName="flex flex-col min-h-0 flex-1 overflow-hidden"
       footer={
         <WorkflowFooter
-          left={
-            <Link
-              to="/review"
-              className="flex items-center gap-2 px-6 py-2.5 text-on-surface-variant hover:text-on-surface font-label-md text-label-md transition-colors"
-            >
-              <span className="material-symbols-outlined">arrow_back</span>
-              Back
-            </Link>
-          }
+          left={<WorkflowBackLink to="/review" />}
           right={
             <>
+              <SavedIndicator visible={savedVisible} />
               <UndoRedoToolbar
                 canUndo={canUndo && !isBusy}
                 canRedo={canRedo && !isBusy}
                 onUndo={undo}
                 onRedo={redo}
               />
-              <button
-                type="button"
-                onClick={() => saveToStorage()}
-                className="px-6 py-2.5 border border-secondary text-secondary font-label-md text-label-md rounded-lg hover:bg-secondary/5 transition-all active:scale-95"
-              >
-                Save Draft
-              </button>
-              <Link
+              <WorkflowNextLink
                 to="/figures"
                 onClick={() => {
                   flushActiveSection(activeSection, draftText);
                   saveToStorage();
                 }}
-                className="px-8 py-2.5 bg-primary text-on-primary font-label-md text-label-md rounded-lg shadow-md hover:bg-primary-container transition-all active:scale-95 flex items-center gap-2"
               >
                 Next: Figures
-                <span className="material-symbols-outlined">arrow_forward</span>
-              </Link>
+              </WorkflowNextLink>
             </>
           }
         />
@@ -494,11 +504,6 @@ export default function Draft() {
               </button>
               <div className="flex items-center gap-4 text-outline font-label-md text-label-md">
                 <span>{draftText.length.toLocaleString()} characters</span>
-                <div className="h-4 w-[1px] bg-outline-variant" />
-                <span className="text-green-600 flex items-center gap-1">
-                  <span className="material-symbols-outlined text-[16px]">cloud_done</span>
-                  Autosaved
-                </span>
               </div>
             </div>
           </div>

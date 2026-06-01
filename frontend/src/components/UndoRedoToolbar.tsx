@@ -11,6 +11,7 @@ export function UndoRedoToolbar({ canUndo, canRedo, onUndo, onRedo }: UndoRedoTo
       <button
         type="button"
         disabled={!canUndo}
+        onMouseDown={(event) => event.preventDefault()}
         onClick={onUndo}
         title="Undo"
         className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container disabled:opacity-40 disabled:cursor-not-allowed transition-all"
@@ -20,6 +21,7 @@ export function UndoRedoToolbar({ canUndo, canRedo, onUndo, onRedo }: UndoRedoTo
       <button
         type="button"
         disabled={!canRedo}
+        onMouseDown={(event) => event.preventDefault()}
         onClick={onRedo}
         title="Redo"
         className="p-2 rounded-lg border border-outline-variant text-on-surface-variant hover:bg-surface-container disabled:opacity-40 disabled:cursor-not-allowed transition-all"

@@ -7,7 +7,9 @@ import {
   type UploadQueueItem,
 } from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
-import { usePatentWorkflow } from "../context/PatentWorkflowContext";
+import { WorkflowNextButton } from "../components/WorkflowNavButtons";
+import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
+import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
 import { ApiError, extractInvention, uploadDocuments } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
@@ -47,6 +49,7 @@ export default function InputPage() {
   const [submitting, setSubmitting] = useState(false);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
 
   const uploading = uploadQueue.some(
     (item) => item.status === "pending" || item.status === "parsing",
@@ -215,15 +218,12 @@ export default function InputPage() {
       footer={
         <WorkflowFooter
           right={
-            <button
-              type="button"
+            <WorkflowNextButton
               disabled={submitting || uploading}
               onClick={() => void handleContinue()}
-              className="px-8 py-2.5 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container shadow-md transition-all flex items-center gap-2 active:scale-95 disabled:opacity-60"
             >
-              {submitting ? "Extracting..." : "Next: Extract Invention Details"}
-              <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-            </button>
+              {submitting ? "Extracting..." : "Next: Review"}
+            </WorkflowNextButton>
           }
         />
       }
@@ -349,6 +349,14 @@ export default function InputPage() {
                           </span>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        aria-label={`Preview ${file.filename}`}
+                        onClick={() => setPreviewFile(file)}
+                        className="text-on-surface-variant hover:text-primary hover:bg-primary/5 p-2 rounded-full transition-all shrink-0"
+                      >
+                        <span className="material-symbols-outlined">visibility</span>
+                      </button>
                       <button
                         type="button"
                         aria-label={`Remove ${file.filename}`}
@@ -511,6 +519,7 @@ export default function InputPage() {
           </section>
         </div>
       </div>
+      <SourceFilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
     </AppShell>
   );
 }

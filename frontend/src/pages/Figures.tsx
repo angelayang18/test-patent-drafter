@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import MermaidPreview from "../components/MermaidPreview";
 import { AppShell } from "../components/AppShell";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { WorkflowFooter } from "../components/WorkflowFooter";
+import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
   ApiError,
@@ -118,24 +118,11 @@ export default function Figures() {
       mainClassName="overflow-y-auto max-w-[1200px] w-full mx-auto px-margin-desktop py-10"
       footer={
         <WorkflowFooter
-          left={
-            <Link
-              to="/draft"
-              className="flex items-center gap-2 text-on-surface-variant hover:text-on-surface font-label-md text-label-md"
-            >
-              <span className="material-symbols-outlined">arrow_back</span>
-              Back to Draft
-            </Link>
-          }
+          left={<WorkflowBackLink to="/draft" />}
           right={
-            <Link
-              to="/export"
-              onClick={() => saveToStorage()}
-              className="px-8 py-2.5 bg-primary text-on-primary font-label-md text-label-md rounded-lg shadow-md hover:bg-primary-container transition-all flex items-center gap-2"
-            >
+            <WorkflowNextLink to="/export" onClick={() => saveToStorage()}>
               Next: Export
-              <span className="material-symbols-outlined">arrow_forward</span>
-            </Link>
+            </WorkflowNextLink>
           }
         />
       }

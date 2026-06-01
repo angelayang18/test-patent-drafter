@@ -50,12 +50,6 @@ export function AppShell({
           </button>
           <span
             className="material-symbols-outlined text-on-primary cursor-default opacity-60 p-2 rounded-full"
-            title="Notifications (coming soon)"
-          >
-            notifications
-          </span>
-          <span
-            className="material-symbols-outlined text-on-primary cursor-default opacity-60 p-2 rounded-full"
             title="Account (coming soon)"
           >
             account_circle

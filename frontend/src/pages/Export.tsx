@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
+import { WorkflowFooter } from "../components/WorkflowFooter";
+import { WorkflowBackLink } from "../components/WorkflowNavButtons";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
   ApiError,
@@ -204,6 +206,7 @@ export default function Export() {
       step="export"
       layout="document"
       mainClassName="px-margin-mobile md:px-margin-desktop py-10 pb-16"
+      footer={<WorkflowFooter left={<WorkflowBackLink to="/figures" />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
         {prerenderingFigures && (

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 interface WorkflowFooterProps {
   left?: ReactNode;
-  right: ReactNode;
+  right?: ReactNode;
 }
 
 /** Standard h-20 workflow navigation bar used across all steps. */
