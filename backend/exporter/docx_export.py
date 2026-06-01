@@ -13,7 +13,6 @@ from docx.shared import Inches, Pt
 from exporter.cover_sheet import add_cover_sheet_docx
 from exporter.figure_png import prerender_figure_pngs
 from exporter.section_format import (
-    SECTIONS_REQUIRING_PAGE_BREAK_AFTER,
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
     cross_reference_body,
     ordered_section_keys,
@@ -223,9 +222,6 @@ def export_patent_docx(
             _add_section_body(doc, body, key)
         else:
             _add_section_body(doc, sections[key], key)
-
-        if key in SECTIONS_REQUIRING_PAGE_BREAK_AFTER:
-            _add_page_break(doc)
 
         if (
             not figures_inserted

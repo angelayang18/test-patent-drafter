@@ -11,7 +11,6 @@ from fpdf import FPDF
 from exporter.cover_sheet import add_cover_sheet_pdf
 from exporter.figure_png import prerender_figure_pngs
 from exporter.section_format import (
-    SECTIONS_REQUIRING_PAGE_BREAK_AFTER,
     SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
     cross_reference_body,
     ordered_section_keys,
@@ -202,9 +201,6 @@ def export_patent_pdf(
         pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
         _write_section_body(pdf, _sanitize_text(body), key)
         pdf.ln(4)
-
-        if key in SECTIONS_REQUIRING_PAGE_BREAK_AFTER:
-            pdf.add_page()
 
         if (
             not figures_inserted
