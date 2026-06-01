@@ -62,6 +62,8 @@ class ScrapeRequest(BaseModel):
 
 class ExtractRequest(BaseModel):
     combined_text: str
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
 
 
 class InventionDetails(BaseModel):
@@ -78,6 +80,8 @@ class ExtractFieldRequest(BaseModel):
     combined_text: str
     field: str
     current: Optional[InventionDetails] = None
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
 
 
 class DraftRequest(InventionDetails):
@@ -251,6 +255,8 @@ def extract_field(body: ExtractFieldRequest) -> dict:
             body.combined_text,
             body.field.strip(),
             current=current,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -269,7 +275,11 @@ def extract_details(body: ExtractRequest) -> dict:
         raise HTTPException(status_code=400, detail="combined_text is required.")
 
     try:
-        return extract_invention_details(body.combined_text)
+        return extract_invention_details(
+            body.combined_text,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

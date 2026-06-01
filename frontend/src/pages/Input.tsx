@@ -10,7 +10,12 @@ import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowNextButton } from "../components/WorkflowNavButtons";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
 import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
-import { ApiError, extractInvention, uploadDocuments } from "../services/api";
+import {
+  ApiError,
+  extractionNotesFromSources,
+  extractInvention,
+  uploadDocuments,
+} from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
 import "../styles/patent-drafter.css";
@@ -194,7 +199,7 @@ export default function InputPage() {
       }
 
       setExtractPhase("Extracting invention details (parallel AI analysis)…");
-      const details = await extractInvention(combined);
+      const details = await extractInvention(combined, extractionNotesFromSources(inputSources));
       setInvention(details);
       saveToStorage();
       navigate("/review");
@@ -385,6 +390,66 @@ export default function InputPage() {
               Optionally pull content from Confluence, a public webpage, or paste text directly.
             </p>
             <div className="space-y-6">
+              <div className="p-6 border border-outline-variant rounded-xl bg-surface-container-low">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2 bg-primary/10 rounded-lg">
+                    <span className="material-symbols-outlined text-primary">tune</span>
+                  </div>
+                  <div>
+                    <h3 className="font-title-lg text-title-lg">Relevance guidance</h3>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                      Optional — helps the AI focus extraction on what matters for the patent.
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label
+                      htmlFor="relevant-content-notes"
+                      className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
+                    >
+                      Relevant content
+                    </label>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
+                      Topics, documents, or sections the AI should prioritize (e.g. core RAG
+                      architecture, claims chart in deck slide 5).
+                    </p>
+                    <textarea
+                      id="relevant-content-notes"
+                      className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
+                      placeholder="e.g. Hybrid retrieval pipeline, embedding model, agent orchestration…"
+                      rows={3}
+                      value={inputSources.relevantContentNotes}
+                      onChange={(e) =>
+                        setInputSources({ relevantContentNotes: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label
+                      htmlFor="irrelevant-content-notes"
+                      className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
+                    >
+                      Irrelevant content
+                    </label>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
+                      Material to ignore or de-emphasize (e.g. marketing pages, HR wiki, roadmap
+                      slides).
+                    </p>
+                    <textarea
+                      id="irrelevant-content-notes"
+                      className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
+                      placeholder="e.g. Company overview, pricing, team bios, %%qa%% template blocks…"
+                      rows={3}
+                      value={inputSources.irrelevantContentNotes}
+                      onChange={(e) =>
+                        setInputSources({ irrelevantContentNotes: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="p-6 border border-outline-variant rounded-xl bg-surface hover:border-secondary transition-all group">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-2 bg-secondary/10 rounded-lg group-hover:bg-secondary/20 transition-colors">

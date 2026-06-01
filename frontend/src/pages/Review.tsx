@@ -5,6 +5,7 @@ import { AutoResizeTextarea } from "../components/AutoResizeTextarea";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { HorizontalSplitPane } from "../components/HorizontalSplitPane";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
+import { SourceTextPreviewModal } from "../components/SourceTextPreviewModal";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
@@ -13,6 +14,7 @@ import { defaultInvention, usePatentWorkflow, type UploadedSourceFile } from "..
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import {
   ApiError,
+  extractionNotesFromSources,
   extractInvention,
   extractInventionField,
   type ExtractableInventionField,
@@ -123,6 +125,8 @@ export default function Review() {
     invention,
     setInvention,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
     gatherSourceText,
     saveToStorage,
   } = usePatentWorkflow();
@@ -143,6 +147,11 @@ export default function Review() {
   );
   const [error, setError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
+  const [textPreview, setTextPreview] = useState<{
+    title: string;
+    subtitle?: string;
+    content: string;
+  } | null>(null);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
 
   const initialSynced = useRef(false);
@@ -182,7 +191,7 @@ export default function Review() {
         setError("No source material available. Go back to Input and add sources.");
         return;
       }
-      const details = await extractInvention(combined);
+      const details = await extractInvention(combined, extractionNotes);
       push(details);
       setInvention(details);
       saveToStorage();
@@ -204,7 +213,7 @@ export default function Review() {
         setError("No source material available. Go back to Input and add sources.");
         return;
       }
-      const patch = await extractInventionField(combined, field, form);
+      const patch = await extractInventionField(combined, field, form, extractionNotes);
       const next = { ...form, ...patch };
       push(next);
       setInvention(next);
@@ -222,6 +231,19 @@ export default function Review() {
   };
 
   const isBusy = regeneratingField !== null;
+
+  const extractionNotes = extractionNotesFromSources(inputSources);
+  const confluenceSource = cachedRemoteSources.confluence;
+  const websiteSource = cachedRemoteSources.website;
+  const pastedText = inputSources.pastedText.trim();
+  const relevantNotes = inputSources.relevantContentNotes.trim();
+  const irrelevantNotes = inputSources.irrelevantContentNotes.trim();
+  const hasRelevanceGuidance = relevantNotes.length > 0 || irrelevantNotes.length > 0;
+  const hasConfluence = Boolean(confluenceSource?.content?.trim());
+  const hasWebsite = Boolean(websiteSource?.content?.trim());
+  const hasPasted = pastedText.length > 0;
+  const hasUploaded = uploadedFiles.length > 0;
+  const hasAnySource = hasUploaded || hasConfluence || hasWebsite || hasPasted;
 
   const textareaClassName =
     "w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none";
@@ -317,37 +339,175 @@ export default function Review() {
               </p>
             </div>
             <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar">
-              {uploadedFiles.length === 0 ? (
+              {!hasAnySource && !hasRelevanceGuidance ? (
                 <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  No uploaded files. Sources may include pasted text, Confluence, or a website URL.
+                  No source material found. Go back to Input and add files, pasted text, Confluence,
+                  or a website URL.
                 </p>
               ) : (
-                uploadedFiles.map((file) => (
-                  <div
-                    key={file.id}
-                    className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4"
-                  >
-                    <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
-                      <span className="material-symbols-outlined">{fileIcon(file.filename)}</span>
+                <>
+                  {hasRelevanceGuidance && (
+                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
+                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
+                        <span className="material-symbols-outlined">tune</span>
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <p className="font-label-md text-label-md text-on-surface">
+                          Relevance guidance
+                        </p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">
+                          {[relevantNotes && "relevant", irrelevantNotes && "irrelevant"]
+                            .filter(Boolean)
+                            .join(" & ")}{" "}
+                          notes for extraction
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Preview relevance guidance"
+                        onClick={() =>
+                          setTextPreview({
+                            title: "Relevance guidance",
+                            subtitle: "Applied during AI extraction",
+                            content: [
+                              relevantNotes &&
+                                `Relevant — prioritize and extract from:\n${relevantNotes}`,
+                              irrelevantNotes &&
+                                `Irrelevant — ignore or de-emphasize:\n${irrelevantNotes}`,
+                            ]
+                              .filter(Boolean)
+                              .join("\n\n"),
+                          })
+                        }
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">visibility</span>
+                      </button>
                     </div>
-                    <div className="flex-grow min-w-0">
-                      <p className="font-label-md text-label-md text-on-surface truncate">
-                        {file.filename}
-                      </p>
-                      <p className="font-body-sm text-body-sm text-on-surface-variant">
-                        {formatFileSize(file.sizeBytes)}
-                      </p>
+                  )}
+
+                  {hasConfluence && confluenceSource && (
+                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
+                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-secondary/10 text-secondary shrink-0">
+                        <span
+                          className="material-symbols-outlined"
+                          style={{ fontVariationSettings: "'FILL' 1" }}
+                        >
+                          extension
+                        </span>
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <p className="font-label-md text-label-md text-on-surface truncate">
+                          Confluence · {confluenceSource.spaceKey}
+                        </p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant truncate">
+                          {confluenceSource.url}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Preview Confluence space ${confluenceSource.spaceKey}`}
+                        onClick={() =>
+                          setTextPreview({
+                            title: `Confluence · ${confluenceSource.spaceKey}`,
+                            subtitle: confluenceSource.url,
+                            content: confluenceSource.content,
+                          })
+                        }
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">visibility</span>
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      aria-label={`Preview ${file.filename}`}
-                      onClick={() => setPreviewFile(file)}
-                      className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
+                  )}
+
+                  {hasWebsite && websiteSource && (
+                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
+                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
+                        <span className="material-symbols-outlined">language</span>
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <p className="font-label-md text-label-md text-on-surface truncate">
+                          Website
+                        </p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant truncate">
+                          {websiteSource.url}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Preview website ${websiteSource.url}`}
+                        onClick={() =>
+                          setTextPreview({
+                            title: "Website",
+                            subtitle: websiteSource.url,
+                            content: websiteSource.content,
+                          })
+                        }
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">visibility</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {hasPasted && (
+                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
+                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
+                        <span className="material-symbols-outlined">content_paste</span>
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <p className="font-label-md text-label-md text-on-surface truncate">
+                          Pasted text
+                        </p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">
+                          {pastedText.length.toLocaleString()} characters
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Preview pasted text"
+                        onClick={() =>
+                          setTextPreview({
+                            title: "Pasted text",
+                            subtitle: "Text entered on the Input step",
+                            content: pastedText,
+                          })
+                        }
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">visibility</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {uploadedFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4"
                     >
-                      <span className="material-symbols-outlined text-[20px]">visibility</span>
-                    </button>
-                  </div>
-                ))
+                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
+                        <span className="material-symbols-outlined">{fileIcon(file.filename)}</span>
+                      </div>
+                      <div className="flex-grow min-w-0">
+                        <p className="font-label-md text-label-md text-on-surface truncate">
+                          {file.filename}
+                        </p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">
+                          {formatFileSize(file.sizeBytes)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label={`Preview ${file.filename}`}
+                        onClick={() => setPreviewFile(file)}
+                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
+                      >
+                        <span className="material-symbols-outlined text-[20px]">visibility</span>
+                      </button>
+                    </div>
+                  ))}
+                </>
               )}
             </div>
           </>
@@ -394,6 +554,14 @@ export default function Review() {
         }
       />
       <SourceFilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      {textPreview && (
+        <SourceTextPreviewModal
+          title={textPreview.title}
+          subtitle={textPreview.subtitle}
+          content={textPreview.content}
+          onClose={() => setTextPreview(null)}
+        />
+      )}
     </AppShell>
   );
 }

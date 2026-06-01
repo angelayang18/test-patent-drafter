@@ -115,11 +115,33 @@ export async function scrapeUrl(url: string): Promise<SourceContent> {
   };
 }
 
-export async function extractInvention(combinedText: string): Promise<InventionDetails> {
+export interface ExtractionNotes {
+  relevantNotes?: string;
+  irrelevantNotes?: string;
+}
+
+export function extractionNotesFromSources(sources: {
+  relevantContentNotes?: string;
+  irrelevantContentNotes?: string;
+}): ExtractionNotes {
+  return {
+    relevantNotes: sources.relevantContentNotes,
+    irrelevantNotes: sources.irrelevantContentNotes,
+  };
+}
+
+export async function extractInvention(
+  combinedText: string,
+  notes?: ExtractionNotes,
+): Promise<InventionDetails> {
   return requestJson<InventionDetails>("/extract", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ combined_text: combinedText }),
+    body: JSON.stringify({
+      combined_text: combinedText,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
   });
 }
 
@@ -129,6 +151,7 @@ export async function extractInventionField(
   combinedText: string,
   field: ExtractableInventionField,
   current?: InventionDetails,
+  notes?: ExtractionNotes,
 ): Promise<Partial<InventionDetails>> {
   return requestJson<Partial<InventionDetails>>("/extract/field", {
     method: "POST",
@@ -137,6 +160,8 @@ export async function extractInventionField(
       combined_text: combinedText,
       field,
       current: current ?? null,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
     }),
   });
 }

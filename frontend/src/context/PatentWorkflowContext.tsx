@@ -37,6 +37,8 @@ export interface UploadedSourceFile {
 }
 
 export interface InputSources {
+  relevantContentNotes: string;
+  irrelevantContentNotes: string;
   confluenceUrl: string;
   confluenceSpaceKey: string;
   confluenceToken: string;
@@ -54,6 +56,7 @@ interface PatentWorkflowContextValue {
   filingInfo: FilingInfo;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
+  cachedRemoteSources: CachedRemoteSources;
   setInvention: (details: InventionDetails) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
@@ -93,6 +96,8 @@ const defaultInvention: InventionDetails = {
 };
 
 const emptyInputSources: InputSources = {
+  relevantContentNotes: "",
+  irrelevantContentNotes: "",
   confluenceUrl: "",
   confluenceSpaceKey: "",
   confluenceToken: "",
@@ -395,6 +400,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       filingInfo,
       uploadedFiles,
       inputSources,
+      cachedRemoteSources,
       setInvention,
       setSection,
       setSections,
@@ -428,6 +434,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       filingInfo,
       uploadedFiles,
       inputSources,
+      cachedRemoteSources,
       setInvention,
       setSection,
       setSections,

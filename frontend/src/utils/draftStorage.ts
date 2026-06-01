@@ -39,6 +39,8 @@ export interface DraftFileExport {
 }
 
 const emptyInputSources: InputSources = {
+  relevantContentNotes: "",
+  irrelevantContentNotes: "",
   confluenceUrl: "",
   confluenceSpaceKey: "",
   confluenceToken: "",
