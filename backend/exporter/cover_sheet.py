@@ -7,6 +7,7 @@ from typing import Any
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
+from fpdf import FPDF
 
 COVER_SHEET_TITLE = "PROVISIONAL APPLICATION FOR PATENT COVER SHEET (PTO/SB/16)"
 
@@ -84,3 +85,48 @@ def add_cover_sheet_docx(
 
     doc.add_page_break()
 
+
+def add_cover_sheet_pdf(
+    pdf: FPDF,
+    *,
+    invention_title: str,
+    filing_info: dict[str, Any] | None,
+    sanitize_text,
+) -> None:
+    """Insert a PTO/SB/16-style cover sheet as the first page of the PDF."""
+    if not _has_cover_sheet_data(filing_info, invention_title):
+        return
+
+    info = filing_info or {}
+    title = invention_title.strip()
+    inventor_name = str(info.get("inventor_name", "")).strip() or "[Inventor name]"
+    residence = _inventor_residence(info) or "[City, State, Country]"
+    correspondence_name = str(info.get("correspondence_name", "")).strip() or inventor_name
+    correspondence_address = (
+        str(info.get("correspondence_address", "")).strip() or "[Correspondence address]"
+    )
+    correspondence_email = str(info.get("correspondence_email", "")).strip()
+
+    pdf.set_font("Helvetica", style="B", size=12)
+    pdf.multi_cell(0, 7, sanitize_text(COVER_SHEET_TITLE), align="C")
+    pdf.ln(6)
+
+    pdf.set_font("Helvetica", size=11)
+
+    def write_field(label: str, value: str) -> None:
+        pdf.set_font("Helvetica", style="B", size=11)
+        pdf.write(6, sanitize_text(f"{label}: "))
+        pdf.set_font("Helvetica", size=11)
+        pdf.multi_cell(0, 6, sanitize_text(value))
+        pdf.ln(2)
+
+    write_field("Title of the invention", title)
+    write_field("Inventor", f"{inventor_name}, residing at {residence}")
+    write_field("Correspondence address", correspondence_name)
+    for line in correspondence_address.splitlines():
+        if line.strip():
+            pdf.multi_cell(0, 6, sanitize_text(line.strip()))
+    if correspondence_email:
+        write_field("Email", correspondence_email)
+
+    pdf.add_page()
