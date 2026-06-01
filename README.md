@@ -9,17 +9,68 @@ An internal tool for drafting US provisional patent applications. Upload inventi
 - **Parallel section agents** — Six isolated LLM agents draft sections simultaneously (no cross-section context); follows the US provisional filing template from the Patent Filing Guide
 - **Figure generation** — Creates Mermaid-based patent figures with PNG rendering
 - **Review & edit** — Review and refine extracted details and drafted sections before export
-- **Export** — Download the finished application as `.docx` or `.pdf`, with post-export filing guidance (USPTO links, 12-month deadline, ADS reminder)
+- **Export** — Download the finished application as `.docx` or `.pdf`, with an optional cover sheet (PTO/SB/16-style)
+- **Filing guide** — Header **Filing guide** (info icon) opens step-by-step US provisional submission instructions, checklists, and USPTO links
 
-## Provisional filing references
+## Patent submission process
 
-Draft structure follows the internal Patent Filing Guide and aligns with the open-source [deftio provisional patent template](https://github.com/deftio/provisional-patent-template) (BSD-2-Clause). Before filing:
+This tool drafts a **US provisional patent application specification**. It does **not** file with the USPTO for you and does **not** provide legal advice. Have a registered patent attorney review your draft before filing.
 
-- Compare exports to [Prov-Patent-Template-Example.pdf](https://github.com/deftio/provisional-patent-template/blob/master/Prov-Patent-Template-Example.pdf) for section tone and completeness
-- Use the official [PTO/SB/16](https://www.uspto.gov/sites/default/files/documents/sb0016.pdf) cover sheet and an Application Data Sheet (ADS) in addition to the specification
-- File via [USPTO Patent Center](https://patentcenter.uspto.gov/); convert to a non-provisional within **12 months** of the provisional filing date
+Open **Filing guide** in the app header for the full walkthrough (filing package, fee tiers, checklist, Patent Center steps, and links). The summary below matches that guide.
 
-This tool does not provide legal advice.
+### End-to-end path
+
+1. **Research & draft** — Prior art search, confirm novelty, draft specification and drawings with §112(a) enablement. Use this app through Export.
+2. **Assemble package** — Specification PDF, drawings PDF (if any), ADS or PTO/SB/16 cover sheet data, correct entity fee.
+3. **Submit** — [Patent Center](https://patentcenter.uspto.gov/) → Provisions → Provisional Application; validate PDFs, pay, save receipt.
+4. **Follow up** — “Patent pending” after acceptance; file non-provisional before month 12.
+
+### What you file with the USPTO
+
+| Item | Required? |
+|------|-----------|
+| Written specification (description) | Yes |
+| Cover sheet (PTO/SB/16) or ADS data | Yes |
+| Filing fee | Yes |
+| Drawings | Strongly recommended when figures explain the invention |
+| Claims | Optional for provisional; informal claims strongly recommended |
+
+### Provisional vs. non-provisional (short)
+
+| | Provisional | Non-provisional |
+|---|-------------|-----------------|
+| Examined | No | Yes |
+| Becomes a patent | No | Yes, if granted |
+| Formal claims at filing | No | Yes |
+| Typical fee | Lower (micro/small/standard tiers — verify [fee schedule](https://www.uspto.gov/learning-and-resources/fees-and-payment/uspto-fee-schedule)) | Much higher |
+| Duration | 12 months unless converted | Up to 20 years if granted |
+
+### Workflow in this app
+
+1. **Input** → **Review** → **Draft** → **Figures** → **Export** (optional cover sheet fields)
+2. **File externally** on Patent Center with the package above
+
+### Before you file (checklist)
+
+- [ ] Prior art search documented ([Patent Public Search](https://ppubs.uspto.gov/pubwebapp/), [Google Patents](https://patents.google.com/))
+- [ ] Specification enables reproduction (§112(a)) — how the invention works, not only outcomes
+- [ ] Drawings labeled and referenced in the detailed description
+- [ ] Informal claims included
+- [ ] ADS or [PTO/SB/16](https://www.uspto.gov/sites/default/files/documents/sb0016.pdf) verified
+- [ ] Entity tier and fee confirmed on fee schedule
+- [ ] Text-searchable PDFs (not scans)
+- [ ] Calendar: month 11 and month 12 deadlines
+
+### Patent Center (summary)
+
+1. Account at [my.uspto.gov](https://my.uspto.gov/) → [Patent Center](https://patentcenter.uspto.gov/)
+2. **File New Submission → Provisions → Provisional Application for Patent**
+3. ADS / cover sheet → upload specification PDF → upload drawings PDF → validate → pay → submit
+4. Save application number and receipt
+
+### References
+
+Compare exports to the [deftio provisional template example PDF](https://github.com/deftio/provisional-patent-template/blob/master/Prov-Patent-Template-Example.pdf). USPTO: [provisional overview](https://www.uspto.gov/patents/basics/types-patent-applications/provisional-application-patent), [Inventors Assistance Center](https://www.uspto.gov/learning-and-resources/support/contact-us/inventors-assistance-center).
 
 ## Workflow
 
@@ -123,7 +174,8 @@ patent-drafter/
 ├── frontend/
 │   └── src/
 │       ├── pages/           # Input, Review, Draft, Figures, Export
-│       ├── components/      # Shared UI components
+│       ├── components/      # AppShell, filing guide panel, modals
+│       ├── constants/       # Patent submission guide copy
 │       ├── context/         # Workflow state management
 │       └── services/        # API client
 ├── .env.example

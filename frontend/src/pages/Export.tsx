@@ -16,11 +16,7 @@ import {
   getCachedFigurePngs,
   prerenderFigurePngs,
 } from "../utils/figurePngPrerender";
-import {
-  PROVISIONAL_FILING_DISCLAIMER,
-  PROVISIONAL_FILING_NEXT_STEPS,
-  PROVISIONAL_FILING_RESOURCES,
-} from "../constants/provisionalFilingResources";
+import { PROVISIONAL_FILING_DISCLAIMER } from "../constants/patentSubmissionGuide";
 import type { FilingInfo } from "../types/patent";
 import "../styles/patent-drafter.css";
 
@@ -262,8 +258,21 @@ export default function Export() {
               </a>{" "}
               and verify names and addresses match before filing.
             </p>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
               {PROVISIONAL_FILING_DISCLAIMER}
+            </p>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+              <strong className="font-semibold text-on-surface">
+                For the full filing walkthrough (USPTO package, fees, checklist, Patent Center
+                steps), open{" "}
+                <span
+                  className="material-symbols-outlined text-[16px] align-middle font-normal text-secondary"
+                  aria-hidden
+                >
+                  info
+                </span>{" "}
+                Filing guide in the header.
+              </strong>
             </p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
               {filingField("inventor_name", "Inventor name", filingInfo.inventor_name, updateFilingInfo, {
@@ -396,60 +405,6 @@ export default function Export() {
                 </button>
               </div>
             </div>
-          </section>
-
-          <section className="p-10 bg-surface-container-low/50 border-t border-outline-variant">
-            <h2 className="font-title-lg text-title-lg text-primary mb-2">What to do next</h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
-              Your download is a draft specification. Filing with the USPTO also requires forms,
-              fees, and attorney review as needed.
-            </p>
-            <div className="space-y-6">
-              {PROVISIONAL_FILING_NEXT_STEPS.map((step, i) => (
-                <div key={step.title} className="flex gap-4">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-bold text-sm">
-                    {i + 1}
-                  </div>
-                  <div>
-                    <h4 className="font-label-md text-label-md text-on-surface">{step.title}</h4>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant">{step.body}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="p-10 border-t border-outline-variant">
-            <h2 className="font-title-lg text-title-lg text-primary mb-2">Filing resources</h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
-              Compare your export to the open-source{" "}
-              <a
-                href="https://github.com/deftio/provisional-patent-template"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-secondary underline underline-offset-2 hover:text-primary"
-              >
-                deftio provisional template
-              </a>{" "}
-              and its filled example PDF for section structure and completeness.
-            </p>
-            <ul className="space-y-4">
-              {PROVISIONAL_FILING_RESOURCES.map((resource) => (
-                <li key={resource.href}>
-                  <a
-                    href={resource.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-label-md text-label-md text-secondary hover:text-primary underline underline-offset-2"
-                  >
-                    {resource.label}
-                  </a>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
-                    {resource.description}
-                  </p>
-                </li>
-              ))}
-            </ul>
           </section>
         </div>
 
