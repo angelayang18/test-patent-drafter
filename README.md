@@ -104,8 +104,8 @@ Compare exports to the [deftio provisional template example PDF](https://github.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/angelayang18/opaida-test-patent-drafter.git
-cd opaida-test-patent-drafter
+git clone https://github.com/angelayang18/test-patent-drafter.git
+cd test-patent-drafter
 ```
 
 ### 2. Configure environment variables
