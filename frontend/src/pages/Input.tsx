@@ -271,15 +271,79 @@ export default function InputPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
-        <div className="lg:col-span-7 flex flex-col gap-6">
-          <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
-            <h2 className="font-headline-md text-headline-md text-primary mb-2">Upload Documents</h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
-              Upload invention write-ups or technical decks; text is extracted automatically for AI
-              analysis.
-            </p>
-            <input
+      <div className="flex flex-col gap-10">
+        <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
+          <div className="flex items-start gap-3 mb-6">
+            <div className="p-2 bg-primary/10 rounded-lg shrink-0">
+              <span className="material-symbols-outlined text-primary">tune</span>
+            </div>
+            <div>
+              <h2 className="font-headline-md text-headline-md text-primary">Relevance guidance</h2>
+              <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                Optional — tell the AI what to prioritize or ignore across all sources below.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
+            <div>
+              <label
+                htmlFor="relevant-content-notes"
+                className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
+              >
+                Relevant content
+              </label>
+              <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
+                Topics, documents, or sections to prioritize (e.g. core RAG architecture, slide 5 in
+                the deck).
+              </p>
+              <textarea
+                id="relevant-content-notes"
+                className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
+                placeholder="e.g. Hybrid retrieval pipeline, embedding model, agent orchestration…"
+                rows={3}
+                value={inputSources.relevantContentNotes}
+                onChange={(e) => setInputSources({ relevantContentNotes: e.target.value })}
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="irrelevant-content-notes"
+                className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
+              >
+                Irrelevant content
+              </label>
+              <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
+                Material to ignore or de-emphasize (e.g. marketing pages, HR wiki, roadmap slides).
+              </p>
+              <textarea
+                id="irrelevant-content-notes"
+                className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
+                placeholder="e.g. Company overview, pricing, team bios, %%qa%% template blocks…"
+                rows={3}
+                value={inputSources.irrelevantContentNotes}
+                onChange={(e) => setInputSources({ irrelevantContentNotes: e.target.value })}
+              />
+            </div>
+          </div>
+        </section>
+
+        <div>
+          <h2 className="font-headline-md text-headline-md text-primary">Add source material</h2>
+          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+            Upload technical documents or paste a description — use either or both.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-gutter mt-6 items-start">
+            <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card h-full">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <span className="material-symbols-outlined text-primary">cloud_upload</span>
+                </div>
+                <h3 className="font-title-lg text-title-lg">Upload documents</h3>
+              </div>
+              <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
+                PDF, DOCX, or PPTX — text is extracted automatically for AI analysis.
+              </p>
+              <input
               ref={fileInputRef}
               id={fileInputId}
               type="file"
@@ -301,7 +365,7 @@ export default function InputPage() {
                   fileInputRef.current?.click();
                 }
               }}
-              className={`border-2 border-dashed border-outline-variant rounded-xl p-12 flex flex-col items-center justify-center bg-surface-container-low transition-all group ${
+              className={`border-2 border-dashed border-outline-variant rounded-xl p-8 lg:p-10 flex flex-col items-center justify-center bg-surface-container-low transition-all group ${
                 uploading
                   ? "opacity-60 cursor-not-allowed"
                   : "hover:bg-primary/5 hover:border-primary cursor-pointer"
@@ -380,88 +444,48 @@ export default function InputPage() {
                 </div>
               )}
             </div>
-          </section>
+            </section>
+
+            <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card h-full flex flex-col">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-secondary/10 rounded-lg">
+                  <span className="material-symbols-outlined text-secondary">content_paste</span>
+                </div>
+                <h3 className="font-title-lg text-title-lg">Paste text</h3>
+              </div>
+              <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
+                Free-form invention description when you do not have files or links ready.
+              </p>
+              <textarea
+                className="w-full flex-1 min-h-[200px] bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y"
+                placeholder="Describe your invention in detail here..."
+                rows={8}
+                value={inputSources.pastedText}
+                onChange={(e) => setInputSources({ pastedText: e.target.value })}
+              />
+            </section>
+          </div>
         </div>
 
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card h-full">
-            <h2 className="font-headline-md text-headline-md text-primary mb-2">Connect a Source</h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
-              Optionally pull content from Confluence, a public webpage, or paste text directly.
-            </p>
-            <div className="space-y-6">
-              <div className="p-6 border border-outline-variant rounded-xl bg-surface-container-low">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-primary/10 rounded-lg">
-                    <span className="material-symbols-outlined text-primary">tune</span>
-                  </div>
-                  <div>
-                    <h3 className="font-title-lg text-title-lg">Relevance guidance</h3>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
-                      Optional — helps the AI focus extraction on what matters for the patent.
-                    </p>
-                  </div>
+        <div>
+          <h2 className="font-headline-md text-headline-md text-primary">Connect external sources</h2>
+          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+            Optionally pull content from Confluence or scrape a public webpage.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-gutter mt-6 items-start">
+            <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card h-full">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-secondary/10 rounded-lg">
+                  <span
+                    className="material-symbols-outlined text-secondary"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    extension
+                  </span>
                 </div>
-                <div className="space-y-4">
-                  <div>
-                    <label
-                      htmlFor="relevant-content-notes"
-                      className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-                    >
-                      Relevant content
-                    </label>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                      Topics, documents, or sections the AI should prioritize (e.g. core RAG
-                      architecture, claims chart in deck slide 5).
-                    </p>
-                    <textarea
-                      id="relevant-content-notes"
-                      className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
-                      placeholder="e.g. Hybrid retrieval pipeline, embedding model, agent orchestration…"
-                      rows={3}
-                      value={inputSources.relevantContentNotes}
-                      onChange={(e) =>
-                        setInputSources({ relevantContentNotes: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label
-                      htmlFor="irrelevant-content-notes"
-                      className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-                    >
-                      Irrelevant content
-                    </label>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                      Material to ignore or de-emphasize (e.g. marketing pages, HR wiki, roadmap
-                      slides).
-                    </p>
-                    <textarea
-                      id="irrelevant-content-notes"
-                      className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
-                      placeholder="e.g. Company overview, pricing, team bios, %%qa%% template blocks…"
-                      rows={3}
-                      value={inputSources.irrelevantContentNotes}
-                      onChange={(e) =>
-                        setInputSources({ irrelevantContentNotes: e.target.value })
-                      }
-                    />
-                  </div>
-                </div>
+                <h3 className="font-title-lg text-title-lg">Confluence</h3>
               </div>
-
-              <div className="p-6 border border-outline-variant rounded-xl bg-surface hover:border-secondary transition-all group">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-secondary/10 rounded-lg group-hover:bg-secondary/20 transition-colors">
-                    <span
-                      className="material-symbols-outlined text-secondary"
-                      style={{ fontVariationSettings: "'FILL' 1" }}
-                    >
-                      extension
-                    </span>
-                  </div>
-                  <h3 className="font-title-lg text-title-lg">Confluence</h3>
-                </div>
+              <div className="space-y-4">
                 <div className="space-y-4">
                   <div>
                     <label
@@ -535,55 +559,36 @@ export default function InputPage() {
                   </div>
                 </div>
               </div>
+            </section>
 
-              <div className="p-6 border border-outline-variant rounded-xl bg-surface hover:border-secondary transition-all group">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-secondary/10 rounded-lg group-hover:bg-secondary/20 transition-colors">
-                    <span className="material-symbols-outlined text-secondary">public</span>
-                  </div>
-                  <h3 className="font-title-lg text-title-lg">Website URL</h3>
+            <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card h-full">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="p-2 bg-secondary/10 rounded-lg">
+                  <span className="material-symbols-outlined text-secondary">public</span>
                 </div>
-                <div>
-                  <label
-                    htmlFor="website-url"
-                    className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-                  >
-                    Scraping URL
-                  </label>
-                  <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                    Public product or documentation page whose text will be scraped for context.
-                  </p>
-                  <input
-                    id="website-url"
-                    className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm"
-                    placeholder="https://example.com/product-page"
-                    type="url"
-                    value={inputSources.websiteUrl}
-                    onChange={(e) => setInputSources({ websiteUrl: e.target.value })}
-                  />
-                </div>
+                <h3 className="font-title-lg text-title-lg">Website URL</h3>
               </div>
-
-              <div className="p-6 border border-outline-variant rounded-xl bg-surface hover:border-secondary transition-all group">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="p-2 bg-secondary/10 rounded-lg group-hover:bg-secondary/20 transition-colors">
-                    <span className="material-symbols-outlined text-secondary">content_paste</span>
-                  </div>
-                  <h3 className="font-title-lg text-title-lg">Paste Text</h3>
-                </div>
+              <div>
+                <label
+                  htmlFor="website-url"
+                  className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
+                >
+                  Scraping URL
+                </label>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                  Free-form invention description when you do not have files or links ready.
+                  Public product or documentation page whose text will be scraped for context.
                 </p>
-                <textarea
-                  className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-none"
-                  placeholder="Describe your invention in detail here..."
-                  rows={4}
-                  value={inputSources.pastedText}
-                  onChange={(e) => setInputSources({ pastedText: e.target.value })}
+                <input
+                  id="website-url"
+                  className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm"
+                  placeholder="https://example.com/product-page"
+                  type="url"
+                  value={inputSources.websiteUrl}
+                  onChange={(e) => setInputSources({ websiteUrl: e.target.value })}
                 />
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
         </div>
       </div>
       <SourceFilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
