@@ -54,6 +54,15 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
     if not mermaid.lower().startswith("flowchart"):
         direction = _default_flowchart_direction(number)
         mermaid = f"flowchart {direction}\n{mermaid}"
+    else:
+        # Patent figures must use vertical layout for Word/PDF export.
+        mermaid = re.sub(
+            r"^flowchart\s+(?:LR|RL)\b",
+            "flowchart TB",
+            mermaid,
+            count=1,
+            flags=re.IGNORECASE,
+        )
 
     if _MERMAID_FORBIDDEN.search(mermaid):
         raise ValueError(

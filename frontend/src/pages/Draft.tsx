@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
+import { AttorneyFeedbackPanel } from "../components/AttorneyFeedbackPanel";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
@@ -19,8 +20,17 @@ import "../styles/patent-drafter.css";
 
 export default function Draft() {
   const navigate = useNavigate();
-  const { invention, sections, filingInfo, setSection, setSections, saveToStorage } =
-    usePatentWorkflow();
+  const {
+    invention,
+    sections,
+    filingInfo,
+    attorneyFeedback,
+    setAttorneyFeedback,
+    captureAiInitialSections,
+    setSection,
+    setSections,
+    saveToStorage,
+  } = usePatentWorkflow();
 
   const [activeSection, setActiveSection] = useState<PatentSectionId>("field");
   const [parallelDrafting, setParallelDrafting] = useState(false);
@@ -140,7 +150,9 @@ export default function Draft() {
         const drafted = await draftAllSections(
           invention ?? defaultInvention,
           sectionIds,
+          attorneyFeedback,
         );
+        captureAiInitialSections(drafted);
         setSections({ ...sectionsRef.current, ...drafted });
         const active = activeSectionRef.current;
         if (sectionIds.includes(active) && drafted[active]) {
@@ -163,6 +175,8 @@ export default function Draft() {
     [
       clearPendingSections,
       invention,
+      attorneyFeedback,
+      captureAiInitialSections,
       resetDraftHistory,
       saveToStorage,
       setPendingSections,
@@ -236,7 +250,11 @@ export default function Draft() {
     pushDraftText(draftText);
     setRegeneratingSection(sectionId);
     try {
-      const content = await draftSection(invention ?? defaultInvention, sectionId);
+      const content = await draftSection(invention ?? defaultInvention, sectionId, {
+        priorDraft: sectionsRef.current[sectionId] ?? draftText,
+        attorneyFeedback: attorneyFeedback[sectionId] ?? "",
+      });
+      captureAiInitialSections({ [sectionId]: content });
       setSection(sectionId, content);
       if (activeSectionRef.current === sectionId) {
         pushDraftText(content);
@@ -443,6 +461,14 @@ export default function Draft() {
                 <strong>Regenerate Section</strong> for this section only.
               </p>
             )}
+
+            <AttorneyFeedbackPanel
+              sectionId={activeSection}
+              sectionLabel={SECTION_LABELS[activeSection]}
+              value={attorneyFeedback[activeSection] ?? ""}
+              onChange={(comment) => setAttorneyFeedback(activeSection, comment)}
+              disabled={isBusy}
+            />
 
             <div className="relative group">
               <div className="absolute -right-16 top-0 hidden lg:flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">

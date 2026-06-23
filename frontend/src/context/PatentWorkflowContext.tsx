@@ -11,8 +11,9 @@ import type {
   FilingInfo,
   InventionDetails,
   PatentFigure,
+  PatentSectionId,
 } from "../types/patent";
-import { EMPTY_FILING_INFO } from "../types/patent";
+import { EMPTY_FILING_INFO, emptyAttorneyFeedback } from "../types/patent";
 import {
   clearActiveWorkflow,
   defaultDraftName,
@@ -57,9 +58,17 @@ interface PatentWorkflowContextValue {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources: CachedRemoteSources;
+  attorneyFeedback: Record<PatentSectionId, string>;
+  attorneyFeedbackGlobal: string;
+  aiInitialSections: Record<string, string>;
+  includeInLearningCorpus: boolean;
   setInvention: (details: InventionDetails) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
+  captureAiInitialSections: (drafted: Record<string, string>) => void;
+  setAttorneyFeedback: (sectionId: PatentSectionId, comment: string) => void;
+  setAttorneyFeedbackGlobal: (comment: string) => void;
+  setIncludeInLearningCorpus: (include: boolean) => void;
   setFiguresResult: (result: FiguresResult) => void;
   updateFigure: (number: number, patch: Partial<PatentFigure>) => void;
   setBriefDescriptionOfDrawings: (text: string) => void;
@@ -135,6 +144,18 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const [cachedRemoteSources, setCachedRemoteSourcesState] = useState<CachedRemoteSources>(
     initial.cachedRemoteSources ?? {},
   );
+  const [attorneyFeedback, setAttorneyFeedbackState] = useState<
+    Record<PatentSectionId, string>
+  >(initial.attorneyFeedback ?? emptyAttorneyFeedback());
+  const [attorneyFeedbackGlobal, setAttorneyFeedbackGlobalState] = useState(
+    initial.attorneyFeedbackGlobal ?? "",
+  );
+  const [aiInitialSections, setAiInitialSectionsState] = useState<Record<string, string>>(
+    initial.aiInitialSections ?? {},
+  );
+  const [includeInLearningCorpus, setIncludeInLearningCorpusState] = useState(
+    initial.includeInLearningCorpus ?? true,
+  );
 
   const writeStoragePayload = useCallback((payload: StoredWorkflow) => {
     const write = () => {
@@ -161,6 +182,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      attorneyFeedback,
+      attorneyFeedbackGlobal,
+      aiInitialSections,
+      includeInLearningCorpus,
     }),
     [
       invention,
@@ -171,6 +196,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      attorneyFeedback,
+      attorneyFeedbackGlobal,
+      aiInitialSections,
+      includeInLearningCorpus,
     ],
   );
 
@@ -191,6 +220,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setUploadedFilesState(next.uploadedFiles);
       setInputSourcesState(next.inputSources);
       setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
+      setAttorneyFeedbackState(next.attorneyFeedback ?? emptyAttorneyFeedback());
+      setAttorneyFeedbackGlobalState(next.attorneyFeedbackGlobal ?? "");
+      setAiInitialSectionsState(next.aiInitialSections ?? {});
+      setIncludeInLearningCorpusState(next.includeInLearningCorpus ?? true);
       writeStoragePayload(next);
     },
     [writeStoragePayload],
@@ -234,6 +267,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     setUploadedFilesState(stored.uploadedFiles);
     setInputSourcesState(stored.inputSources);
     setCachedRemoteSourcesState(stored.cachedRemoteSources ?? {});
+    setAttorneyFeedbackState(stored.attorneyFeedback ?? emptyAttorneyFeedback());
+    setAttorneyFeedbackGlobalState(stored.attorneyFeedbackGlobal ?? "");
+    setAiInitialSectionsState(stored.aiInitialSections ?? {});
+    setIncludeInLearningCorpusState(stored.includeInLearningCorpus ?? true);
   }, []);
 
   const setInvention = useCallback((details: InventionDetails) => {
@@ -246,6 +283,30 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setSections = useCallback((next: Record<string, string>) => {
     setSectionsState(next);
+  }, []);
+
+  const captureAiInitialSections = useCallback((drafted: Record<string, string>) => {
+    setAiInitialSectionsState((prev) => {
+      const merged = { ...prev };
+      for (const [sectionId, content] of Object.entries(drafted)) {
+        if (!merged[sectionId]?.trim() && content.trim()) {
+          merged[sectionId] = content;
+        }
+      }
+      return merged;
+    });
+  }, []);
+
+  const setAttorneyFeedback = useCallback((sectionId: PatentSectionId, comment: string) => {
+    setAttorneyFeedbackState((prev) => ({ ...prev, [sectionId]: comment }));
+  }, []);
+
+  const setAttorneyFeedbackGlobal = useCallback((comment: string) => {
+    setAttorneyFeedbackGlobalState(comment);
+  }, []);
+
+  const setIncludeInLearningCorpus = useCallback((include: boolean) => {
+    setIncludeInLearningCorpusState(include);
   }, []);
 
   const setFiguresResult = useCallback((result: FiguresResult) => {
@@ -276,6 +337,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
           uploadedFiles,
           inputSources,
           cachedRemoteSources,
+          attorneyFeedback,
+          attorneyFeedbackGlobal,
+          aiInitialSections,
+          includeInLearningCorpus,
         });
         return next;
       });
@@ -289,6 +354,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      attorneyFeedback,
+      attorneyFeedbackGlobal,
+      aiInitialSections,
+      includeInLearningCorpus,
       writeStoragePayload,
     ],
   );
@@ -322,6 +391,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
           uploadedFiles: next,
           inputSources,
           cachedRemoteSources,
+          attorneyFeedback,
+          attorneyFeedbackGlobal,
+          aiInitialSections,
+          includeInLearningCorpus,
         });
         return next;
       });
@@ -334,6 +407,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       filingInfo,
       inputSources,
       cachedRemoteSources,
+      attorneyFeedback,
+      attorneyFeedbackGlobal,
+      aiInitialSections,
+      includeInLearningCorpus,
       writeStoragePayload,
     ],
   );
@@ -389,6 +466,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     setUploadedFilesState([]);
     setInputSourcesState(emptyInputSources);
     setCachedRemoteSourcesState({});
+    setAttorneyFeedbackState(emptyAttorneyFeedback());
+    setAttorneyFeedbackGlobalState("");
+    setAiInitialSectionsState({});
+    setIncludeInLearningCorpusState(true);
   }, []);
 
   const value = useMemo(
@@ -401,9 +482,17 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      attorneyFeedback,
+      attorneyFeedbackGlobal,
+      aiInitialSections,
+      includeInLearningCorpus,
       setInvention,
       setSection,
       setSections,
+      captureAiInitialSections,
+      setAttorneyFeedback,
+      setAttorneyFeedbackGlobal,
+      setIncludeInLearningCorpus,
       setFiguresResult,
       updateFigure,
       setBriefDescriptionOfDrawings: updateBriefDescriptionOfDrawings,
@@ -435,9 +524,17 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      attorneyFeedback,
+      attorneyFeedbackGlobal,
+      aiInitialSections,
+      includeInLearningCorpus,
       setInvention,
       setSection,
       setSections,
+      captureAiInitialSections,
+      setAttorneyFeedback,
+      setAttorneyFeedbackGlobal,
+      setIncludeInLearningCorpus,
       setFiguresResult,
       updateFigure,
       updateBriefDescriptionOfDrawings,

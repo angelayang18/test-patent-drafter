@@ -166,9 +166,15 @@ export async function extractInventionField(
   });
 }
 
+export interface DraftSectionOptions {
+  priorDraft?: string;
+  attorneyFeedback?: string;
+}
+
 export async function draftSection(
   invention: InventionDetails,
   section: string,
+  options?: DraftSectionOptions,
 ): Promise<string> {
   const data = await requestJson<{ section: string; content: string }>("/draft", {
     method: "POST",
@@ -176,6 +182,8 @@ export async function draftSection(
     body: JSON.stringify({
       ...invention,
       section,
+      prior_draft: options?.priorDraft?.trim() ?? "",
+      attorney_feedback: options?.attorneyFeedback?.trim() ?? "",
     }),
   });
 
@@ -186,6 +194,7 @@ export async function draftSection(
 export async function draftAllSections(
   invention: InventionDetails,
   sections?: string[],
+  attorneyFeedback?: Record<string, string>,
 ): Promise<Record<string, string>> {
   const data = await requestJson<{ sections: Record<string, string> }>("/draft/all", {
     method: "POST",
@@ -193,10 +202,45 @@ export async function draftAllSections(
     body: JSON.stringify({
       ...invention,
       ...(sections?.length ? { sections } : {}),
+      attorney_feedback: attorneyFeedback ?? {},
     }),
   });
 
   return data.sections;
+}
+
+export interface LearningSubmitPayload extends InventionDetails {
+  sections: Record<string, string>;
+  aiInitialSections?: Record<string, string>;
+  attorneyFeedback?: Record<string, string>;
+  attorneyFeedbackGlobal?: string;
+  includeInCorpus?: boolean;
+}
+
+export async function submitLearningCorpus(
+  payload: LearningSubmitPayload,
+): Promise<{ success: boolean; stored: boolean; submission_id?: number }> {
+  return requestJson<{ success: boolean; stored: boolean; submission_id?: number }>(
+    "/learning/submit",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        invention_title: payload.invention_title,
+        technical_field: payload.technical_field,
+        problem_being_solved: payload.problem_being_solved,
+        core_technical_solution: payload.core_technical_solution,
+        novel_mechanism: payload.novel_mechanism,
+        alternative_embodiments: payload.alternative_embodiments,
+        key_components: payload.key_components,
+        sections: payload.sections,
+        ai_initial_sections: payload.aiInitialSections ?? {},
+        attorney_feedback: payload.attorneyFeedback ?? {},
+        attorney_feedback_global: payload.attorneyFeedbackGlobal?.trim() ?? "",
+        include_in_corpus: payload.includeInCorpus ?? true,
+      }),
+    },
+  );
 }
 
 export async function generateFigures(

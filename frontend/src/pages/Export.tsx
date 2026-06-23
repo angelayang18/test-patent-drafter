@@ -10,6 +10,7 @@ import {
   downloadBlob,
   exportDocx,
   exportPdf,
+  submitLearningCorpus,
 } from "../services/api";
 import {
   figuresSignature,
@@ -65,6 +66,12 @@ export default function Export() {
     figures,
     briefDescriptionOfDrawings,
     filingInfo,
+    attorneyFeedback,
+    attorneyFeedbackGlobal,
+    aiInitialSections,
+    includeInLearningCorpus,
+    setAttorneyFeedbackGlobal,
+    setIncludeInLearningCorpus,
     setFilingInfo,
     clearWorkflow,
   } = usePatentWorkflow();
@@ -147,6 +154,24 @@ export default function Export() {
     return fresh;
   };
 
+  const submitCorpusIfEnabled = async () => {
+    if (!includeInLearningCorpus || !invention) {
+      return;
+    }
+    try {
+      await submitLearningCorpus({
+        ...invention,
+        sections: exportSections,
+        aiInitialSections,
+        attorneyFeedback,
+        attorneyFeedbackGlobal,
+        includeInCorpus: includeInLearningCorpus,
+      });
+    } catch {
+      // Export succeeded; learning submission is best-effort and non-blocking.
+    }
+  };
+
   const handleDownloadDocx = async () => {
     if (!hasContent) {
       setError("No draft sections to export. Complete drafting and figures first.");
@@ -161,6 +186,7 @@ export default function Export() {
         figure_pngs: figurePngs,
       });
       downloadBlob(blob, "patent-draft.docx");
+      await submitCorpusIfEnabled();
       setDocxState("done");
       window.setTimeout(() => setDocxState("idle"), 2000);
     } catch (err) {
@@ -184,6 +210,7 @@ export default function Export() {
         figure_pngs: figurePngs,
       });
       downloadBlob(blob, "patent-draft.pdf");
+      await submitCorpusIfEnabled();
       setPdfState("done");
       window.setTimeout(() => setPdfState("idle"), 2000);
     } catch (err) {
@@ -314,6 +341,49 @@ export default function Export() {
                 )}
               </div>
             </div>
+          </section>
+
+          <section className="p-10 border-b border-outline-variant bg-surface-container-low/30">
+            <div className="flex items-start gap-3 mb-4">
+              <span className="material-symbols-outlined text-secondary text-[24px] shrink-0">
+                rate_review
+              </span>
+              <div>
+                <h2 className="font-title-lg text-title-lg text-primary mb-1">
+                  Patent professional feedback
+                </h2>
+                <p className="font-body-sm text-body-sm text-on-surface-variant">
+                  Cross-cutting notes from attorney review. Per-section feedback can be added on
+                  the Draft step. Submitted with your download to improve future applications
+                  org-wide.
+                </p>
+              </div>
+            </div>
+            <label className="block space-y-1.5 mb-4" htmlFor="attorney-feedback-global">
+              <span className="font-label-md text-label-md text-on-surface">
+                Global feedback
+              </span>
+              <textarea
+                id="attorney-feedback-global"
+                rows={4}
+                value={attorneyFeedbackGlobal}
+                onChange={(event) => setAttorneyFeedbackGlobal(event.target.value)}
+                placeholder="e.g. Prefer narrower independent claims; keep background prior-art citations tighter; use consistent reference numeral style across description…"
+                className="w-full rounded-lg border border-outline-variant bg-surface-container-lowest px-4 py-2.5 font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-secondary/40 resize-y min-h-[96px]"
+              />
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeInLearningCorpus}
+                onChange={(event) => setIncludeInLearningCorpus(event.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-outline-variant text-secondary focus:ring-secondary/40"
+              />
+              <span className="font-body-sm text-body-sm text-on-surface-variant">
+                Contribute this draft and feedback to improve future applications (recommended for
+                internal use).
+              </span>
+            </label>
           </section>
 
           <section className="p-10">

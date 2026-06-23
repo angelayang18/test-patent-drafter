@@ -52,7 +52,8 @@ def test_normalize_figure_converts_horizontal_layout_to_tb():
         "mermaid": "flowchart LR\nA[10 Module] --> B[12 Parser]",
     }
     result = _normalize_figure(raw, 1)
-    assert result["mermaid"].startswith("flowchart TB")
+    assert "flowchart TB" in result["mermaid"]
+    assert "flowchart LR" not in result["mermaid"]
 
 
 def test_normalize_figure_fixes_empty_subgraph_titles():

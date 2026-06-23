@@ -192,9 +192,16 @@ def _ensure_claim_element_punctuation(lines: list[str]) -> list[str]:
             if not cleaned.endswith("."):
                 cleaned = f"{cleaned}."
         elif is_penultimate:
-            cleaned = re.sub(r";\s*and\s*$", "", cleaned.rstrip(".,"), flags=re.IGNORECASE)
-            cleaned = re.sub(r"\band\s*$", "", cleaned.rstrip(".,"), flags=re.IGNORECASE)
-            cleaned = f"{cleaned.strip()}; and"
+            last_element = elements[-1]
+            if re.match(r"^and\s+", last_element, flags=re.IGNORECASE):
+                cleaned = cleaned.rstrip(".,")
+                if not cleaned.endswith(";"):
+                    cleaned = f"{cleaned};"
+            else:
+                cleaned = re.sub(r";\s*and\s*$", "", cleaned.rstrip(".,"), flags=re.IGNORECASE)
+                cleaned = re.sub(r"\band\s*$", "", cleaned.rstrip(".,"), flags=re.IGNORECASE)
+                cleaned = cleaned.rstrip(";").strip()
+                cleaned = f"{cleaned}; and"
         else:
             cleaned = cleaned.rstrip(".,")
             if not cleaned.endswith(";"):
@@ -305,6 +312,32 @@ def validate_claim_count(text: str) -> list[str]:
             )
 
     return errors
+
+
+def validate_abstract_word_count(text: str, max_words: int = _ABSTRACT_MAX_WORDS) -> list[str]:
+    """Return errors when abstract exceeds the USPTO word limit."""
+    cleaned = sanitize_patent_prose(text).replace("\n", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    words = cleaned.split()
+    if len(words) > max_words:
+        return [
+            f"Abstract exceeds {max_words} words (found {len(words)}). "
+            "Shorten while preserving the core technical disclosure."
+        ]
+    if not words:
+        return ["Abstract is empty."]
+    return []
+
+
+def validate_section_output(section: str, text: str) -> list[str]:
+    """Return validation errors for a generated section before export."""
+    if section == "claims":
+        return validate_claim_count(text)
+    if section == "abstract":
+        return validate_abstract_word_count(text)
+    if not text.strip():
+        return [f"The {section} section is empty."]
+    return []
 
 
 def normalize_claims_text(text: str) -> str:

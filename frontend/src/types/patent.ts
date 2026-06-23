@@ -73,3 +73,10 @@ export const SECTION_LABELS: Record<PatentSectionId, string> = {
   claims: "Claims",
   abstract: "Abstract",
 };
+
+export function emptyAttorneyFeedback(): Record<PatentSectionId, string> {
+  return Object.fromEntries(PATENT_SECTION_IDS.map((id) => [id, ""])) as Record<
+    PatentSectionId,
+    string
+  >;
+}

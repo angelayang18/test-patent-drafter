@@ -1,5 +1,5 @@
-import type { FilingInfo, PatentFigure } from "../types/patent";
-import { EMPTY_FILING_INFO } from "../types/patent";
+import type { FilingInfo, PatentFigure, PatentSectionId } from "../types/patent";
+import { EMPTY_FILING_INFO, emptyAttorneyFeedback } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import type { InventionDetails } from "../types/patent";
@@ -9,7 +9,7 @@ export const ACTIVE_WORKFLOW_KEY = "patent-drafter-workflow";
 const LEGACY_SESSION_KEY = "patent-drafter-workflow";
 const DRAFT_LIBRARY_KEY = "patent-drafter-draft-library";
 const DRAFT_FILE_FORMAT = "patent-drafter-draft";
-const DRAFT_FILE_VERSION = 1;
+const DRAFT_FILE_VERSION = 2;
 const MAX_SAVED_DRAFTS = 20;
 
 export interface WorkflowSnapshot {
@@ -21,6 +21,10 @@ export interface WorkflowSnapshot {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
+  attorneyFeedback?: Record<PatentSectionId, string>;
+  attorneyFeedbackGlobal?: string;
+  aiInitialSections?: Record<string, string>;
+  includeInLearningCorpus?: boolean;
 }
 
 export interface SavedDraftRecord {
@@ -71,6 +75,10 @@ export function normalizeWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: { ...emptyInputSources, ...raw?.inputSources },
     cachedRemoteSources: raw?.cachedRemoteSources ?? {},
+    attorneyFeedback: { ...emptyAttorneyFeedback(), ...raw?.attorneyFeedback },
+    attorneyFeedbackGlobal: raw?.attorneyFeedbackGlobal ?? "",
+    aiInitialSections: raw?.aiInitialSections ?? {},
+    includeInLearningCorpus: raw?.includeInLearningCorpus ?? true,
   };
 }
 

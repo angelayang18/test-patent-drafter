@@ -18,6 +18,9 @@ from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.figures import generate_patent_figures
 from drafter.llm_client import get_llm_base_url, get_llm_model
 from drafter.sections import draft_all_sections_parallel, draft_section
+from learning.config import is_learning_enabled
+from learning.guidelines import distill_guidelines_for_submission
+from learning.storage import get_storage
 from exporter.docx_export import export_patent_docx
 from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
@@ -86,12 +89,23 @@ class ExtractFieldRequest(BaseModel):
 
 class DraftRequest(InventionDetails):
     section: str
+    prior_draft: str = ""
+    attorney_feedback: str = ""
 
 
 class DraftAllRequest(InventionDetails):
     """Optional subset of section ids; default is all six specification sections."""
 
     sections: Optional[List[str]] = None
+    attorney_feedback: dict[str, str] = Field(default_factory=dict)
+
+
+class LearningSubmitRequest(InventionDetails):
+    sections: dict[str, str] = Field(default_factory=dict)
+    ai_initial_sections: dict[str, str] = Field(default_factory=dict)
+    attorney_feedback: dict[str, str] = Field(default_factory=dict)
+    attorney_feedback_global: str = ""
+    include_in_corpus: bool = True
 
 
 class PatentFigureModel(BaseModel):
@@ -296,10 +310,17 @@ def draft_patent_section(body: DraftRequest) -> dict:
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
-    invention = body.model_dump(exclude={"section"})
+    invention = body.model_dump(
+        exclude={"section", "prior_draft", "attorney_feedback"},
+    )
     section = body.section.strip()
     try:
-        content = draft_section(invention, section)
+        content = draft_section(
+            invention,
+            section,
+            prior_draft=body.prior_draft,
+            attorney_feedback=body.attorney_feedback,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -319,7 +340,7 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
 
     Each agent uses the provisional filing template for its section only.
     """
-    invention = body.model_dump(exclude={"sections"})
+    invention = body.model_dump(exclude={"sections", "attorney_feedback"})
     section_list = body.sections
     if section_list is not None:
         section_list = [s.strip() for s in section_list if s.strip()]
@@ -327,7 +348,11 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
             raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
 
     try:
-        drafted = draft_all_sections_parallel(invention, section_list)
+        drafted = draft_all_sections_parallel(
+            invention,
+            section_list,
+            attorney_feedback=body.attorney_feedback,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -338,6 +363,49 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
         ) from exc
 
     return {"sections": drafted}
+
+
+@app.post("/learning/submit")
+def submit_learning_corpus(body: LearningSubmitRequest) -> dict:
+    """Persist attorney-reviewed draft and feedback for org-wide learning."""
+    if not is_learning_enabled():
+        return {"success": True, "stored": False, "reason": "learning_disabled"}
+
+    if not body.include_in_corpus:
+        return {"success": True, "stored": False, "reason": "opt_out"}
+
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        storage = get_storage()
+        submission_id = storage.submit_draft(
+            invention_title=body.invention_title,
+            technical_field=body.technical_field,
+            sections=body.sections,
+            ai_initial_sections=body.ai_initial_sections,
+            attorney_feedback=body.attorney_feedback,
+            attorney_feedback_global=body.attorney_feedback_global,
+        )
+        distill_guidelines_for_submission(submission_id, storage=storage)
+    except Exception as exc:
+        log.exception("Learning corpus submission failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to store learning corpus: {exc}",
+        ) from exc
+
+    return {"success": True, "stored": True, "submission_id": submission_id}
+
+
+@app.get("/learning/guidelines")
+def list_learning_guidelines() -> dict:
+    """Return distilled org-wide drafting guidelines per section."""
+    if not is_learning_enabled():
+        return {"guidelines": {}, "learning_enabled": False}
+
+    storage = get_storage()
+    return {"guidelines": storage.list_all_guidelines(), "learning_enabled": True}
 
 
 @app.post("/figures/generate")

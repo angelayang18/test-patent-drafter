@@ -16,6 +16,17 @@ def draft_sections(invention: dict) -> dict[str, str]:
     return draft_all_sections_parallel(invention)
 
 
-def draft_section(invention: dict, section_name: str) -> str:
+def draft_section(
+    invention: dict,
+    section_name: str,
+    *,
+    prior_draft: str = "",
+    attorney_feedback: str = "",
+) -> str:
     """Draft a single patent section with its dedicated agent."""
-    return draft_section_agent(invention, section_name)
+    return draft_section_agent(
+        invention,
+        section_name,
+        prior_draft=prior_draft,
+        attorney_feedback=attorney_feedback,
+    )
