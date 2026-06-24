@@ -185,12 +185,14 @@ TASK: Write the 'Background of the Invention' section for a US provisional paten
 
 REQUIREMENTS:
 - Length: 3-5 paragraphs
-- Describe the technical problem that existed before this invention
+- Set the stage: describe the unfulfilled technical need and why the problem is significant
 - Reference limitations of prior art approaches WITHOUT citing specific patents or companies
-- Build a clear technical case for why the problem is significant
+- Build a clear technical case for why prior approaches are deficient
 - Use language like: 'conventional methods fail to...', 'existing approaches suffer from...',
   'prior art systems are limited by...', 'this results in a degradation of...'
 - Do NOT describe the solution at any point in this section
+- Avoid over-stating prior art or making admissions that could be cited against the applicant
+  during prosecution (background statements may be treated as prior art)
 - Use formal patent language throughout
 - End with the phrase: 'Accordingly, there remains a need for improved methods and systems
   that address these deficiencies.'
@@ -220,9 +222,11 @@ TASK: Write the 'Summary of the Invention' section for a US provisional patent a
 
 REQUIREMENTS:
 - Length: 2-3 paragraphs
+- Explicitly connect the background problem to the inventive solution (problem → solution bridge)
 - Briefly introduce the invention and how it addresses the prior art limitations
 - Name the key technical advantages without providing full technical detail
   (that goes in the Detailed Description)
+- Broad characterization of benefits at a high level (functional advantages in prose)
 - Reference that the system and method are described in greater detail below
 - Use language like: 'In one aspect, the present invention provides...',
   'In another aspect, the invention provides a method comprising...'
@@ -253,15 +257,19 @@ comprehensive and leave no ambiguity about how the invention works.
 REQUIREMENTS:
 - Minimum length: 600 words. Be thorough.
 - Structure as follows (use these as sub-headings, with a colon before the body text):
+  0. Definitions (when applicable): define coined or special terms using
+     'As used herein, [term] means [definition]' before using them elsewhere
   1. System Overview: describe the overall architecture and main components as an integrated system
-  2. Component-by-Component Description: describe each key component in detail, what it does
-     and how it interfaces with adjacent components
+  2. Component-by-Component Description: describe each key component in detail, what it does,
+     how it interfaces with adjacent components, and the advantages of key features
   3. Method Steps: describe the full processing flow as numbered steps (Step 1, Step 2, etc.)
      from document ingestion through final output
   4. Data Flow: describe precisely what data (types, formats, schemas) enters and exits
      each processing stage
-  5. Alternative Embodiments: describe at least 2 concrete variations of the invention
-     using 'In one embodiment...' and 'In another embodiment...'
+  5. Alternative Embodiments: describe at least 2 concrete variations using breadth-preserving
+     language such as 'In certain embodiments, the system includes, but is not limited to...'
+     and 'In one embodiment...' / 'In another embodiment...'
+- Disclose the best mode of practicing the invention where applicable under 35 U.S.C. §112(a)
 FIGURE REFERENCE REQUIREMENTS (mandatory — USPTO sample format):
 - Reference figures where they illustrate the text, e.g. 'as shown in FIG. 1',
   'as illustrated in FIG. 2'

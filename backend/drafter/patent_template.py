@@ -15,11 +15,18 @@ PROVISIONAL_FILING_OVERVIEW = """\
 PROVISIONAL PATENT APPLICATION TEMPLATE (USPTO / 35 U.S.C. §111(b)):
 This draft follows the opAIda Patent Filing Guide and standard US provisional specification
 structure (cf. deftio provisional-patent-template). The written description must meet
-35 U.S.C. §112(a) enablement: a person skilled in AI/NLP must be able to make and use the
-invention from the description and drawings as a recipe — not from undocumented know-how.
+35 U.S.C. §112(a): enablement, written description, and best mode — a person skilled in AI/NLP
+must be able to make and use the invention from the description and drawings as a recipe, not
+from undocumented know-how.
 
 A provisional is not examined for patentability; it secures a filing date for 12 months, after
 which a non-provisional or PCT application claiming priority must be filed (strict deadline).
+The provisional disclosure must adequately support what is later claimed in the non-provisional;
+inadequate written description can forfeit the benefit of the provisional filing date.
+
+Narrative arc across sections: Background sets the technical problem → Summary ties that problem
+to the inventive solution and its benefits → Detailed Description explains how features work
+and their advantages.
 
 Required specification sections (in filing order):
   1. Title of the Invention — as short and specific as possible (from invention_title)
@@ -49,24 +56,31 @@ TEMPLATE SLOT: Field of the Invention (Required)
     "background": """\
 TEMPLATE SLOT: Background of the Invention / Prior Art (Required)
 - 3–5 paragraphs in formal patent language
-- Describe the technical problem and why prior art approaches are deficient
+- Set the stage: unfulfilled technical need, limitations of prior approaches, significance of the problem
+- Describe why prior art approaches are deficient without citing specific patents or companies
 - Use phrases such as "conventional methods fail to...", "prior art systems are limited by..."
 - Do NOT describe the inventive solution in this section
+- Avoid over-stating prior art or making admissions that could be cited against the applicant during prosecution
 """,
     "summary": """\
 TEMPLATE SLOT: Summary of the Invention (Required)
 - High-level overview of what the invention is and what it accomplishes
+- Explicitly connect the background problem to the inventive solution (problem → solution bridge)
+- Broad characterization of key technical benefits at a high level (functional advantages in prose)
 - May reference major components at a high level
 - Bridge between background (problem) and detailed description (how)
 """,
     "description": """\
 TEMPLATE SLOT: Detailed Description of Embodiments (Required — most critical)
 Per the filing guide, include where applicable:
+  - Definitions of coined or special terms ("As used herein, term X means Y") near the start
   - System architecture (block-level components and connections)
   - Data flow (inputs, transformations, outputs)
   - Algorithms and logic (steps, rules, model architectures)
-  - Novel mechanisms vs. prior art
-  - Alternative embodiments
+  - Novel mechanisms vs. prior art, with advantages of key described features
+  - Alternative embodiments using breadth-preserving language ("in certain embodiments...
+    include, but are not limited to...")
+  - Best mode disclosure where applicable under 35 U.S.C. §112(a)
   - Specific parameters (formats, model types, chunking, embeddings, indexing)
 Use "comprising", "wherein", "configured to", and "in one embodiment..." throughout.
 MANDATORY: Reference figures where they illustrate the text and use reference numerals
@@ -78,6 +92,7 @@ TEMPLATE SLOT: Informal Claims (Required for a complete provisional — at least
 - USPTO expects a description plus at least one claim; include multiple claims when appropriate
 - Establish intended scope for a future non-provisional conversion within 12 months
 - Independent system claim, independent method claim, dependent claims with technical detail
+- Terms of art used in claims should be defined in the detailed description ("As used herein...")
 - Use "A system comprising...", "A method comprising...", "The system of claim N, wherein..."
 - Each claim is one complete sentence; elements after "comprising:" on indented lines
 - Claims section begins on a new page in the exported document

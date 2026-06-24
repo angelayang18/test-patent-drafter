@@ -5,10 +5,14 @@ from __future__ import annotations
 from drafter.llm_client import generate_text
 from drafter.prompts import PATENT_SECTIONS
 
+from .baseline_guidelines import (
+    GLOBAL_GUIDELINE_SECTION,
+    get_baseline_guidelines,
+    merge_guidelines,
+)
 from .config import is_learning_enabled
 from .prompts import (
     DISTILL_GUIDELINES_SYSTEM,
-    GLOBAL_GUIDELINE_SECTION,
     build_distillation_user_prompt,
 )
 from .storage import DraftingContext, LearningStorage, get_storage
@@ -66,7 +70,10 @@ def distill_guidelines_for_submission(
         if not section_feedback and not section_diffs:
             continue
 
-        existing = store.get_guidelines(section)
+        existing = merge_guidelines(
+            get_baseline_guidelines(section),
+            store.get_guidelines(section),
+        )
         user_prompt = build_distillation_user_prompt(
             section,
             existing,
@@ -83,7 +90,10 @@ def distill_guidelines_for_submission(
 
     global_feedback = feedback_by_section.get(None, [])
     if global_feedback:
-        existing_global = store.get_global_guidelines()
+        existing_global = merge_guidelines(
+            get_baseline_guidelines(GLOBAL_GUIDELINE_SECTION),
+            store.get_global_guidelines(),
+        )
         user_prompt = build_distillation_user_prompt(
             GLOBAL_GUIDELINE_SECTION,
             existing_global,
@@ -106,7 +116,22 @@ def retrieve_drafting_context(
 ) -> DraftingContext:
     """Load org-wide guidelines and exemplars for a section draft."""
     if not is_learning_enabled():
-        return DraftingContext(section_guidelines="", global_guidelines="", exemplars=[])
+        return DraftingContext(
+            section_guidelines=get_baseline_guidelines(section),
+            global_guidelines=get_baseline_guidelines(GLOBAL_GUIDELINE_SECTION),
+            exemplars=[],
+        )
 
     store = storage or get_storage()
-    return store.retrieve_drafting_context(section, technical_field)
+    context = store.retrieve_drafting_context(section, technical_field)
+    return DraftingContext(
+        section_guidelines=merge_guidelines(
+            get_baseline_guidelines(section),
+            context.section_guidelines,
+        ),
+        global_guidelines=merge_guidelines(
+            get_baseline_guidelines(GLOBAL_GUIDELINE_SECTION),
+            context.global_guidelines,
+        ),
+        exemplars=context.exemplars,
+    )
