@@ -20,11 +20,28 @@ export function WorkflowNextLink({
   to,
   children,
   onClick,
+  disabled,
+  disabledTitle,
 }: {
   to: string;
   children: ReactNode;
   onClick?: () => void;
+  disabled?: boolean;
+  disabledTitle?: string;
 }) {
+  if (disabled) {
+    return (
+      <span
+        aria-disabled="true"
+        title={disabledTitle}
+        className={nextClassName}
+      >
+        {children}
+        <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+      </span>
+    );
+  }
+
   return (
     <Link to={to} onClick={onClick} className={nextClassName}>
       {children}

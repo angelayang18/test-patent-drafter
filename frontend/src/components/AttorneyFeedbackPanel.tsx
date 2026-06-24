@@ -6,6 +6,8 @@ interface AttorneyFeedbackPanelProps {
   sectionLabel: string;
   value: string;
   onChange: (value: string) => void;
+  approved?: boolean;
+  onApprove?: (approved: boolean) => void;
   disabled?: boolean;
 }
 
@@ -14,6 +16,8 @@ export function AttorneyFeedbackPanel({
   sectionLabel,
   value,
   onChange,
+  approved = false,
+  onApprove,
   disabled = false,
 }: AttorneyFeedbackPanelProps) {
   const textareaId = useId();
@@ -61,6 +65,20 @@ export function AttorneyFeedbackPanel({
             placeholder={`e.g. Claims should use "comprising" not "including"; tighten background prior-art contrast for ${sectionId}…`}
             className="mt-3 w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px] disabled:opacity-60"
           />
+          {onApprove && (
+            <label className="mt-3 flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={approved}
+                disabled={disabled}
+                onChange={(event) => onApprove(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-outline-variant text-secondary focus:ring-secondary/40 disabled:opacity-60"
+              />
+              <span className="font-body-sm text-body-sm text-on-surface-variant">
+                Mark this section as a high-quality example for future drafts.
+              </span>
+            </label>
+          )}
         </div>
       )}
     </section>

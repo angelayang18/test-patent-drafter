@@ -130,7 +130,14 @@ def _add_drawing_sheets(
 
         pdf.add_page()
         pdf.set_font("Helvetica", size=11)
-        pdf.cell(0, 8, f"{sheet_index}/{total_sheets}", ln=True, align="C")
+        pdf.cell(
+            0,
+            8,
+            f"{sheet_index}/{total_sheets}",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+            align="C",
+        )
         pdf.ln(4)
 
         png_bytes = png_by_number.get(number)
@@ -213,7 +220,13 @@ def export_patent_pdf(
             pdf.add_page()
 
         pdf.set_font("Helvetica", style="BU", size=FONT_SIZE_HEADING)
-        pdf.cell(0, 10, _sanitize_text(section_heading(key)), ln=True)
+        pdf.cell(
+            0,
+            10,
+            _sanitize_text(section_heading(key)),
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
         pdf.set_font("Helvetica", size=FONT_SIZE_BODY)
         _write_section_body(pdf, _sanitize_text(body), key)
         pdf.ln(4)

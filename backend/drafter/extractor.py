@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
@@ -39,11 +40,113 @@ _FIELD_LABELS = {
     "key_components": "Key Components",
 }
 
+# Common alternate JSON keys returned by LLMs (camelCase, shortened, or nested labels).
+_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "invention_title": ("invention_title", "inventionTitle", "title"),
+    "technical_field": ("technical_field", "technicalField", "field"),
+    "problem_being_solved": (
+        "problem_being_solved",
+        "problemBeingSolved",
+        "technical_problem",
+        "technicalProblem",
+        "problem",
+    ),
+    "core_technical_solution": (
+        "core_technical_solution",
+        "coreTechnicalSolution",
+        "technical_solution",
+        "technicalSolution",
+        "core_mechanism",
+        "coreMechanism",
+        "core_solution",
+        "coreSolution",
+        "solution",
+    ),
+    "novel_mechanism": (
+        "novel_mechanism",
+        "novelMechanism",
+        "novelty",
+        "novel_features",
+        "novelFeatures",
+        "technical_novelty",
+        "technicalNovelty",
+        "what_makes_it_novel",
+        "whatMakesItNovel",
+    ),
+    "alternative_embodiments": (
+        "alternative_embodiments",
+        "alternativeEmbodiments",
+        "embodiments",
+        "variations",
+    ),
+    "key_components": (
+        "key_components",
+        "keyComponents",
+        "components",
+        "system_components",
+        "systemComponents",
+    ),
+}
+
+_NESTED_PAYLOAD_KEYS = frozenset(
+    {
+        "solution",
+        "invention",
+        "invention_details",
+        "inventionDetails",
+        "fields",
+        "result",
+        "data",
+        "extraction",
+    }
+)
+
 _GROUP_EXTRACTORS: list[tuple[str, str]] = [
     ("overview", EXTRACT_GROUP_OVERVIEW_USER),
     ("solution", EXTRACT_GROUP_SOLUTION_USER),
     ("structure", EXTRACT_GROUP_STRUCTURE_USER),
 ]
+
+
+def _camel_to_snake(name: str) -> str:
+    """Convert camelCase or kebab-case keys to snake_case for lookup."""
+    step = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    return step.replace("-", "_").lower()
+
+
+def _flatten_extraction_payload(data: dict) -> dict:
+    """Merge nested or wrapper shapes sometimes returned by the LLM."""
+    flattened: dict = {}
+    for key, value in data.items():
+        if isinstance(value, dict) and key in _NESTED_PAYLOAD_KEYS:
+            flattened.update(value)
+        else:
+            flattened[key] = value
+
+    if len(flattened) == 1:
+        only_value = next(iter(flattened.values()))
+        if isinstance(only_value, dict):
+            return only_value
+
+    return flattened
+
+
+def _build_lookup(data: dict) -> dict[str, object]:
+    """Index payload values by exact, snake_case, and lowercase key variants."""
+    lookup: dict[str, object] = {}
+    for key, value in data.items():
+        for variant in {key, _camel_to_snake(key), key.lower()}:
+            lookup.setdefault(variant, value)
+    return lookup
+
+
+def _resolve_field(data: dict, field: str) -> object:
+    """Return the first matching value for a canonical extraction field."""
+    lookup = _build_lookup(data)
+    for alias in _FIELD_ALIASES.get(field, (field,)):
+        if alias in lookup:
+            return lookup[alias]
+    return None
 
 
 def _as_str(value: object) -> str:
@@ -64,14 +167,19 @@ def _as_str_list(value: object) -> list[str]:
 
 def _normalize_extraction(data: dict) -> dict:
     """Ensure extraction output contains the expected fields and types."""
+    flattened = _flatten_extraction_payload(data)
     return {
-        "invention_title": _as_str(data.get("invention_title")),
-        "technical_field": _as_str(data.get("technical_field")),
-        "problem_being_solved": _as_str(data.get("problem_being_solved")),
-        "core_technical_solution": _as_str(data.get("core_technical_solution")),
-        "novel_mechanism": _as_str(data.get("novel_mechanism")),
-        "alternative_embodiments": _as_str_list(data.get("alternative_embodiments")),
-        "key_components": _as_str_list(data.get("key_components")),
+        "invention_title": _as_str(_resolve_field(flattened, "invention_title")),
+        "technical_field": _as_str(_resolve_field(flattened, "technical_field")),
+        "problem_being_solved": _as_str(_resolve_field(flattened, "problem_being_solved")),
+        "core_technical_solution": _as_str(
+            _resolve_field(flattened, "core_technical_solution")
+        ),
+        "novel_mechanism": _as_str(_resolve_field(flattened, "novel_mechanism")),
+        "alternative_embodiments": _as_str_list(
+            _resolve_field(flattened, "alternative_embodiments")
+        ),
+        "key_components": _as_str_list(_resolve_field(flattened, "key_components")),
     }
 
 

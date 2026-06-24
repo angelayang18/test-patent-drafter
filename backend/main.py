@@ -9,14 +9,14 @@ from typing import Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.figures import generate_patent_figures
-from drafter.llm_client import get_llm_base_url, get_llm_model
+from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
 from drafter.sections import draft_all_sections_parallel, draft_section
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
@@ -25,6 +25,7 @@ from exporter.docx_export import export_patent_docx
 from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
+from exporter.text_format import get_format_qa_report
 from parsers.confluence import ConfluenceClient
 from parsers.docx_parser import extract_text_from_docx
 from parsers.pdf_parser import extract_text_from_pdf
@@ -49,6 +50,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(LLMUnavailableError)
+async def llm_unavailable_handler(
+    _request: Request,
+    exc: LLMUnavailableError,
+) -> JSONResponse:
+    """Return a structured 503 so the frontend can show a specific LLM error."""
+    log.error("LLM unavailable: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"error": "LLM unavailable", "detail": str(exc)},
+    )
+
 
 SUPPORTED_UPLOAD_EXTENSIONS = {".pdf", ".docx", ".pptx"}
 
@@ -108,6 +123,10 @@ class LearningSubmitRequest(InventionDetails):
     include_in_corpus: bool = True
 
 
+class LearningApproveRequest(BaseModel):
+    section: str
+
+
 class PatentFigureModel(BaseModel):
     number: int
     title: str
@@ -131,6 +150,10 @@ class ExportRequest(BaseModel):
     filing_info: Optional[Dict[str, str]] = None
     """Optional base64 PNGs keyed by figure number — skips re-render when exporting."""
     figure_pngs: Optional[Dict[str, str]] = None
+
+
+class QAReportRequest(BaseModel):
+    sections: dict[str, str] = Field(default_factory=dict)
 
 
 class PrerenderFiguresRequest(BaseModel):
@@ -166,12 +189,17 @@ def _extract_uploaded_text(filename: str, file_bytes: bytes) -> str:
 
 @app.get("/health")
 def health() -> Dict[str, Union[str, bool]]:
-    return {
+    llm_reachable, llm_error = probe_llm_reachable()
+    payload: Dict[str, Union[str, bool]] = {
         "status": "ok",
         "llm_model": get_llm_model(),
         "llm_base_url": get_llm_base_url(),
         "llm_api_key_configured": bool(os.getenv("LLM_API_KEY", "").strip()),
+        "llm_reachable": llm_reachable,
     }
+    if llm_error:
+        payload["llm_error"] = llm_error
+    return payload
 
 
 @app.post("/upload")
@@ -274,6 +302,8 @@ def extract_field(body: ExtractFieldRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
     except Exception as exc:
         log.exception("Field extraction failed for %s", body.field)
         raise HTTPException(
@@ -296,6 +326,8 @@ def extract_details(body: ExtractRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
     except Exception as exc:
         log.exception("Invention extraction failed")
         raise HTTPException(
@@ -323,6 +355,8 @@ def draft_patent_section(body: DraftRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
     except Exception as exc:
         log.exception("Section drafting failed for %s", body.section)
         raise HTTPException(
@@ -355,6 +389,8 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
     except Exception as exc:
         log.exception("Parallel section drafting failed")
         raise HTTPException(
@@ -387,7 +423,6 @@ def submit_learning_corpus(body: LearningSubmitRequest) -> dict:
             attorney_feedback=body.attorney_feedback,
             attorney_feedback_global=body.attorney_feedback_global,
         )
-        distill_guidelines_for_submission(submission_id, storage=storage)
     except Exception as exc:
         log.exception("Learning corpus submission failed")
         raise HTTPException(
@@ -395,7 +430,44 @@ def submit_learning_corpus(body: LearningSubmitRequest) -> dict:
             detail=f"Failed to store learning corpus: {exc}",
         ) from exc
 
+    try:
+        distill_guidelines_for_submission(submission_id, storage=storage)
+    except Exception as exc:
+        # Draft is already persisted; distillation is best-effort and must not fail export.
+        log.exception(
+            "Learning guideline distillation failed for submission %s",
+            submission_id,
+        )
+        return {
+            "success": True,
+            "stored": True,
+            "submission_id": submission_id,
+            "distillation_warning": str(exc),
+        }
+
     return {"success": True, "stored": True, "submission_id": submission_id}
+
+
+@app.post("/learning/submissions/{submission_id}/approve")
+def approve_learning_exemplar(submission_id: int, body: LearningApproveRequest) -> dict:
+    """Mark a submitted section snapshot as an approved exemplar."""
+    if not is_learning_enabled():
+        return {"success": True, "approved": False, "reason": "learning_disabled"}
+
+    section = body.section.strip()
+    if not section:
+        raise HTTPException(status_code=400, detail="section is required.")
+
+    try:
+        get_storage().approve_exemplar(submission_id, section)
+    except Exception as exc:
+        log.exception("Learning exemplar approval failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to approve exemplar: {exc}",
+        ) from exc
+
+    return {"success": True, "approved": True}
 
 
 @app.get("/learning/guidelines")
@@ -416,6 +488,8 @@ def generate_figures(body: GenerateFiguresRequest) -> dict:
         result = generate_patent_figures(invention, body.description_text)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
     except Exception as exc:
         log.exception("Figure generation failed")
         raise HTTPException(
@@ -472,6 +546,12 @@ def prerender_figures(body: PrerenderFiguresRequest) -> dict:
         ) from exc
 
     return {"figure_pngs": encode_png_map_for_client(png_by_number)}
+
+
+@app.post("/qa-report")
+def qa_report(body: QAReportRequest) -> List[Dict[str, Union[str, List[str]]]]:
+    """Return per-section format QA results for a patent draft."""
+    return get_format_qa_report(body.sections)
 
 
 @app.post("/export/docx")

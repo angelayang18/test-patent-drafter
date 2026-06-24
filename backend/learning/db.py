@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS section_snapshots (
     section TEXT NOT NULL,
     ai_initial TEXT NOT NULL DEFAULT '',
     final_text TEXT NOT NULL DEFAULT '',
+    is_approved INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (submission_id) REFERENCES draft_submissions(id) ON DELETE CASCADE
 );
 
@@ -63,4 +64,10 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(_SCHEMA)
+    try:
+        conn.execute(
+            "ALTER TABLE section_snapshots ADD COLUMN is_approved INTEGER NOT NULL DEFAULT 0"
+        )
+    except sqlite3.OperationalError:
+        pass
     return conn

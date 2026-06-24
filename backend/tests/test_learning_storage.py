@@ -54,6 +54,24 @@ def test_retrieve_exemplars_prefers_matching_technical_field(temp_storage: Learn
     assert exemplars[0].text == "ML field text."
 
 
+def test_retrieve_exemplars_prefers_approved_snapshots(temp_storage: LearningStorage):
+    temp_storage.submit_draft(
+        invention_title="Newer",
+        technical_field="machine learning",
+        sections={"field": "Newer ML field text."},
+    )
+    temp_storage.submit_draft(
+        invention_title="Approved",
+        technical_field="machine learning",
+        sections={"field": "Approved ML field text."},
+    )
+    temp_storage.approve_exemplar(2, "field")
+
+    exemplars = temp_storage.retrieve_exemplars("field", "machine learning", limit=1)
+    assert len(exemplars) == 1
+    assert exemplars[0].text == "Approved ML field text."
+
+
 def test_upsert_and_list_guidelines(temp_storage: LearningStorage):
     temp_storage.upsert_guidelines("claims", "- Rule one.", source_feedback_count=2)
     temp_storage.upsert_guidelines("claims", "- Updated rule.", source_feedback_count=3)

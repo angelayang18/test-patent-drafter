@@ -80,3 +80,10 @@ export function emptyAttorneyFeedback(): Record<PatentSectionId, string> {
     string
   >;
 }
+
+export function emptyApprovedExemplars(): Record<PatentSectionId, boolean> {
+  return Object.fromEntries(PATENT_SECTION_IDS.map((id) => [id, false])) as Record<
+    PatentSectionId,
+    boolean
+  >;
+}

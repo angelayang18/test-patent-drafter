@@ -18,6 +18,8 @@ import {
 } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
+import { computeExtractionSourceKey } from "../utils/extractionSourceKey";
+import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
 
 const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".pptx"];
@@ -25,6 +27,19 @@ const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".pptx"];
 function isAcceptedFile(file: File): boolean {
   const name = file.name.toLowerCase();
   return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+function getWebsiteUrlError(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    new URL(trimmed);
+    return null;
+  } catch {
+    return "Enter a valid URL (e.g. https://example.com/product-page).";
+  }
 }
 
 export default function InputPage() {
@@ -42,6 +57,7 @@ export default function InputPage() {
     setInputSources,
     gatherSourceText,
     setInvention,
+    setExtractionSourceKey,
     getWorkflowSnapshot,
     saveToStorage,
   } = usePatentWorkflow();
@@ -54,11 +70,32 @@ export default function InputPage() {
   const [submitting, setSubmitting] = useState(false);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
 
   const uploading = uploadQueue.some(
     (item) => item.status === "pending" || item.status === "parsing",
   );
+  const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
+  const hasPastedText = inputSources.pastedText.trim().length > 0;
+  const hasUploadedFiles = uploadedFiles.length > 0;
+  const hasWebsiteUrl = inputSources.websiteUrl.trim().length > 0;
+  const confluenceConfigured = Boolean(
+    inputSources.confluenceUrl.trim() &&
+      inputSources.confluenceSpaceKey.trim() &&
+      inputSources.confluenceToken.trim(),
+  );
+  const hasAnySource =
+    hasPastedText || hasUploadedFiles || hasWebsiteUrl || confluenceConfigured;
+  const missingSource = !hasAnySource;
+  const continueDisabled =
+    submitting || uploading || Boolean(websiteUrlError) || missingSource;
+  const confluenceLoading =
+    submitting && Boolean(extractPhase?.toLowerCase().includes("confluence"));
+
+  const clearConfluenceError = useCallback(() => {
+    setConfluenceError(null);
+  }, []);
 
   const processFiles = useCallback(
     async (fileList: FileList | File[]) => {
@@ -178,6 +215,17 @@ export default function InputPage() {
 
   const handleContinue = async () => {
     setError(null);
+    setConfluenceError(null);
+
+    if (invention) {
+      navigate("/review");
+      return;
+    }
+
+    if (websiteUrlError) {
+      return;
+    }
+
     setSubmitting(true);
     try {
       if (
@@ -185,11 +233,13 @@ export default function InputPage() {
         inputSources.confluenceToken.trim() &&
         !inputSources.confluenceSpaceKey.trim()
       ) {
-        throw new ApiError("Confluence space key is required.", 400);
+        setConfluenceError("Confluence space key is required.");
+        return;
       }
 
-      setExtractPhase("Gathering sources (files, web, Confluence)…");
-      const combined = await gatherSourceText();
+      const { combined, cache } = await gatherSourceText({
+        onProgress: setExtractPhase,
+      });
 
       if (!combined.trim()) {
         setError(
@@ -201,9 +251,14 @@ export default function InputPage() {
       setExtractPhase("Extracting invention details (parallel AI analysis)…");
       const details = await extractInvention(combined, extractionNotesFromSources(inputSources));
       setInvention(details);
+      setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/review");
     } catch (err) {
+      if (err instanceof SourceGatherError && err.source === "confluence") {
+        setConfluenceError(err.message);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Failed to extract invention details.");
     } finally {
       setSubmitting(false);
@@ -223,21 +278,31 @@ export default function InputPage() {
       footer={
         <WorkflowFooter
           right={
-            <WorkflowNextButton
-              disabled={submitting || uploading}
-              onClick={() => void handleContinue()}
-            >
-              {submitting ? "Extracting..." : "Next: Review"}
-            </WorkflowNextButton>
+            <div className="flex flex-col items-end gap-2">
+              {missingSource && (
+                <p
+                  className="font-body-sm text-body-sm text-on-surface-variant text-right max-w-md"
+                  role="status"
+                >
+                  Please provide at least one source: paste text, upload a file, or enter a URL.
+                </p>
+              )}
+              <WorkflowNextButton
+                disabled={continueDisabled}
+                onClick={() => void handleContinue()}
+              >
+                {submitting ? "Extracting..." : "Next: Review"}
+              </WorkflowNextButton>
+            </div>
           }
         />
       }
     >
-      {submitting && (
+      {submitting && extractPhase && (
         <div className="mb-6">
           <GenerationProgress
             active
-            label={extractPhase ?? "Extracting invention details from your sources"}
+            label={extractPhase}
           />
         </div>
       )}
@@ -499,11 +564,20 @@ export default function InputPage() {
                     </p>
                     <input
                       id="confluence-url"
-                      className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm"
+                      className={`w-full bg-white border rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm ${
+                        confluenceError
+                          ? "border-error/50 focus:ring-error/20 focus:border-error"
+                          : "border-outline-variant"
+                      }`}
                       placeholder="https://company.atlassian.net/wiki/..."
                       type="text"
                       value={inputSources.confluenceUrl}
-                      onChange={(e) => setInputSources({ confluenceUrl: e.target.value })}
+                      onChange={(e) => {
+                        clearConfluenceError();
+                        setInputSources({ confluenceUrl: e.target.value });
+                      }}
+                      aria-invalid={confluenceError ? true : undefined}
+                      aria-describedby={confluenceError ? "confluence-error" : undefined}
                     />
                   </div>
                   <div>
@@ -518,11 +592,19 @@ export default function InputPage() {
                     </p>
                     <input
                       id="confluence-space"
-                      className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm"
+                      className={`w-full bg-white border rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm ${
+                        confluenceError
+                          ? "border-error/50 focus:ring-error/20 focus:border-error"
+                          : "border-outline-variant"
+                      }`}
                       placeholder="ENG"
                       type="text"
                       value={inputSources.confluenceSpaceKey}
-                      onChange={(e) => setInputSources({ confluenceSpaceKey: e.target.value })}
+                      onChange={(e) => {
+                        clearConfluenceError();
+                        setInputSources({ confluenceSpaceKey: e.target.value });
+                      }}
+                      aria-invalid={confluenceError ? true : undefined}
                     />
                   </div>
                   <div>
@@ -538,12 +620,20 @@ export default function InputPage() {
                     <div className="relative">
                       <input
                         id="confluence-token"
-                        className="w-full bg-white border border-outline-variant rounded-lg p-3 pr-12 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm"
+                        className={`w-full bg-white border rounded-lg p-3 pr-12 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm ${
+                          confluenceError
+                            ? "border-error/50 focus:ring-error/20 focus:border-error"
+                            : "border-outline-variant"
+                        }`}
                         placeholder="••••••••••••••••"
                         type={showToken ? "text" : "password"}
                         value={inputSources.confluenceToken}
-                        onChange={(e) => setInputSources({ confluenceToken: e.target.value })}
+                        onChange={(e) => {
+                          clearConfluenceError();
+                          setInputSources({ confluenceToken: e.target.value });
+                        }}
                         autoComplete="off"
+                        aria-invalid={confluenceError ? true : undefined}
                       />
                       <button
                         type="button"
@@ -558,6 +648,32 @@ export default function InputPage() {
                     </div>
                   </div>
                 </div>
+                {confluenceLoading && (
+                  <div
+                    className="flex items-center gap-2 font-body-sm text-body-sm text-on-surface-variant rounded-lg bg-secondary/5 border border-secondary/20 px-3 py-2"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span className="material-symbols-outlined loading-spin text-secondary text-[18px]">
+                      progress_activity
+                    </span>
+                    Connecting to Confluence…
+                  </div>
+                )}
+                {confluenceError && (
+                  <p
+                    id="confluence-error"
+                    role="alert"
+                    className="font-body-sm text-body-sm text-error rounded-lg bg-error-container/20 border border-error/30 px-3 py-2"
+                  >
+                    {confluenceError}
+                  </p>
+                )}
+                {!confluenceLoading && !confluenceError && confluenceConfigured && (
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    Confluence content is fetched when you click <strong>Next: Review</strong>.
+                  </p>
+                )}
               </div>
             </section>
 
@@ -580,12 +696,27 @@ export default function InputPage() {
                 </p>
                 <input
                   id="website-url"
-                  className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm"
+                  className={`w-full bg-white border rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm ${
+                    websiteUrlError
+                      ? "border-error/50 focus:ring-error/20 focus:border-error"
+                      : "border-outline-variant"
+                  }`}
                   placeholder="https://example.com/product-page"
                   type="url"
                   value={inputSources.websiteUrl}
                   onChange={(e) => setInputSources({ websiteUrl: e.target.value })}
+                  aria-invalid={websiteUrlError ? true : undefined}
+                  aria-describedby={websiteUrlError ? "website-url-error" : undefined}
                 />
+                {websiteUrlError && (
+                  <p
+                    id="website-url-error"
+                    role="alert"
+                    className="mt-2 font-body-sm text-body-sm text-error rounded-lg bg-error-container/20 border border-error/30 px-3 py-2"
+                  >
+                    {websiteUrlError}
+                  </p>
+                )}
               </div>
             </section>
           </div>

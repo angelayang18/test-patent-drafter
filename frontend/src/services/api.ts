@@ -29,12 +29,30 @@ class ApiError extends Error {
 
 async function parseErrorMessage(response: Response): Promise<string> {
   try {
-    const data = (await response.json()) as { detail?: string | { msg: string }[] };
+    const data = (await response.json()) as {
+      error?: string;
+      detail?: string | { msg: string }[] | { error?: string; detail?: string };
+    };
+    if (typeof data.detail === "string" && data.error) {
+      return `${data.error}: ${data.detail}`;
+    }
+    if (typeof data.error === "string" && typeof data.detail === "string") {
+      return `${data.error}: ${data.detail}`;
+    }
     if (typeof data.detail === "string") {
       return data.detail;
     }
     if (Array.isArray(data.detail)) {
       return data.detail.map((item) => item.msg).join(", ");
+    }
+    if (
+      data.detail &&
+      typeof data.detail === "object" &&
+      "detail" in data.detail &&
+      typeof data.detail.detail === "string"
+    ) {
+      const nested = data.detail as { error?: string; detail: string };
+      return nested.error ? `${nested.error}: ${nested.detail}` : nested.detail;
     }
   } catch {
     // Response body is not JSON.
@@ -243,6 +261,20 @@ export async function submitLearningCorpus(
   );
 }
 
+export async function approveLearningExemplar(
+  submissionId: number,
+  section: string,
+): Promise<{ success: boolean; approved: boolean }> {
+  return requestJson<{ success: boolean; approved: boolean }>(
+    `/learning/submissions/${submissionId}/approve`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ section }),
+    },
+  );
+}
+
 export async function generateFigures(
   invention: InventionDetails,
   descriptionText = "",
@@ -295,6 +327,22 @@ function exportPayloadBody(draft: PatentDraft): string {
     ...(draft.figure_pngs && Object.keys(draft.figure_pngs).length > 0
       ? { figure_pngs: draft.figure_pngs }
       : {}),
+  });
+}
+
+export interface QAReportEntry {
+  section: string;
+  status: string;
+  messages: string[];
+}
+
+export async function fetchQAReport(
+  sections: Record<string, string>,
+): Promise<QAReportEntry[]> {
+  return requestJson<QAReportEntry[]>("/qa-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sections }),
   });
 }
 

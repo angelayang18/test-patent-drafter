@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import MermaidPreview from "../components/MermaidPreview";
 import { AppShell } from "../components/AppShell";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
@@ -13,10 +14,12 @@ import {
   renderFigurePng,
 } from "../services/api";
 import { prerenderFigurePngs, figuresSignature } from "../utils/figurePngPrerender";
+import { isWorkflowStepAccessible } from "../utils/draftStorage";
 import type { PatentFigure } from "../types/patent";
 import "../styles/patent-drafter.css";
 
 export default function Figures() {
+  const navigate = useNavigate();
   const {
     invention,
     sections,
@@ -27,6 +30,8 @@ export default function Figures() {
     updateFigure,
     setBriefDescriptionOfDrawings,
     saveToStorage,
+    getWorkflowSnapshot,
+    markStepComplete,
   } = usePatentWorkflow();
 
   const [activeFigure, setActiveFigure] = useState(1);
@@ -49,6 +54,12 @@ export default function Figures() {
     figures.find((f) => f.number === activeFigure) ?? figures[0] ?? null;
 
   const figureRenderSignature = useMemo(() => figuresSignature(figures), [figures]);
+
+  useEffect(() => {
+    if (!isWorkflowStepAccessible("figures", getWorkflowSnapshot())) {
+      navigate("/draft", { replace: true });
+    }
+  }, [getWorkflowSnapshot, navigate]);
 
   useEffect(() => {
     saveToStorage();
@@ -120,7 +131,13 @@ export default function Figures() {
         <WorkflowFooter
           left={<WorkflowBackLink to="/draft" />}
           right={
-            <WorkflowNextLink to="/export" onClick={() => saveToStorage()}>
+            <WorkflowNextLink
+              to="/export"
+              onClick={() => {
+                markStepComplete("figures");
+                saveToStorage();
+              }}
+            >
               Next: Export
             </WorkflowNextLink>
           }

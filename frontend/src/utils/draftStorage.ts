@@ -1,9 +1,27 @@
 import type { FilingInfo, PatentFigure, PatentSectionId } from "../types/patent";
-import { EMPTY_FILING_INFO, emptyAttorneyFeedback } from "../types/patent";
+import { EMPTY_FILING_INFO, emptyApprovedExemplars, emptyAttorneyFeedback } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import type { InventionDetails } from "../types/patent";
 import { sanitizePatentProse } from "./documentPreview";
+
+export type WorkflowStep = "input" | "review" | "draft" | "figures" | "export";
+
+export const WORKFLOW_STEP_ORDER: WorkflowStep[] = [
+  "input",
+  "review",
+  "draft",
+  "figures",
+  "export",
+];
+
+export const WORKFLOW_STEP_PATHS: Record<WorkflowStep, string> = {
+  input: "/",
+  review: "/review",
+  draft: "/draft",
+  figures: "/figures",
+  export: "/export",
+};
 
 export const ACTIVE_WORKFLOW_KEY = "patent-drafter-workflow";
 const LEGACY_SESSION_KEY = "patent-drafter-workflow";
@@ -23,8 +41,15 @@ export interface WorkflowSnapshot {
   cachedRemoteSources?: CachedRemoteSources;
   attorneyFeedback?: Record<PatentSectionId, string>;
   attorneyFeedbackGlobal?: string;
+  approvedExemplars?: Record<PatentSectionId, boolean>;
   aiInitialSections?: Record<string, string>;
   includeInLearningCorpus?: boolean;
+  /** Steps explicitly finished via footer navigation (merged with inferred progress). */
+  completedSteps?: WorkflowStep[];
+  /** Fingerprint of sources used for the last successful extraction. */
+  extractionSourceKey?: string | null;
+  /** Set when leaving Review via "Next: Draft"; consumed once on the Draft page. */
+  autoDraftPending?: boolean;
 }
 
 export interface SavedDraftRecord {
@@ -77,9 +102,53 @@ export function normalizeWorkflow(
     cachedRemoteSources: raw?.cachedRemoteSources ?? {},
     attorneyFeedback: { ...emptyAttorneyFeedback(), ...raw?.attorneyFeedback },
     attorneyFeedbackGlobal: raw?.attorneyFeedbackGlobal ?? "",
+    approvedExemplars: { ...emptyApprovedExemplars(), ...raw?.approvedExemplars },
     aiInitialSections: raw?.aiInitialSections ?? {},
     includeInLearningCorpus: raw?.includeInLearningCorpus ?? true,
+    completedSteps: raw?.completedSteps ?? [],
+    extractionSourceKey: raw?.extractionSourceKey ?? null,
+    autoDraftPending: raw?.autoDraftPending ?? false,
   };
+}
+
+export function hasDraftSections(sections: Record<string, string>): boolean {
+  return Object.values(sections).some((section) => section?.trim());
+}
+
+export function hasFiguresProgress(workflow: WorkflowSnapshot): boolean {
+  return workflow.figures.length > 0 || workflow.brief_description_of_drawings.trim().length > 0;
+}
+
+/** Completed steps from explicit marks plus saved workflow data (for resume and nav gating). */
+export function getCompletedSteps(workflow: WorkflowSnapshot): Set<WorkflowStep> {
+  const completed = new Set<WorkflowStep>(workflow.completedSteps ?? []);
+
+  if (workflow.invention) {
+    completed.add("input");
+  }
+  if (hasDraftSections(workflow.sections)) {
+    completed.add("review");
+  }
+  if (hasFiguresProgress(workflow)) {
+    completed.add("draft");
+    completed.add("figures");
+  }
+
+  return completed;
+}
+
+/** Whether the user may navigate to this workflow step from the navbar. */
+export function isWorkflowStepAccessible(
+  step: WorkflowStep,
+  workflow: WorkflowSnapshot,
+): boolean {
+  if (step === "input") {
+    return true;
+  }
+
+  const stepIndex = WORKFLOW_STEP_ORDER.indexOf(step);
+  const previousStep = WORKFLOW_STEP_ORDER[stepIndex - 1];
+  return getCompletedSteps(workflow).has(previousStep);
 }
 
 function readJson<T>(key: string): T | null {

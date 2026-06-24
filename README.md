@@ -6,9 +6,10 @@ An internal tool for drafting US provisional patent applications. Upload inventi
 
 - **Multi-source input** — Upload PDF, DOCX, or PPTX files; connect to Confluence; scrape web pages; or paste freeform text
 - **AI extraction** — Automatically extracts invention title, technical field, problem, solution, novel mechanism, embodiments, and key components
-- **Parallel section agents** — Six isolated LLM agents draft sections simultaneously (no cross-section context); follows the US provisional filing template from the Patent Filing Guide
+- **Parallel section agents** — Six isolated LLM agents draft sections simultaneously (no cross-section context); follows the US provisional filing template from the Patent Filing Guide, with baseline USPTO/opAIda drafting rules injected into every draft
 - **Figure generation** — Creates Mermaid-based patent figures with PNG rendering
 - **Review & edit** — Review and refine extracted details and drafted sections before export
+- **Attorney feedback & org-wide learning** — Per-section notes on Draft and global notes on Export; optional submission of finalized drafts to a SQLite corpus that distills org-wide guidelines for future drafts (baseline rules apply even before the first submission)
 - **Export** — Download the finished application as `.docx` or `.pdf`, with an optional cover sheet (PTO/SB/16-style)
 - **Filing guide** — Header **Filing guide** (info icon) opens step-by-step US provisional submission instructions, checklists, and USPTO links
 
@@ -47,7 +48,7 @@ Open **Filing guide** in the app header for the full walkthrough (filing package
 
 ### Workflow in this app
 
-1. **Input** → **Review** → **Draft** → **Figures** → **Export** (optional cover sheet fields)
+1. **Input** → **Review** → **Draft** (optional per-section attorney feedback) → **Figures** → **Export** (optional cover sheet fields and global attorney feedback; optionally contribute finalized draft to org corpus)
 2. **File externally** on Patent Center with the package above
 
 ### Before you file (checklist)
@@ -76,9 +77,9 @@ Compare exports to the [deftio provisional template example PDF](https://github.
 
 1. **Input** — Add source documents and invention context
 2. **Review** — Verify and edit extracted invention details
-3. **Draft** — Parallel agents generate all specification sections at once (per-section regenerate supported)
+3. **Draft** — Parallel agents generate all specification sections at once (per-section regenerate and attorney feedback supported)
 4. **Figures** — Generate and preview patent figures
-5. **Export** — Download the final document
+5. **Export** — Download the final document; optionally submit attorney-reviewed text to the org learning corpus
 
 ## Tech Stack
 
@@ -121,6 +122,11 @@ Edit `.env` with your values:
 | `LLM_BASE_URL` | Base URL for the OpenAI-compatible API |
 | `LLM_MODEL` | Model name to use for drafting |
 | `LLM_API_KEY` | API key (leave empty if not required) |
+| `EXTRACT_MODE` | Extraction strategy: `grouped` (default), `single`, or `parallel` |
+| `EXTRACT_MAX_SOURCE_CHARS` | Max source text sent to extraction LLM (default: `80000`) |
+| `LEARNING_ENABLED` | Enable org-wide learning corpus and guideline retrieval (default: `true`) |
+| `LEARNING_DB_PATH` | SQLite path for learning corpus (default: `backend/data/learning.db`) |
+| `SECTION_REFLECTION_ENABLED` | Enable critique-and-revise loop on section drafts (default: `true`) |
 | `CONFLUENCE_BASE_URL` | Confluence wiki base URL |
 | `CONFLUENCE_USERNAME` | Confluence account email |
 | `CONFLUENCE_API_TOKEN` | Confluence API token |
@@ -168,13 +174,14 @@ patent-drafter/
 ├── backend/
 │   ├── main.py              # FastAPI app and routes
 │   ├── drafter/             # LLM extraction, section drafting, figures
+│   ├── learning/            # Baseline guidelines, feedback corpus, distillation
 │   ├── parsers/             # PDF, DOCX, PPTX, Confluence, web scraping
 │   ├── exporter/            # DOCX, PDF, and Mermaid rendering
 │   └── tests/
 ├── frontend/
 │   └── src/
 │       ├── pages/           # Input, Review, Draft, Figures, Export
-│       ├── components/      # AppShell, filing guide panel, modals
+│       ├── components/      # AppShell, filing guide panel, attorney feedback
 │       ├── constants/       # Patent submission guide copy
 │       ├── context/         # Workflow state management
 │       └── services/        # API client
@@ -198,6 +205,8 @@ patent-drafter/
 | `POST` | `/figures/render` | Render a Mermaid diagram to PNG |
 | `POST` | `/export/docx` | Export patent application as DOCX |
 | `POST` | `/export/pdf` | Export patent application as PDF |
+| `POST` | `/learning/submit` | Store attorney-reviewed draft and feedback; distill org guidelines |
+| `GET` | `/learning/guidelines` | List distilled org-wide drafting guidelines per section |
 
 ## Development
 

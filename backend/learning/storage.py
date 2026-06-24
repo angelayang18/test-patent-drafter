@@ -108,6 +108,19 @@ class LearningStorage:
             conn.commit()
             return submission_id
 
+    def approve_exemplar(self, submission_id: int, section: str) -> None:
+        """Mark a section snapshot as an approved exemplar for future drafts."""
+        with connect(self._db_path) as conn:
+            conn.execute(
+                """
+                UPDATE section_snapshots
+                SET is_approved = 1
+                WHERE submission_id = ? AND section = ?
+                """,
+                (submission_id, section.strip()),
+            )
+            conn.commit()
+
     def get_guidelines(self, section: str) -> str:
         """Return distilled guidelines for a section, or empty string."""
         with connect(self._db_path) as conn:
@@ -217,7 +230,7 @@ class LearningStorage:
                     WHERE ss.section = ?
                       AND LOWER(ds.technical_field) = ?
                       AND TRIM(ss.final_text) != ''
-                    ORDER BY ds.submitted_at DESC
+                    ORDER BY ss.is_approved DESC, ds.submitted_at DESC
                     LIMIT ?
                     """,
                     (section, field, limit),

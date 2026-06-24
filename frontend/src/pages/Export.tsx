@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
+import { QAReportPanel } from "../components/QAReportPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowBackLink } from "../components/WorkflowNavButtons";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
   ApiError,
+  approveLearningExemplar,
   downloadBlob,
   exportDocx,
   exportPdf,
+  fetchQAReport,
   submitLearningCorpus,
+  type QAReportEntry,
 } from "../services/api";
 import {
   figuresSignature,
@@ -18,10 +22,15 @@ import {
   prerenderFigurePngs,
 } from "../utils/figurePngPrerender";
 import { PROVISIONAL_FILING_DISCLAIMER } from "../constants/patentSubmissionGuide";
+import { isWorkflowStepAccessible } from "../utils/draftStorage";
+import { PATENT_SECTION_IDS, SECTION_LABELS } from "../types/patent";
 import type { FilingInfo } from "../types/patent";
 import "../styles/patent-drafter.css";
 
 type DownloadState = "idle" | "preparing" | "done" | "error";
+
+const EXPORT_DOWNLOAD_DISABLED_CLASS =
+  "opacity-50 cursor-not-allowed pointer-events-none active:scale-100 shadow-none";
 
 function filingField(
   id: keyof FilingInfo,
@@ -60,6 +69,7 @@ function filingField(
 }
 
 export default function Export() {
+  const navigate = useNavigate();
   const {
     invention,
     sections,
@@ -68,20 +78,29 @@ export default function Export() {
     filingInfo,
     attorneyFeedback,
     attorneyFeedbackGlobal,
+    approvedExemplars,
     aiInitialSections,
     includeInLearningCorpus,
     setAttorneyFeedbackGlobal,
     setIncludeInLearningCorpus,
     setFilingInfo,
     clearWorkflow,
+    getWorkflowSnapshot,
   } = usePatentWorkflow();
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [prerenderingFigures, setPrerenderingFigures] = useState(false);
   const [figurePngCache, setFigurePngCache] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [qaReport, setQaReport] = useState<QAReportEntry[]>([]);
 
   const signature = figuresSignature(figures);
+
+  useEffect(() => {
+    if (!isWorkflowStepAccessible("export", getWorkflowSnapshot())) {
+      navigate("/figures", { replace: true });
+    }
+  }, [getWorkflowSnapshot, navigate]);
 
   useEffect(() => {
     if (figures.length === 0) {
@@ -121,16 +140,52 @@ export default function Export() {
     };
   }, [figures, signature]);
 
-  const exportSections: Record<string, string> = {
-    ...sections,
-    ...(briefDescriptionOfDrawings
-      ? { brief_description_of_drawings: briefDescriptionOfDrawings }
-      : {}),
-  };
+  const exportSections = useMemo<Record<string, string>>(
+    () => ({
+      ...sections,
+      ...(briefDescriptionOfDrawings
+        ? { brief_description_of_drawings: briefDescriptionOfDrawings }
+        : {}),
+    }),
+    [sections, briefDescriptionOfDrawings],
+  );
 
-  const hasContent = Object.values(exportSections).some((body) => body.trim().length > 0);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchQAReport(exportSections)
+      .then((report) => {
+        if (!cancelled) {
+          setQaReport(report);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setQaReport([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [exportSections]);
+
+  const emptyDraftSections = useMemo(
+    () => PATENT_SECTION_IDS.filter((id) => !sections[id]?.trim()),
+    [sections],
+  );
+  const isDraftComplete = emptyDraftSections.length === 0;
   const exporting =
     docxState === "preparing" || pdfState === "preparing" || prerenderingFigures;
+  const exportDisabled = exporting || !isDraftComplete;
+  const exportDisabledTitle = !isDraftComplete
+    ? "Complete your draft first"
+    : exporting
+      ? "Please wait for export to finish"
+      : undefined;
+  const exportDisabledHelperText = !isDraftComplete
+    ? "Complete your draft before downloading."
+    : exporting
+      ? "Please wait for export to finish."
+      : null;
 
   const buildExportPayload = () => ({
     sections: exportSections,
@@ -159,7 +214,7 @@ export default function Export() {
       return;
     }
     try {
-      await submitLearningCorpus({
+      const result = await submitLearningCorpus({
         ...invention,
         sections: exportSections,
         aiInitialSections,
@@ -167,14 +222,22 @@ export default function Export() {
         attorneyFeedbackGlobal,
         includeInCorpus: includeInLearningCorpus,
       });
+      if (result.submission_id) {
+        const approvedSections = PATENT_SECTION_IDS.filter((id) => approvedExemplars[id]);
+        await Promise.all(
+          approvedSections.map((section) =>
+            approveLearningExemplar(result.submission_id!, section).catch(() => undefined),
+          ),
+        );
+      }
     } catch {
       // Export succeeded; learning submission is best-effort and non-blocking.
     }
   };
 
   const handleDownloadDocx = async () => {
-    if (!hasContent) {
-      setError("No draft sections to export. Complete drafting and figures first.");
+    if (!isDraftComplete) {
+      setError("Some draft sections are empty. Go back to Draft to regenerate before exporting.");
       return;
     }
     setError(null);
@@ -186,9 +249,8 @@ export default function Export() {
         figure_pngs: figurePngs,
       });
       downloadBlob(blob, "patent-draft.docx");
-      await submitCorpusIfEnabled();
-      setDocxState("done");
-      window.setTimeout(() => setDocxState("idle"), 2000);
+      setDocxState("idle");
+      void submitCorpusIfEnabled();
     } catch (err) {
       setDocxState("error");
       setError(err instanceof ApiError ? err.message : "DOCX export failed.");
@@ -197,8 +259,8 @@ export default function Export() {
   };
 
   const handleDownloadPdf = async () => {
-    if (!hasContent) {
-      setError("No draft sections to export. Complete drafting first.");
+    if (!isDraftComplete) {
+      setError("Some draft sections are empty. Go back to Draft to regenerate before exporting.");
       return;
     }
     setError(null);
@@ -210,9 +272,8 @@ export default function Export() {
         figure_pngs: figurePngs,
       });
       downloadBlob(blob, "patent-draft.pdf");
-      await submitCorpusIfEnabled();
-      setPdfState("done");
-      window.setTimeout(() => setPdfState("idle"), 2000);
+      setPdfState("idle");
+      void submitCorpusIfEnabled();
     } catch (err) {
       setPdfState("error");
       setError(err instanceof ApiError ? err.message : "PDF export failed.");
@@ -241,21 +302,55 @@ export default function Export() {
 
         <div className="bg-surface-container-lowest border border-outline-variant canvas-shadow rounded-xl overflow-hidden">
           <section className="p-10 text-center border-b border-outline-variant bg-surface-bright">
-            <div className="mb-6 inline-flex items-center justify-center w-20 h-20 rounded-full bg-secondary-container/20 text-secondary">
-              <span
-                className="material-symbols-outlined text-5xl"
-                style={{ fontVariationSettings: "'FILL' 1" }}
-              >
-                check_circle
-              </span>
-            </div>
-            <h1 className="font-headline-lg text-headline-lg text-primary mb-2">
-              Your Patent Draft Is Ready
-            </h1>
-            <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto">
-              Download your provisional patent application with USPTO-style section headings,
-              separate Claims and Abstract pages, and black-and-white drawing sheets.
-            </p>
+            {isDraftComplete ? (
+              <>
+                <div className="mb-6 inline-flex items-center justify-center w-20 h-20 rounded-full bg-secondary-container/20 text-secondary">
+                  <span
+                    className="material-symbols-outlined text-5xl"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    check_circle
+                  </span>
+                </div>
+                <h1 className="font-headline-lg text-headline-lg text-primary mb-2">
+                  Your Patent Draft Is Ready
+                </h1>
+                <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto">
+                  Download your provisional patent application with USPTO-style section headings,
+                  separate Claims and Abstract pages, and black-and-white drawing sheets.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="mb-6 inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-500/10 text-amber-600">
+                  <span
+                    className="material-symbols-outlined text-5xl"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    warning
+                  </span>
+                </div>
+                <h1 className="font-headline-lg text-headline-lg text-primary mb-2">
+                  Draft Incomplete
+                </h1>
+                <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto mb-4">
+                  Some sections are empty. Go back to Draft to regenerate before exporting.
+                </p>
+                {emptyDraftSections.length > 0 && (
+                  <p className="font-body-sm text-body-sm text-on-surface-variant max-w-xl mx-auto mb-6">
+                    Missing:{" "}
+                    {emptyDraftSections.map((id) => SECTION_LABELS[id]).join(", ")}
+                  </p>
+                )}
+                <Link
+                  to="/draft"
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline text-on-surface font-label-md text-label-md hover:bg-surface transition-all active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[18px]">edit_document</span>
+                  Back to Draft
+                </Link>
+              </>
+            )}
           </section>
 
           {error && (
@@ -343,6 +438,8 @@ export default function Export() {
             </div>
           </section>
 
+          <QAReportPanel report={qaReport} />
+
           <section className="p-10 border-b border-outline-variant bg-surface-container-low/30">
             <div className="flex items-start gap-3 mb-4">
               <span className="material-symbols-outlined text-secondary text-[24px] shrink-0">
@@ -399,35 +496,45 @@ export default function Export() {
                   Editable format with cover sheet, USPTO-style headings, drawing sheets numbered
                   1/3–3/3, and Claims and Abstract on separate pages.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => void handleDownloadDocx()}
-                  disabled={exporting || !hasContent}
-                  className={`w-full px-6 py-3 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm ${
-                    docxState === "done"
-                      ? "bg-secondary text-on-primary"
-                      : "bg-primary-container text-on-primary hover:bg-primary"
-                  } ${docxState === "preparing" ? "opacity-80" : ""}`}
+                <span
+                  className="w-full block"
+                  title={exportDisabled ? exportDisabledTitle : undefined}
                 >
-                  {docxState === "preparing" && (
-                    <>
-                      <span className="material-symbols-outlined animate-spin text-sm">sync</span>
-                      Preparing...
-                    </>
-                  )}
-                  {docxState === "done" && (
-                    <>
-                      <span className="material-symbols-outlined text-sm">check</span>
-                      Downloaded
-                    </>
-                  )}
-                  {(docxState === "idle" || docxState === "error") && (
-                    <>
-                      <span className="material-symbols-outlined text-sm">download</span>
-                      Download DOCX
-                    </>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadDocx()}
+                    disabled={exportDisabled}
+                    title={exportDisabled ? exportDisabledTitle : undefined}
+                    className={`w-full px-6 py-3 rounded-lg font-label-md text-label-md transition-all flex items-center justify-center gap-2 shadow-sm ${
+                      exportDisabled ? EXPORT_DOWNLOAD_DISABLED_CLASS : "active:scale-95"
+                    } ${
+                      docxState === "done"
+                        ? "bg-secondary text-on-primary"
+                        : exportDisabled
+                          ? "bg-primary-container text-on-primary"
+                          : "bg-primary-container text-on-primary hover:bg-primary"
+                    } ${docxState === "preparing" && !exportDisabled ? "opacity-80" : ""}`}
+                  >
+                    {docxState === "preparing" && (
+                      <>
+                        <span className="material-symbols-outlined animate-spin text-sm">sync</span>
+                        Preparing...
+                      </>
+                    )}
+                    {docxState === "done" && (
+                      <>
+                        <span className="material-symbols-outlined text-sm">check</span>
+                        Downloaded
+                      </>
+                    )}
+                    {(docxState === "idle" || docxState === "error") && (
+                      <>
+                        <span className="material-symbols-outlined text-sm">download</span>
+                        Download DOCX
+                      </>
+                    )}
+                  </button>
+                </span>
               </div>
               <div className="flex flex-col p-6 rounded-xl border border-outline-variant hover:border-secondary transition-colors">
                 <div className="flex items-center gap-3 mb-4">
@@ -440,37 +547,55 @@ export default function Export() {
                   Read-only PDF with the same section layout, cover sheet, drawing sheets, and page
                   breaks for Claims and Abstract.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => void handleDownloadPdf()}
-                  disabled={exporting || !hasContent}
-                  className={`w-full px-6 py-3 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm ${
-                    pdfState === "done"
-                      ? "bg-secondary text-on-primary"
-                      : "bg-primary text-on-primary hover:bg-primary-container"
-                  } ${pdfState === "preparing" ? "opacity-80" : ""}`}
+                <span
+                  className="w-full block"
+                  title={exportDisabled ? exportDisabledTitle : undefined}
                 >
-                  {pdfState === "preparing" && (
-                    <>
-                      <span className="material-symbols-outlined animate-spin text-sm">sync</span>
-                      Preparing...
-                    </>
-                  )}
-                  {pdfState === "done" && (
-                    <>
-                      <span className="material-symbols-outlined text-sm">check</span>
-                      Downloaded
-                    </>
-                  )}
-                  {(pdfState === "idle" || pdfState === "error") && (
-                    <>
-                      <span className="material-symbols-outlined text-sm">download</span>
-                      Download PDF
-                    </>
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadPdf()}
+                    disabled={exportDisabled}
+                    title={exportDisabled ? exportDisabledTitle : undefined}
+                    className={`w-full px-6 py-3 rounded-lg font-label-md text-label-md transition-all flex items-center justify-center gap-2 shadow-sm ${
+                      exportDisabled ? EXPORT_DOWNLOAD_DISABLED_CLASS : "active:scale-95"
+                    } ${
+                      pdfState === "done"
+                        ? "bg-secondary text-on-primary"
+                        : exportDisabled
+                          ? "bg-primary text-on-primary"
+                          : "bg-primary text-on-primary hover:bg-primary-container"
+                    } ${pdfState === "preparing" && !exportDisabled ? "opacity-80" : ""}`}
+                  >
+                    {pdfState === "preparing" && (
+                      <>
+                        <span className="material-symbols-outlined animate-spin text-sm">sync</span>
+                        Preparing...
+                      </>
+                    )}
+                    {pdfState === "done" && (
+                      <>
+                        <span className="material-symbols-outlined text-sm">check</span>
+                        Downloaded
+                      </>
+                    )}
+                    {(pdfState === "idle" || pdfState === "error") && (
+                      <>
+                        <span className="material-symbols-outlined text-sm">download</span>
+                        Download PDF
+                      </>
+                    )}
+                  </button>
+                </span>
               </div>
             </div>
+            {exportDisabledHelperText && (
+              <p
+                className="mt-4 text-center font-body-sm text-body-sm text-on-surface-variant"
+                role="status"
+              >
+                {exportDisabledHelperText}
+              </p>
+            )}
           </section>
         </div>
 

@@ -16,6 +16,7 @@ import {
   SECTION_LABELS,
   type PatentSectionId,
 } from "../types/patent";
+import { hasDraftSections, isWorkflowStepAccessible } from "../utils/draftStorage";
 import "../styles/patent-drafter.css";
 
 export default function Draft() {
@@ -25,11 +26,17 @@ export default function Draft() {
     sections,
     filingInfo,
     attorneyFeedback,
+    approvedExemplars,
     setAttorneyFeedback,
+    setApprovedExemplar,
     captureAiInitialSections,
     setSection,
     setSections,
     saveToStorage,
+    getWorkflowSnapshot,
+    markStepComplete,
+    autoDraftPending,
+    clearAutoDraftPending,
   } = usePatentWorkflow();
 
   const [activeSection, setActiveSection] = useState<PatentSectionId>("field");
@@ -47,7 +54,7 @@ export default function Draft() {
   const activeSectionRef = useRef(activeSection);
   const sectionsRef = useRef(sections);
   const pendingSectionIdsRef = useRef<PatentSectionId[]>([]);
-  const parallelDraftInitiated = useRef(false);
+  const autoDraftStarted = useRef(false);
   const suppressSavedIndicator = useRef(true);
   const prevActiveSectionRef = useRef(activeSection);
 
@@ -97,8 +104,12 @@ export default function Draft() {
   useEffect(() => {
     if (!invention) {
       navigate("/review", { replace: true });
+      return;
     }
-  }, [invention, navigate]);
+    if (!isWorkflowStepAccessible("draft", getWorkflowSnapshot())) {
+      navigate("/review", { replace: true });
+    }
+  }, [invention, getWorkflowSnapshot, navigate]);
 
   const flushActiveSection = useCallback(
     (sectionId: PatentSectionId, text: string) => {
@@ -186,14 +197,23 @@ export default function Draft() {
   );
 
   useEffect(() => {
-    if (!invention || parallelDraftInitiated.current) return;
+    if (!invention || !autoDraftPending || autoDraftStarted.current) return;
 
-    const empty = PATENT_SECTION_IDS.filter((id) => !sectionsRef.current[id]?.trim());
-    if (empty.length === 0) return;
+    if (hasDraftSections(sections)) {
+      clearAutoDraftPending();
+      return;
+    }
 
-    parallelDraftInitiated.current = true;
-    void startParallelDraft(empty);
-  }, [invention, startParallelDraft]);
+    autoDraftStarted.current = true;
+    clearAutoDraftPending();
+    void startParallelDraft([...PATENT_SECTION_IDS]);
+  }, [
+    invention,
+    autoDraftPending,
+    sections,
+    clearAutoDraftPending,
+    startParallelDraft,
+  ]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -318,10 +338,21 @@ export default function Draft() {
                 onUndo={undo}
                 onRedo={redo}
               />
+              {isBusy && (
+                <span
+                  className="font-label-sm text-label-sm text-on-surface-variant max-w-[12rem] text-right leading-snug"
+                  title="Wait for drafting to complete."
+                >
+                  Wait for drafting to complete.
+                </span>
+              )}
               <WorkflowNextLink
                 to="/figures"
+                disabled={isBusy}
+                disabledTitle="Wait for drafting to complete."
                 onClick={() => {
                   flushActiveSection(activeSection, draftText);
+                  markStepComplete("draft");
                   saveToStorage();
                 }}
               >
@@ -467,6 +498,8 @@ export default function Draft() {
               sectionLabel={SECTION_LABELS[activeSection]}
               value={attorneyFeedback[activeSection] ?? ""}
               onChange={(comment) => setAttorneyFeedback(activeSection, comment)}
+              approved={approvedExemplars[activeSection]}
+              onApprove={(approved) => setApprovedExemplar(activeSection, approved)}
               disabled={isBusy}
             />
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AutoResizeTextarea } from "../components/AutoResizeTextarea";
@@ -21,9 +21,31 @@ import {
 } from "../services/api";
 import type { InventionDetails } from "../types/patent";
 import { fileIcon, formatFileSize } from "../utils/format";
+import {
+  computeExtractionSourceKey,
+  hasExtractedReviewContent,
+  hasSourceMaterialConfigured,
+  needsExtraction,
+} from "../utils/extractionSourceKey";
+import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
 
 type ReviewFieldKey = ExtractableInventionField;
+
+const CORE_REVIEW_FIELD_KEYS = [
+  "invention_title",
+  "problem_being_solved",
+  "core_technical_solution",
+  "novel_mechanism",
+] as const satisfies readonly ReviewFieldKey[];
+
+function hasCoreReviewFieldContent(
+  details: InventionDetails,
+  key: (typeof CORE_REVIEW_FIELD_KEYS)[number],
+): boolean {
+  const value = details[key];
+  return typeof value === "string" && value.trim().length > 0;
+}
 
 const REVIEW_FIELDS: {
   key: ReviewFieldKey;
@@ -129,6 +151,10 @@ export default function Review() {
     cachedRemoteSources,
     gatherSourceText,
     saveToStorage,
+    markStepComplete,
+    requestAutoDraft,
+    extractionSourceKey,
+    setExtractionSourceKey,
   } = usePatentWorkflow();
 
   const {
@@ -145,6 +171,7 @@ export default function Review() {
   const [regeneratingField, setRegeneratingField] = useState<ReviewFieldKey | "all" | null>(
     null,
   );
+  const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
   const [textPreview, setTextPreview] = useState<{
@@ -156,6 +183,7 @@ export default function Review() {
 
   const initialSynced = useRef(false);
   const suppressSavedIndicator = useRef(true);
+  const autoExtractStarted = useRef(false);
   useEffect(() => {
     if (invention && !initialSynced.current) {
       reset(invention);
@@ -181,12 +209,100 @@ export default function Review() {
     return () => window.clearTimeout(timer);
   }, [form, setInvention, saveToStorage, flashSaved]);
 
+  const extractionNotes = extractionNotesFromSources(inputSources);
+
+  const rememberExtractionSources = (
+    sourceCache: typeof cachedRemoteSources = cachedRemoteSources,
+  ) => {
+    const key = computeExtractionSourceKey(uploadedFiles, inputSources, sourceCache);
+    setExtractionSourceKey(key);
+    return key;
+  };
+
+  useEffect(() => {
+    if (autoExtractStarted.current || !invention) {
+      return;
+    }
+
+    if (
+      !extractionSourceKey &&
+      hasExtractedReviewContent(invention) &&
+      hasSourceMaterialConfigured(uploadedFiles, inputSources, cachedRemoteSources)
+    ) {
+      rememberExtractionSources();
+      autoExtractStarted.current = true;
+      return;
+    }
+
+    if (
+      !needsExtraction(
+        invention,
+        extractionSourceKey,
+        uploadedFiles,
+        inputSources,
+        cachedRemoteSources,
+      )
+    ) {
+      autoExtractStarted.current = true;
+      return;
+    }
+
+    autoExtractStarted.current = true;
+
+    const runAutoExtraction = async () => {
+      setError(null);
+      setRegeneratingField("all");
+      suppressSavedIndicator.current = true;
+      try {
+        const { combined, cache } = await gatherSourceText({
+          onProgress: setExtractPhase,
+        });
+        if (!combined.trim()) {
+          setError("No source material available. Go back to Input and add sources.");
+          return;
+        }
+        setExtractPhase("Extracting invention details (parallel AI analysis)…");
+        const details = await extractInvention(combined, extractionNotes);
+        reset(details);
+        setInvention(details);
+        rememberExtractionSources(cache);
+        saveToStorage();
+      } catch (err) {
+        if (err instanceof SourceGatherError && err.source === "confluence") {
+          setError(err.message);
+          return;
+        }
+        setError(err instanceof ApiError ? err.message : "Extraction failed.");
+      } finally {
+        setRegeneratingField(null);
+        setExtractPhase(null);
+        window.setTimeout(() => {
+          suppressSavedIndicator.current = false;
+        }, 0);
+      }
+    };
+
+    void runAutoExtraction();
+  }, [
+    invention,
+    extractionSourceKey,
+    uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
+    gatherSourceText,
+    extractionNotes,
+    reset,
+    setInvention,
+    saveToStorage,
+    setExtractionSourceKey,
+  ]);
+
   const handleRegenerateAll = async () => {
     setError(null);
     setRegeneratingField("all");
     push(structuredClone(form));
     try {
-      const combined = await gatherSourceText();
+      const { combined, cache } = await gatherSourceText();
       if (!combined.trim()) {
         setError("No source material available. Go back to Input and add sources.");
         return;
@@ -194,6 +310,7 @@ export default function Review() {
       const details = await extractInvention(combined, extractionNotes);
       push(details);
       setInvention(details);
+      rememberExtractionSources(cache);
       saveToStorage();
       flashSaved();
     } catch (err) {
@@ -208,7 +325,7 @@ export default function Review() {
     setRegeneratingField(field);
     push(structuredClone(form));
     try {
-      const combined = await gatherSourceText();
+      const { combined } = await gatherSourceText();
       if (!combined.trim()) {
         setError("No source material available. Go back to Input and add sources.");
         return;
@@ -232,7 +349,16 @@ export default function Review() {
 
   const isBusy = regeneratingField !== null;
 
-  const extractionNotes = extractionNotesFromSources(inputSources);
+  const { allCoreFieldsEmpty, someCoreFieldsEmpty } = useMemo(() => {
+    const filledCount = CORE_REVIEW_FIELD_KEYS.filter((key) =>
+      hasCoreReviewFieldContent(form, key),
+    ).length;
+    return {
+      allCoreFieldsEmpty: filledCount === 0,
+      someCoreFieldsEmpty: filledCount > 0 && filledCount < CORE_REVIEW_FIELD_KEYS.length,
+    };
+  }, [form]);
+
   const confluenceSource = cachedRemoteSources.confluence;
   const websiteSource = cachedRemoteSources.website;
   const pastedText = inputSources.pastedText.trim();
@@ -300,7 +426,17 @@ export default function Review() {
                 onUndo={undo}
                 onRedo={redo}
               />
-              <WorkflowNextLink to="/draft">Next: Draft</WorkflowNextLink>
+              <WorkflowNextLink
+                to="/draft"
+                disabled={allCoreFieldsEmpty}
+                onClick={() => {
+                  markStepComplete("review");
+                  requestAutoDraft();
+                  saveToStorage();
+                }}
+              >
+                Next: Draft
+              </WorkflowNextLink>
             </>
           }
         />
@@ -317,9 +453,10 @@ export default function Review() {
           <GenerationProgress
             active
             label={
-              regeneratingField === "all"
+              extractPhase ??
+              (regeneratingField === "all"
                 ? "Regenerating all invention fields"
-                : `Regenerating ${REVIEW_FIELDS.find((f) => f.key === regeneratingField)?.label ?? "field"}`
+                : `Regenerating ${REVIEW_FIELDS.find((f) => f.key === regeneratingField)?.label ?? "field"}`)
             }
           />
         </div>
@@ -538,6 +675,20 @@ export default function Review() {
               </button>
             </div>
             <div className="flex-grow overflow-y-auto p-8 space-y-8 custom-scrollbar pb-8">
+              {allCoreFieldsEmpty && (
+                <div
+                  role="alert"
+                  className="p-4 rounded-lg bg-error-container/20 text-error border border-error/30 font-body-sm text-body-sm"
+                >
+                  Please fill in at least one invention detail before drafting.
+                </div>
+              )}
+              {someCoreFieldsEmpty && (
+                <div className="p-4 rounded-lg bg-secondary/10 text-on-surface border border-secondary/30 font-body-sm text-body-sm">
+                  Some invention details are still empty. You can continue, but draft quality may
+                  improve if you fill in the remaining fields.
+                </div>
+              )}
               {REVIEW_FIELDS.map((field) => (
                 <AiField
                   key={field.key}

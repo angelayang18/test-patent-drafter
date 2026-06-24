@@ -61,8 +61,8 @@ these keys and value types:
 - invention_title: str (as short and specific as possible; maximum 15 words; no marketing adjectives or taglines)
 - technical_field: str (1-2 sentences on the domain)
 - problem_being_solved: str (the technical limitation of prior art)
-- core_technical_solution: str (how the invention solves it mechanically)
-- novel_mechanism: str (the specific technical novelty — what no one else does)
+- core_technical_solution: str (how the invention works mechanically — components, steps, and data flows; do not leave empty when the source describes system operation)
+- novel_mechanism: str (the specific technical novelty vs prior art — structural or algorithmic distinction; do not leave empty when the source describes distinctive technical approaches)
 - alternative_embodiments: list[str] (variations of the invention)
 - key_components: list[str] (main system components or method steps)
 
@@ -82,10 +82,17 @@ Technical documentation:
 """
 
 EXTRACT_GROUP_SOLUTION_USER = """\
-Analyze the technical documentation and return a JSON object with exactly these keys:
+Analyze the technical documentation and return a JSON object with exactly these keys \
+(use these exact snake_case key names — do not rename, omit, or nest them):
 
-- core_technical_solution: str (how the invention solves it mechanically)
-- novel_mechanism: str (the specific technical novelty — what no one else does)
+- core_technical_solution: str — How the invention works mechanically: the main components, \
+processing steps, data flows, and architecture that solve the technical problem. Write 2-5 \
+sentences grounded in the source material. Do not leave this empty if the documentation \
+describes how the system or method operates.
+- novel_mechanism: str — The specific technical feature that distinguishes this invention from \
+prior art: what is structurally or algorithmically different, not merely a business benefit. \
+Write 1-3 sentences. Do not leave this empty if the documentation describes distinctive \
+technical approaches, algorithms, or integrations.
 
 Technical documentation:
 {combined_text}

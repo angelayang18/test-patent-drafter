@@ -13,7 +13,7 @@ import type {
   PatentFigure,
   PatentSectionId,
 } from "../types/patent";
-import { EMPTY_FILING_INFO, emptyAttorneyFeedback } from "../types/patent";
+import { EMPTY_FILING_INFO, emptyApprovedExemplars, emptyAttorneyFeedback } from "../types/patent";
 import {
   clearActiveWorkflow,
   defaultDraftName,
@@ -27,8 +27,9 @@ import {
   writeActiveWorkflow,
   type SavedDraftRecord,
   type WorkflowSnapshot,
+  type WorkflowStep,
 } from "../utils/draftStorage";
-import { gatherCombinedSourceText, type CachedRemoteSources } from "../utils/gatherSourceText";
+import { gatherCombinedSourceText, type CachedRemoteSources, type GatheredSourceText, type GatherSourceTextOptions } from "../utils/gatherSourceText";
 
 export interface UploadedSourceFile {
   id: string;
@@ -60,14 +61,19 @@ interface PatentWorkflowContextValue {
   cachedRemoteSources: CachedRemoteSources;
   attorneyFeedback: Record<PatentSectionId, string>;
   attorneyFeedbackGlobal: string;
+  approvedExemplars: Record<PatentSectionId, boolean>;
   aiInitialSections: Record<string, string>;
   includeInLearningCorpus: boolean;
+  completedSteps: WorkflowStep[];
+  extractionSourceKey: string | null;
+  autoDraftPending: boolean;
   setInvention: (details: InventionDetails) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
   captureAiInitialSections: (drafted: Record<string, string>) => void;
   setAttorneyFeedback: (sectionId: PatentSectionId, comment: string) => void;
   setAttorneyFeedbackGlobal: (comment: string) => void;
+  setApprovedExemplar: (sectionId: PatentSectionId, approved: boolean) => void;
   setIncludeInLearningCorpus: (include: boolean) => void;
   setFiguresResult: (result: FiguresResult) => void;
   updateFigure: (number: number, patch: Partial<PatentFigure>) => void;
@@ -81,7 +87,7 @@ interface PatentWorkflowContextValue {
   setInputSources: (patch: Partial<InputSources>) => void;
   buildCombinedSourceText: () => string;
   /** Local files + paste, then remote sources (parallel, cached). */
-  gatherSourceText: () => Promise<string>;
+  gatherSourceText: (options?: GatherSourceTextOptions) => Promise<GatheredSourceText>;
   getWorkflowSnapshot: () => WorkflowSnapshot;
   importWorkflow: (workflow: WorkflowSnapshot) => void;
   getSavedDrafts: () => SavedDraftRecord[];
@@ -92,6 +98,10 @@ interface PatentWorkflowContextValue {
   loadFromStorage: () => void;
   saveToStorage: () => void;
   clearWorkflow: () => void;
+  markStepComplete: (step: WorkflowStep) => void;
+  setExtractionSourceKey: (key: string | null) => void;
+  requestAutoDraft: () => void;
+  clearAutoDraftPending: () => void;
 }
 
 const defaultInvention: InventionDetails = {
@@ -150,11 +160,23 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const [attorneyFeedbackGlobal, setAttorneyFeedbackGlobalState] = useState(
     initial.attorneyFeedbackGlobal ?? "",
   );
+  const [approvedExemplars, setApprovedExemplarsState] = useState<
+    Record<PatentSectionId, boolean>
+  >(initial.approvedExemplars ?? emptyApprovedExemplars());
   const [aiInitialSections, setAiInitialSectionsState] = useState<Record<string, string>>(
     initial.aiInitialSections ?? {},
   );
   const [includeInLearningCorpus, setIncludeInLearningCorpusState] = useState(
     initial.includeInLearningCorpus ?? true,
+  );
+  const [completedSteps, setCompletedStepsState] = useState<WorkflowStep[]>(
+    initial.completedSteps ?? [],
+  );
+  const [extractionSourceKey, setExtractionSourceKeyState] = useState<string | null>(
+    initial.extractionSourceKey ?? null,
+  );
+  const [autoDraftPending, setAutoDraftPendingState] = useState(
+    initial.autoDraftPending ?? false,
   );
 
   const writeStoragePayload = useCallback((payload: StoredWorkflow) => {
@@ -184,8 +206,12 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
     }),
     [
       invention,
@@ -198,8 +224,12 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
     ],
   );
 
@@ -222,8 +252,12 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
       setAttorneyFeedbackState(next.attorneyFeedback ?? emptyAttorneyFeedback());
       setAttorneyFeedbackGlobalState(next.attorneyFeedbackGlobal ?? "");
+      setApprovedExemplarsState(next.approvedExemplars ?? emptyApprovedExemplars());
       setAiInitialSectionsState(next.aiInitialSections ?? {});
       setIncludeInLearningCorpusState(next.includeInLearningCorpus ?? true);
+      setCompletedStepsState(next.completedSteps ?? []);
+      setExtractionSourceKeyState(next.extractionSourceKey ?? null);
+      setAutoDraftPendingState(next.autoDraftPending ?? false);
       writeStoragePayload(next);
     },
     [writeStoragePayload],
@@ -269,8 +303,12 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     setCachedRemoteSourcesState(stored.cachedRemoteSources ?? {});
     setAttorneyFeedbackState(stored.attorneyFeedback ?? emptyAttorneyFeedback());
     setAttorneyFeedbackGlobalState(stored.attorneyFeedbackGlobal ?? "");
+    setApprovedExemplarsState(stored.approvedExemplars ?? emptyApprovedExemplars());
     setAiInitialSectionsState(stored.aiInitialSections ?? {});
     setIncludeInLearningCorpusState(stored.includeInLearningCorpus ?? true);
+    setCompletedStepsState(stored.completedSteps ?? []);
+    setExtractionSourceKeyState(stored.extractionSourceKey ?? null);
+    setAutoDraftPendingState(stored.autoDraftPending ?? false);
   }, []);
 
   const setInvention = useCallback((details: InventionDetails) => {
@@ -303,6 +341,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setAttorneyFeedbackGlobal = useCallback((comment: string) => {
     setAttorneyFeedbackGlobalState(comment);
+  }, []);
+
+  const setApprovedExemplar = useCallback((sectionId: PatentSectionId, approved: boolean) => {
+    setApprovedExemplarsState((prev) => ({ ...prev, [sectionId]: approved }));
   }, []);
 
   const setIncludeInLearningCorpus = useCallback((include: boolean) => {
@@ -339,6 +381,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
           cachedRemoteSources,
           attorneyFeedback,
           attorneyFeedbackGlobal,
+          approvedExemplars,
           aiInitialSections,
           includeInLearningCorpus,
         });
@@ -356,6 +399,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
       writeStoragePayload,
@@ -393,6 +437,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
           cachedRemoteSources,
           attorneyFeedback,
           attorneyFeedbackGlobal,
+          approvedExemplars,
           aiInitialSections,
           includeInLearningCorpus,
         });
@@ -409,6 +454,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
       writeStoragePayload,
@@ -436,18 +482,19 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     return parts.join("\n\n");
   }, [uploadedFiles, inputSources.pastedText]);
 
-  const gatherSourceText = useCallback(async () => {
+  const gatherSourceText = useCallback(async (options?: GatherSourceTextOptions) => {
     const result = await gatherCombinedSourceText({
       buildLocalText: buildCombinedSourceText,
       inputSources,
       cached: cachedRemoteSources,
+      onProgress: options?.onProgress,
     });
     setCachedRemoteSourcesState(result.cache);
     writeStoragePayload({
       ...buildSnapshot(),
       cachedRemoteSources: result.cache,
     });
-    return result.combined;
+    return { combined: result.combined, cache: result.cache };
   }, [
     buildCombinedSourceText,
     inputSources,
@@ -455,6 +502,50 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     buildSnapshot,
     writeStoragePayload,
   ]);
+
+  const markStepComplete = useCallback(
+    (step: WorkflowStep) => {
+      setCompletedStepsState((prev) => {
+        if (prev.includes(step)) {
+          return prev;
+        }
+        const next = [...prev, step];
+        writeStoragePayload({
+          ...buildSnapshot(),
+          completedSteps: next,
+        });
+        return next;
+      });
+    },
+    [buildSnapshot, writeStoragePayload],
+  );
+
+  const setExtractionSourceKey = useCallback(
+    (key: string | null) => {
+      setExtractionSourceKeyState(key);
+      writeStoragePayload({
+        ...buildSnapshot(),
+        extractionSourceKey: key,
+      });
+    },
+    [buildSnapshot, writeStoragePayload],
+  );
+
+  const requestAutoDraft = useCallback(() => {
+    setAutoDraftPendingState(true);
+    writeStoragePayload({
+      ...buildSnapshot(),
+      autoDraftPending: true,
+    });
+  }, [buildSnapshot, writeStoragePayload]);
+
+  const clearAutoDraftPending = useCallback(() => {
+    setAutoDraftPendingState(false);
+    writeStoragePayload({
+      ...buildSnapshot(),
+      autoDraftPending: false,
+    });
+  }, [buildSnapshot, writeStoragePayload]);
 
   const clearWorkflow = useCallback(() => {
     clearActiveWorkflow();
@@ -468,8 +559,12 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
     setCachedRemoteSourcesState({});
     setAttorneyFeedbackState(emptyAttorneyFeedback());
     setAttorneyFeedbackGlobalState("");
+    setApprovedExemplarsState(emptyApprovedExemplars());
     setAiInitialSectionsState({});
     setIncludeInLearningCorpusState(true);
+    setCompletedStepsState([]);
+    setExtractionSourceKeyState(null);
+    setAutoDraftPendingState(false);
   }, []);
 
   const value = useMemo(
@@ -484,14 +579,19 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
       setInvention,
       setSection,
       setSections,
       captureAiInitialSections,
       setAttorneyFeedback,
       setAttorneyFeedbackGlobal,
+      setApprovedExemplar,
       setIncludeInLearningCorpus,
       setFiguresResult,
       updateFigure,
@@ -514,6 +614,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       loadFromStorage,
       saveToStorage,
       clearWorkflow,
+      markStepComplete,
+      setExtractionSourceKey,
+      requestAutoDraft,
+      clearAutoDraftPending,
     }),
     [
       invention,
@@ -526,14 +630,19 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
       setInvention,
       setSection,
       setSections,
       captureAiInitialSections,
       setAttorneyFeedback,
       setAttorneyFeedbackGlobal,
+      setApprovedExemplar,
       setIncludeInLearningCorpus,
       setFiguresResult,
       updateFigure,
@@ -556,6 +665,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       loadFromStorage,
       saveToStorage,
       clearWorkflow,
+      markStepComplete,
+      setExtractionSourceKey,
+      requestAutoDraft,
+      clearAutoDraftPending,
     ],
   );
 

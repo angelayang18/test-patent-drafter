@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from drafter.prompts import PATENT_SECTIONS
+
 _HEADING_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
 _ITALIC_RE = re.compile(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)")
@@ -338,6 +340,46 @@ def validate_section_output(section: str, text: str) -> list[str]:
     if not text.strip():
         return [f"The {section} section is empty."]
     return []
+
+
+_EMPTY_SECTION_MESSAGE = "Section is empty."
+
+
+def _ordered_section_keys(sections: dict[str, str]) -> list[str]:
+    """Always validate every core patent section, even when missing from the payload."""
+    ordered = list(PATENT_SECTIONS)
+    for key in sections:
+        if key not in PATENT_SECTIONS:
+            ordered.append(key)
+    return ordered
+
+
+def get_format_qa_report(sections: dict[str, str]) -> list[dict]:
+    """Run format validation on each draft section and summarize pass/warn/fail status."""
+    report: list[dict] = []
+
+    for section in _ordered_section_keys(sections):
+        text = sections.get(section, "")
+        if not text or not text.strip():
+            report.append(
+                {
+                    "section": section,
+                    "status": "warn",
+                    "messages": [_EMPTY_SECTION_MESSAGE],
+                }
+            )
+            continue
+
+        messages = validate_section_output(section, text)
+        report.append(
+            {
+                "section": section,
+                "status": "fail" if messages else "pass",
+                "messages": messages,
+            }
+        )
+
+    return report
 
 
 def normalize_claims_text(text: str) -> str:

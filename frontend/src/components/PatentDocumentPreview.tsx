@@ -150,7 +150,9 @@ export function PatentDocumentPreview({
             const isEmpty = !body.trim();
             const paragraphs = splitParagraphs(body);
             const isDraftSection = (PATENT_SECTION_IDS as readonly string[]).includes(key);
-            const clickable = Boolean(onSectionClick && isDraftSection);
+            const sectionClickHandler =
+              isDraftSection && onSectionClick ? onSectionClick : undefined;
+            const clickable = sectionClickHandler !== undefined;
             const needsPageBreak = SECTIONS_REQUIRING_PAGE_BREAK_BEFORE.has(key);
 
             return (
@@ -161,16 +163,16 @@ export function PatentDocumentPreview({
                     clickable ? "group cursor-pointer" : ""
                   }`}
                   onClick={
-                    clickable
-                      ? () => onSectionClick(key as PatentSectionId)
+                    sectionClickHandler
+                      ? () => sectionClickHandler(key as PatentSectionId)
                       : undefined
                   }
                   onKeyDown={
-                    clickable
+                    sectionClickHandler
                       ? (e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            onSectionClick(key as PatentSectionId);
+                            sectionClickHandler(key as PatentSectionId);
                           }
                         }
                       : undefined
