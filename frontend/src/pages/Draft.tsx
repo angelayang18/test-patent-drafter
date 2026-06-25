@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AttorneyFeedbackPanel } from "../components/AttorneyFeedbackPanel";
+import { AttorneyFeedbackSummaryPanel } from "../components/AttorneyFeedbackSummaryPanel";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
-import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowContext";
+import { defaultInvention } from "../types/patent";
+import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { ApiError, draftAllSections, draftSection } from "../services/api";
 import {
@@ -37,6 +39,7 @@ export default function Draft() {
     markStepComplete,
     autoDraftPending,
     clearAutoDraftPending,
+    workflowResetting,
   } = usePatentWorkflow();
 
   const [activeSection, setActiveSection] = useState<PatentSectionId>("field");
@@ -102,6 +105,9 @@ export default function Draft() {
   }, [activeSection]);
 
   useEffect(() => {
+    if (workflowResetting) {
+      return;
+    }
     if (!invention) {
       navigate("/review", { replace: true });
       return;
@@ -109,7 +115,7 @@ export default function Draft() {
     if (!isWorkflowStepAccessible("draft", getWorkflowSnapshot())) {
       navigate("/review", { replace: true });
     }
-  }, [invention, getWorkflowSnapshot, navigate]);
+  }, [invention, getWorkflowSnapshot, navigate, workflowResetting]);
 
   const flushActiveSection = useCallback(
     (sectionId: PatentSectionId, text: string) => {
@@ -216,6 +222,9 @@ export default function Draft() {
   ]);
 
   useEffect(() => {
+    if (workflowResetting || !invention) {
+      return;
+    }
     const timer = window.setTimeout(() => {
       if (pendingSectionIds.includes(activeSection) || regeneratingSections.has(activeSection)) {
         return;
@@ -235,6 +244,8 @@ export default function Draft() {
     flushActiveSection,
     saveToStorage,
     flashSaved,
+    invention,
+    workflowResetting,
   ]);
 
   const handleDraftAllEmpty = () => {
@@ -447,6 +458,12 @@ export default function Draft() {
               </button>
             );
           })}
+          <div className="mt-4 pt-4 border-t border-outline-variant">
+            <AttorneyFeedbackSummaryPanel
+              attorneyFeedback={attorneyFeedback}
+              sectionLabels={SECTION_LABELS}
+            />
+          </div>
         </aside>
 
         <div className="flex-1 overflow-y-auto bg-[#FAFAFA] flex flex-col relative custom-scrollbar">

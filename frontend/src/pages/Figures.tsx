@@ -5,12 +5,14 @@ import { AppShell } from "../components/AppShell";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
-import { defaultInvention, usePatentWorkflow } from "../context/PatentWorkflowContext";
+import { defaultInvention } from "../types/patent";
+import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
   ApiError,
   downloadBlob,
   downloadText,
   generateFigures,
+  regenerateFigure,
   renderFigurePng,
 } from "../services/api";
 import { prerenderFigurePngs, figuresSignature } from "../utils/figurePngPrerender";
@@ -32,11 +34,14 @@ export default function Figures() {
     saveToStorage,
     getWorkflowSnapshot,
     markStepComplete,
+    workflowResetting,
   } = usePatentWorkflow();
 
   const [activeFigure, setActiveFigure] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [regeneratingFigures, setRegeneratingFigures] = useState<Set<number>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [pngLoading, setPngLoading] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -57,14 +62,20 @@ export default function Figures() {
   const figureRenderSignature = useMemo(() => figuresSignature(figures), [figures]);
 
   useEffect(() => {
+    if (workflowResetting) {
+      return;
+    }
     if (!isWorkflowStepAccessible("figures", getWorkflowSnapshot())) {
       navigate("/draft", { replace: true });
     }
-  }, [getWorkflowSnapshot, navigate]);
+  }, [getWorkflowSnapshot, navigate, workflowResetting]);
 
   useEffect(() => {
+    if (workflowResetting) {
+      return;
+    }
     saveToStorage();
-  }, [figures, briefDescriptionOfDrawings, saveToStorage]);
+  }, [figures, briefDescriptionOfDrawings, saveToStorage, workflowResetting]);
 
   useEffect(() => {
     if (figures.length === 0) {
@@ -90,6 +101,7 @@ export default function Figures() {
 
   const handleGenerate = async () => {
     setError(null);
+    setWarnings([]);
     setLoading(true);
     try {
       const details = invention ?? defaultInvention;
@@ -98,6 +110,9 @@ export default function Figures() {
         sections.description ?? "",
       );
       setFiguresResult(result);
+      if (result.warnings?.length) {
+        setWarnings(result.warnings);
+      }
       if (result.figures.length > 0) {
         setActiveFigure(result.figures[0].number);
       }
@@ -105,6 +120,35 @@ export default function Figures() {
       setError(err instanceof ApiError ? err.message : "Failed to generate figures.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRegenerateFigure = async (figureNumber: number) => {
+    setError(null);
+    setWarnings([]);
+    setRegeneratingFigures((prev) => new Set(prev).add(figureNumber));
+    try {
+      const details = invention ?? defaultInvention;
+      const result = await regenerateFigure(
+        figureNumber,
+        details,
+        sections.description ?? "",
+        figures,
+      );
+      updateFigure(figureNumber, result.figure);
+      if (result.warnings?.length) {
+        setWarnings(result.warnings);
+      }
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : `Failed to regenerate FIG. ${figureNumber}.`,
+      );
+    } finally {
+      setRegeneratingFigures((prev) => {
+        const next = new Set(prev);
+        next.delete(figureNumber);
+        return next;
+      });
     }
   };
 
@@ -184,6 +228,25 @@ export default function Figures() {
         </div>
       )}
 
+      {warnings.length > 0 && (
+        <div className="mb-6 p-4 rounded-lg bg-amber-500/10 text-amber-900 border border-amber-500/30">
+          <div className="flex items-start gap-2">
+            <span className="material-symbols-outlined text-[20px] shrink-0 mt-0.5">warning</span>
+            <div>
+              <p className="font-label-md text-label-md mb-2">
+                Reference numeral inconsistencies detected — figures were generated but may need
+                manual edits:
+              </p>
+              <ul className="font-body-sm text-body-sm space-y-1 list-disc list-inside">
+                {warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-3 mb-6">
         <button
           type="button"
@@ -228,25 +291,43 @@ export default function Figures() {
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
           <aside className="lg:col-span-3 space-y-2">
-            {figures.map((fig: PatentFigure) => (
-              <button
-                key={fig.number}
-                type="button"
-                onClick={() => setActiveFigure(fig.number)}
-                className={`w-full text-left p-4 rounded-lg border transition-all ${
-                  activeFigure === fig.number
-                    ? "bg-secondary-container/20 border-secondary"
-                    : "bg-surface-container-lowest border-outline-variant hover:border-secondary/50"
-                }`}
-              >
-                <span className="font-label-md text-label-md text-primary font-bold">
-                  FIG. {fig.number}
-                </span>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-                  {fig.title}
-                </p>
-              </button>
-            ))}
+            {figures.map((fig: PatentFigure) => {
+              const isRegenerating = regeneratingFigures.has(fig.number);
+              return (
+                <div key={fig.number} className="flex items-stretch gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFigure(fig.number)}
+                    className={`flex-1 min-w-0 text-left p-4 rounded-lg border transition-all ${
+                      activeFigure === fig.number
+                        ? "bg-secondary-container/20 border-secondary"
+                        : "bg-surface-container-lowest border-outline-variant hover:border-secondary/50"
+                    }`}
+                  >
+                    <span className="font-label-md text-label-md text-primary font-bold">
+                      FIG. {fig.number}
+                    </span>
+                    <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                      {fig.title}
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    title={`Regenerate FIG. ${fig.number}`}
+                    aria-label={`Regenerate FIG. ${fig.number}`}
+                    onClick={() => void handleRegenerateFigure(fig.number)}
+                    disabled={isRegenerating}
+                    className="shrink-0 self-stretch px-2 rounded-lg border border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:text-primary hover:border-secondary transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <span
+                      className={`material-symbols-outlined text-[18px] ${isRegenerating ? "loading-spin" : ""}`}
+                    >
+                      autorenew
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
           </aside>
 
           <section className="lg:col-span-9 space-y-6">

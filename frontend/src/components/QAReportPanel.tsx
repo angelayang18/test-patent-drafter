@@ -82,11 +82,11 @@ export function QAReportPanel({ report }: QAReportPanelProps) {
         </div>
       </div>
       <ul className="space-y-2">
-        {sorted.map((entry) => {
+        {sorted.map((entry, index) => {
           const indicator = statusIndicator(entry.status);
           return (
             <li
-              key={entry.section}
+              key={`${entry.section}-${index}`}
               className={`flex items-start gap-3 p-3 rounded-lg border ${indicator.rowClass}`}
             >
               <span

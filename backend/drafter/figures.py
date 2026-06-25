@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -16,23 +17,146 @@ from .figure_numerals import (
 )
 from .llm_client import generate_json, get_llm_model
 from .mermaid_sanitize import sanitize_mermaid_source
-from .prompts import FIGURES_SYSTEM, get_figures_prompt
+from .prompts import FIGURES_SYSTEM, get_figures_prompt, get_regenerate_figure_prompt
+
+log = logging.getLogger(__name__)
 
 _MERMAID_FORBIDDEN = re.compile(
     r"\b(classDef|style\s|fill:|stroke:|click\s|linkStyle)\b",
     re.IGNORECASE,
 )
 
-# Default compact layouts when the model omits a flowchart direction.
-_FIGURE_DEFAULT_DIRECTION = {
-    1: "TB",
-    2: "TB",
-    3: "TB",
+_MERMAID_TYPE_RE = re.compile(
+    r"^\s*(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram-v2|stateDiagram|"
+    r"erDiagram|block-beta|block|journey|timeline|mindmap)\b",
+    re.IGNORECASE,
+)
+
+# Default diagram headers when the model omits a type declaration.
+_FIGURE_DEFAULT_HEADER = {
+    1: "graph LR",
+    2: "flowchart TD",
 }
 
 
-def _default_flowchart_direction(number: int) -> str:
-    return _FIGURE_DEFAULT_DIRECTION.get(number, "TB")
+# Default diagram headers when the model omits a type declaration.
+_FIGURE_DEFAULT_HEADER = {
+    1: "graph LR",
+    2: "flowchart TD",
+    3: "sequenceDiagram",
+    4: "classDiagram",
+}
+
+_EXPECTED_DIAGRAM_TYPE_PATTERNS: dict[int, re.Pattern[str]] = {
+    1: re.compile(r"^graph\s+LR\b", re.IGNORECASE),
+    2: re.compile(r"^flowchart\s+TD\b", re.IGNORECASE),
+    3: re.compile(r"^sequenceDiagram\b", re.IGNORECASE),
+    4: re.compile(r"^classDiagram\b", re.IGNORECASE),
+}
+
+_EXPECTED_DIAGRAM_TYPE_LABELS: dict[int, str] = {
+    1: "graph LR",
+    2: "flowchart TD",
+    3: "sequenceDiagram",
+    4: "classDiagram",
+}
+
+
+def _first_mermaid_declaration_line(mermaid: str) -> str:
+    """Return the first non-comment, non-init Mermaid declaration line."""
+    in_init_block = False
+    for line in mermaid.strip().splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("%%{init:"):
+            if stripped.endswith("}%%"):
+                continue
+            in_init_block = True
+            continue
+        if in_init_block:
+            if stripped.endswith("}%%") or stripped == "%%":
+                in_init_block = False
+            continue
+        if stripped.startswith("%%"):
+            continue
+        return stripped
+    return ""
+
+
+def _has_diagram_type_declaration(mermaid: str) -> bool:
+    """Return True when mermaid source already declares a diagram type."""
+    declaration = _first_mermaid_declaration_line(mermaid)
+    return bool(declaration and _MERMAID_TYPE_RE.match(declaration))
+
+
+def detect_mermaid_diagram_type(mermaid: str) -> str:
+    """Return a normalized Mermaid diagram type keyword from source."""
+    declaration = _first_mermaid_declaration_line(mermaid)
+    if declaration:
+        match = _MERMAID_TYPE_RE.match(declaration)
+        if match:
+            diagram_type = match.group(1).lower()
+            if diagram_type == "graph":
+                return "flowchart"
+            if diagram_type == "block":
+                return "block-beta"
+            return diagram_type
+    return "flowchart"
+
+
+def _is_flowchart_type(diagram_type: str) -> bool:
+    return diagram_type in {"flowchart", "graph"}
+
+
+def _default_diagram_header(number: int) -> str:
+    if number in _FIGURE_DEFAULT_HEADER:
+        return _FIGURE_DEFAULT_HEADER[number]
+    if number >= 4:
+        return "classDiagram"
+    return "flowchart TD"
+
+
+def _apply_flowchart_layout_rules(mermaid: str, number: int) -> str:
+    """Normalize flowchart/graph direction per figure role without breaking FIG. 1 architecture."""
+    if number == 1:
+        # FIG. 1 architecture: preserve horizontal/layered graph layouts.
+        if re.match(r"^\s*flowchart\b", mermaid, re.IGNORECASE):
+            mermaid = re.sub(
+                r"^flowchart\b",
+                "graph",
+                mermaid,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        return mermaid
+
+    if number == 2:
+        mermaid = re.sub(
+            r"^flowchart\s+(?:TB|BT|LR|RL)\b",
+            "flowchart TD",
+            mermaid,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        return mermaid
+
+    # Other flowchart figures: prefer top-down layout.
+    mermaid = re.sub(
+        r"^flowchart\s+(?:LR|RL)\b",
+        "flowchart TD",
+        mermaid,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    mermaid = re.sub(
+        r"^graph\s+(?:LR|RL)\b",
+        "graph TD",
+        mermaid,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    return mermaid
 
 
 def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
@@ -51,23 +175,18 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
             str(k): str(v) for k, v in numerals_raw.items()
         }
 
-    if not mermaid.lower().startswith("flowchart"):
-        direction = _default_flowchart_direction(number)
-        mermaid = f"flowchart {direction}\n{mermaid}"
-    else:
-        # Patent figures must use vertical layout for Word/PDF export.
-        mermaid = re.sub(
-            r"^flowchart\s+(?:LR|RL)\b",
-            "flowchart TB",
-            mermaid,
-            count=1,
-            flags=re.IGNORECASE,
-        )
-
     if _MERMAID_FORBIDDEN.search(mermaid):
         raise ValueError(
             f"Figure {number} mermaid contains disallowed styling directives."
         )
+
+    diagram_type = detect_mermaid_diagram_type(mermaid)
+    if not _has_diagram_type_declaration(mermaid):
+        mermaid = f"{_default_diagram_header(number)}\n{mermaid}"
+        diagram_type = detect_mermaid_diagram_type(mermaid)
+
+    if _is_flowchart_type(diagram_type):
+        mermaid = _apply_flowchart_layout_rules(mermaid, number)
 
     mermaid = apply_patent_mermaid_theme(mermaid)
 
@@ -133,6 +252,45 @@ def _figures_from_response(raw: dict[str, Any]) -> tuple[str, list[dict[str, Any
     return brief, figures
 
 
+def _log_numeral_warnings(numeral_errors: list[str], context: str) -> None:
+    """Log non-fatal reference numeral validation issues."""
+    log.warning(
+        "%s reference numerals inconsistent after retries: %s",
+        context,
+        "; ".join(numeral_errors),
+    )
+
+
+def validate_figure_diagram_types(figures: list[dict[str, Any]]) -> list[str]:
+    """Return warnings when a figure's mermaid does not start with its required type."""
+    warnings: list[str] = []
+    for fig in figures:
+        number = int(fig.get("number", 0))
+        pattern = _EXPECTED_DIAGRAM_TYPE_PATTERNS.get(number)
+        expected = _EXPECTED_DIAGRAM_TYPE_LABELS.get(number)
+        if not pattern or not expected:
+            continue
+
+        declaration = _first_mermaid_declaration_line(str(fig.get("mermaid", "")))
+        if pattern.match(declaration):
+            continue
+
+        warning = (
+            f"FIG. {number} uses incorrect diagram type "
+            f"(expected mermaid to start with `{expected}`, "
+            f"got `{declaration or '(missing)'}`). "
+            "Regenerate this figure for the correct diagram structure."
+        )
+        log.warning(
+            "FIG. %s diagram type mismatch: expected %s, got %r",
+            number,
+            expected,
+            declaration,
+        )
+        warnings.append(warning)
+    return warnings
+
+
 def generate_patent_figures(
     invention: dict,
     description_text: str = "",
@@ -144,6 +302,7 @@ def generate_patent_figures(
         {
             "brief_description_of_drawings": str,
             "figures": list[dict],
+            "warnings": list[str] | omitted when numerals are consistent,
         }
     """
     prompt = get_figures_prompt(invention, description_text)
@@ -157,14 +316,19 @@ def generate_patent_figures(
             figures = reconcile_figure_labels(figures, description_text)
             figures = repair_figure_numerals(figures, description_text)
             numeral_errors = validate_figure_numerals(figures, description_text)
+            diagram_warnings = validate_figure_diagram_types(figures)
             if numeral_errors and attempt < 2:
                 user_prompt = prompt + format_numeral_validation_errors(numeral_errors)
                 continue
-            if numeral_errors:
-                raise ValueError(
-                    "Figure reference numerals are inconsistent after retries: "
-                    + "; ".join(numeral_errors)
-                )
+            warnings = [*numeral_errors, *diagram_warnings]
+            if warnings:
+                if numeral_errors:
+                    _log_numeral_warnings(numeral_errors, "Figure")
+                return {
+                    "brief_description_of_drawings": brief,
+                    "figures": figures,
+                    "warnings": warnings,
+                }
             return {
                 "brief_description_of_drawings": brief,
                 "figures": figures,
@@ -184,3 +348,90 @@ def generate_patent_figures(
     if last_error:
         raise last_error
     raise ValueError(f"Failed to generate figures with LLM ({get_llm_model()}).")
+
+
+def _figure_from_regenerate_response(raw: dict[str, Any], figure_number: int) -> dict[str, Any]:
+    """Parse a single regenerated figure from LLM JSON."""
+    figure_raw = raw.get("figure")
+    if not isinstance(figure_raw, dict):
+        keys = ", ".join(sorted(raw.keys())) or "(none)"
+        raise ValueError(
+            f"LLM ({get_llm_model()}) did not return a figure object "
+            f"(response keys: {keys})."
+        )
+    figure = _normalize_figure(figure_raw, figure_number)
+    if int(figure["number"]) != figure_number:
+        figure["number"] = figure_number
+    return figure
+
+
+def regenerate_patent_figure(
+    invention: dict,
+    description_text: str,
+    figure_number: int,
+    existing_figures: list[dict],
+) -> dict[str, Any]:
+    """
+    Regenerate a single patent figure using a diagram type not already in use.
+
+    Returns:
+        {
+            "figure": normalized figure dict,
+            "warnings": list[str] | omitted when numerals are consistent,
+        }
+    """
+    used_types = [
+        detect_mermaid_diagram_type(str(fig.get("mermaid", "")))
+        for fig in existing_figures
+        if int(fig.get("number", 0)) != figure_number
+    ]
+    prompt = get_regenerate_figure_prompt(
+        invention,
+        description_text,
+        figure_number,
+        existing_figures,
+        used_types,
+    )
+
+    last_error: ValueError | None = None
+    user_prompt = prompt
+    for attempt in range(3):
+        raw = generate_json(FIGURES_SYSTEM, user_prompt)
+        try:
+            figure = _figure_from_regenerate_response(raw, figure_number)
+            figures = reconcile_figure_labels([figure], description_text)
+            figures = repair_figure_numerals(figures, description_text)
+            numeral_errors = validate_figure_numerals(figures, description_text)
+            diagram_warnings = validate_figure_diagram_types(figures)
+            if numeral_errors and attempt < 2:
+                user_prompt = prompt + format_numeral_validation_errors(numeral_errors)
+                continue
+            warnings = [*numeral_errors, *diagram_warnings]
+            if warnings:
+                if numeral_errors:
+                    _log_numeral_warnings(
+                        numeral_errors,
+                        f"FIG. {figure_number}",
+                    )
+                return {
+                    "figure": figures[0],
+                    "warnings": warnings,
+                }
+            return {"figure": figures[0]}
+        except ValueError as exc:
+            last_error = exc
+            if attempt < 2 and "figure object" in str(exc).lower():
+                user_prompt = prompt + (
+                    "\n\nIMPORTANT: Return a JSON object with a figure key containing "
+                    "the regenerated figure. Do not omit the figure key."
+                )
+                continue
+            if attempt < 2:
+                continue
+            raise exc from None
+
+    if last_error:
+        raise last_error
+    raise ValueError(
+        f"Failed to regenerate figure {figure_number} with LLM ({get_llm_model()})."
+    )

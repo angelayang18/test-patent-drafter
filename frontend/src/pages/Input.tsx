@@ -60,10 +60,12 @@ export default function InputPage() {
     setExtractionSourceKey,
     getWorkflowSnapshot,
     saveToStorage,
+    workflowResetting,
   } = usePatentWorkflow();
 
   const resumePath = getResumePath(getWorkflowSnapshot());
-  const hasSavedProgress = workflowHasProgress(getWorkflowSnapshot());
+  const hasSavedProgress =
+    !workflowResetting && workflowHasProgress(getWorkflowSnapshot());
 
   const [showToken, setShowToken] = useState(false);
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
@@ -72,6 +74,7 @@ export default function InputPage() {
   const [error, setError] = useState<string | null>(null);
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   const uploading = uploadQueue.some(
     (item) => item.status === "pending" || item.status === "parsing",
@@ -88,8 +91,7 @@ export default function InputPage() {
   const hasAnySource =
     hasPastedText || hasUploadedFiles || hasWebsiteUrl || confluenceConfigured;
   const missingSource = !hasAnySource;
-  const continueDisabled =
-    submitting || uploading || Boolean(websiteUrlError) || missingSource;
+  const continueDisabled = submitting || uploading || Boolean(websiteUrlError);
   const confluenceLoading =
     submitting && Boolean(extractPhase?.toLowerCase().includes("confluence"));
 
@@ -214,6 +216,7 @@ export default function InputPage() {
   };
 
   const handleContinue = async () => {
+    setHasAttemptedSubmit(true);
     setError(null);
     setConfluenceError(null);
 
@@ -223,6 +226,10 @@ export default function InputPage() {
     }
 
     if (websiteUrlError) {
+      return;
+    }
+
+    if (missingSource) {
       return;
     }
 
@@ -279,7 +286,7 @@ export default function InputPage() {
         <WorkflowFooter
           right={
             <div className="flex flex-col items-end gap-2">
-              {missingSource && (
+              {hasAttemptedSubmit && missingSource && (
                 <p
                   className="font-body-sm text-body-sm text-on-surface-variant text-right max-w-md"
                   role="status"

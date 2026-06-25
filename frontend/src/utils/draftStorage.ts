@@ -146,6 +146,12 @@ export function isWorkflowStepAccessible(
     return true;
   }
 
+  // Export requires explicitly finishing the Figures step (footer "Next: Export"),
+  // not merely inferred progress from saved figure data in localStorage.
+  if (step === "export") {
+    return (workflow.completedSteps ?? []).includes("figures");
+  }
+
   const stepIndex = WORKFLOW_STEP_ORDER.indexOf(step);
   const previousStep = WORKFLOW_STEP_ORDER[stepIndex - 1];
   return getCompletedSteps(workflow).has(previousStep);
@@ -190,12 +196,17 @@ export function writeActiveWorkflow(workflow: WorkflowSnapshot): void {
   writeJson(ACTIVE_WORKFLOW_KEY, workflow);
 }
 
+/** Blank workflow used when starting over (step resets to input, no resume path). */
+export function createEmptyWorkflowSnapshot(): WorkflowSnapshot {
+  return normalizeWorkflow(null);
+}
+
 export function clearActiveWorkflow(): void {
-  localStorage.removeItem(ACTIVE_WORKFLOW_KEY);
   try {
     sessionStorage.removeItem(LEGACY_SESSION_KEY);
+    localStorage.removeItem(ACTIVE_WORKFLOW_KEY);
   } catch {
-    // ignore
+    // ignore quota / private-mode errors
   }
 }
 

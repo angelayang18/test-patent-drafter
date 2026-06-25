@@ -8,6 +8,16 @@ export interface InventionDetails {
   key_components: string[];
 }
 
+export const defaultInvention: InventionDetails = {
+  invention_title: "",
+  technical_field: "",
+  problem_being_solved: "",
+  core_technical_solution: "",
+  novel_mechanism: "",
+  alternative_embodiments: [],
+  key_components: [],
+};
+
 export interface PatentFigure {
   number: number;
   title: string;
@@ -19,6 +29,12 @@ export interface PatentFigure {
 export interface FiguresResult {
   brief_description_of_drawings: string;
   figures: PatentFigure[];
+  warnings?: string[];
+}
+
+export interface RegenerateFigureResult {
+  figure: PatentFigure;
+  warnings?: string[];
 }
 
 export interface FilingInfo {

@@ -1,9 +1,39 @@
 """Tests for patent figure generation helpers."""
 
-from drafter.figures import _normalize_figure
+from drafter.figures import (
+    _normalize_figure,
+    detect_mermaid_diagram_type,
+    validate_figure_diagram_types,
+)
 
 
-def test_normalize_figure_adds_flowchart_prefix():
+def test_detect_mermaid_diagram_type_flowchart():
+    assert detect_mermaid_diagram_type("flowchart TB\nA --> B") == "flowchart"
+
+
+def test_detect_mermaid_diagram_type_graph_alias():
+    assert detect_mermaid_diagram_type("graph TB\nA --> B") == "flowchart"
+
+
+def test_detect_mermaid_diagram_type_sequence():
+    source = "sequenceDiagram\nparticipant A as Module 200"
+    assert detect_mermaid_diagram_type(source) == "sequencediagram"
+
+
+def test_normalize_figure_preserves_sequence_diagram():
+    raw = {
+        "number": 3,
+        "title": "Interactions",
+        "brief_description": "FIG. 3 is a sequence diagram.",
+        "reference_numerals": {"200": "module"},
+        "mermaid": "sequenceDiagram\nparticipant A as Ingestion module 200",
+    }
+    result = _normalize_figure(raw, 3)
+    assert "sequenceDiagram" in result["mermaid"]
+    assert "flowchart" not in result["mermaid"].split("sequenceDiagram")[0]
+
+
+def test_normalize_figure_adds_graph_prefix_for_fig1():
     raw = {
         "number": 1,
         "title": "System",
@@ -13,7 +43,7 @@ def test_normalize_figure_adds_flowchart_prefix():
     }
     result = _normalize_figure(raw, 1)
     assert result["mermaid"].startswith("%%{init:")
-    assert "flowchart TB" in result["mermaid"]
+    assert "graph LR" in result["mermaid"]
     assert result["number"] == 1
 
 
@@ -44,16 +74,27 @@ def test_normalize_figure_sanitizes_ampersands():
     assert " and " in result["mermaid"]
 
 
-def test_normalize_figure_converts_horizontal_layout_to_tb():
+def test_normalize_figure_preserves_graph_lr_for_fig1():
     raw = {
         "number": 1,
         "title": "System",
         "brief_description": "FIG. 1",
-        "mermaid": "flowchart LR\nA[10 Module] --> B[12 Parser]",
+        "mermaid": "graph LR\nA[10 Module] --> B[12 Parser]",
     }
     result = _normalize_figure(raw, 1)
-    assert "flowchart TB" in result["mermaid"]
-    assert "flowchart LR" not in result["mermaid"]
+    assert "graph LR" in result["mermaid"]
+    assert "graph TD" not in result["mermaid"].split("graph LR")[0]
+
+
+def test_normalize_figure_uses_flowchart_td_for_fig2():
+    raw = {
+        "number": 2,
+        "title": "Method",
+        "brief_description": "FIG. 2",
+        "mermaid": "flowchart TB\nA[Start] --> B{Decision?}",
+    }
+    result = _normalize_figure(raw, 2)
+    assert "flowchart TD" in result["mermaid"]
 
 
 def test_normalize_figure_fixes_empty_subgraph_titles():
@@ -67,3 +108,48 @@ def test_normalize_figure_fixes_empty_subgraph_titles():
     assert '[""]' not in result["mermaid"]
     assert "direction TB" not in result["mermaid"]
     assert "subgraph Left" in result["mermaid"]
+
+
+def test_validate_figure_diagram_types_skips_patent_theme_prefix():
+    from exporter.mermaid_render import apply_patent_mermaid_theme
+
+    figures = [
+        {
+            "number": 2,
+            "mermaid": apply_patent_mermaid_theme("flowchart TD\nA --> B"),
+        }
+    ]
+    assert validate_figure_diagram_types(figures) == []
+
+
+def test_validate_figure_diagram_types_flags_wrong_type():
+    figures = [
+        {
+            "number": 1,
+            "mermaid": "%%{init: {'theme':'base'}}%%\nflowchart TD\nA --> B",
+        },
+        {
+            "number": 2,
+            "mermaid": "flowchart TD\nA --> B",
+        },
+        {
+            "number": 3,
+            "mermaid": "flowchart TD\nA --> B",
+        },
+    ]
+    warnings = validate_figure_diagram_types(figures)
+    assert any("FIG. 1" in warning for warning in warnings)
+    assert any("FIG. 3" in warning for warning in warnings)
+    assert not any("FIG. 2" in warning for warning in warnings)
+
+
+def test_normalize_figure_adds_sequence_header_for_fig3():
+    raw = {
+        "number": 3,
+        "title": "Interaction",
+        "brief_description": "FIG. 3",
+        "mermaid": "participant A as Module 200\nA->>B: message",
+    }
+    result = _normalize_figure(raw, 3)
+    assert "sequenceDiagram" in result["mermaid"]
+    assert "flowchart TD" not in result["mermaid"].split("sequenceDiagram")[0]

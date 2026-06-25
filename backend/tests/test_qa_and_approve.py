@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from exporter.invention_qa import get_invention_alignment_qa_report
 from exporter.text_format import get_format_qa_report
 from drafter.prompts import PATENT_SECTIONS
 from learning.storage import reset_storage
@@ -85,6 +86,89 @@ def test_qa_report_endpoint_returns_format_qa_report(client: TestClient):
     response = client.post("/qa-report", json={"sections": sections})
     assert response.status_code == 200
     assert response.json() == get_format_qa_report(sections)
+
+
+def test_get_invention_alignment_qa_report_passes_when_draft_covers_requirements():
+    invention = {
+        "invention_title": "Hybrid Retrieval Pipeline",
+        "problem_being_solved": "Existing retrieval systems fail to combine vector and keyword search.",
+        "core_technical_solution": "A hybrid retrieval pipeline merges dense embeddings with BM25 scoring.",
+        "novel_mechanism": "Dynamic query routing selects retrieval mode based on query intent.",
+    }
+    sections = {
+        "summary": "The Hybrid Retrieval Pipeline addresses limitations in prior search systems.",
+        "background": (
+            "Existing retrieval systems fail to combine vector and keyword search effectively."
+        ),
+        "description": (
+            "The hybrid retrieval pipeline merges dense embeddings with BM25 scoring during indexing."
+        ),
+        "claims": (
+            "1. A method comprising dynamically routing queries based on query intent classification."
+        ),
+    }
+    report = get_invention_alignment_qa_report(sections, invention)
+    assert len(report) == 4
+    assert all(entry["status"] == "pass" for entry in report)
+
+
+def test_get_invention_alignment_qa_report_warns_on_empty_requirements():
+    invention = {
+        "invention_title": "",
+        "problem_being_solved": "",
+        "core_technical_solution": "",
+        "novel_mechanism": "",
+    }
+    sections = {"background": "Some background text."}
+    report = get_invention_alignment_qa_report(sections, invention)
+    assert len(report) == 4
+    assert all(entry["status"] == "warn" for entry in report)
+
+
+def test_get_invention_alignment_qa_report_fails_when_section_misses_requirement():
+    invention = {
+        "invention_title": "Zephyr Flux Harmonizer",
+        "problem_being_solved": "Distributed caches suffer from stale invalidation under burst traffic.",
+        "core_technical_solution": "An adaptive invalidation scheduler coordinates TTL refresh.",
+        "novel_mechanism": "Probabilistic bloom-filter prechecks reduce invalidation fan-out.",
+    }
+    sections = {
+        "background": "Machine learning models require efficient data access.",
+        "description": "The system includes a processor and memory.",
+        "claims": "1. A system comprising a processor configured to execute instructions.",
+    }
+    report = get_invention_alignment_qa_report(sections, invention)
+    by_section = {entry["section"]: entry for entry in report}
+    assert by_section["title"]["status"] == "fail"
+    assert by_section["background"]["status"] == "fail"
+    assert "technical problem" in by_section["background"]["messages"][0]
+    assert by_section["description"]["status"] == "fail"
+    assert by_section["claims"]["status"] == "fail"
+
+
+def test_qa_report_endpoint_includes_invention_alignment(client: TestClient):
+    sections = {
+        "field": "The present invention relates to data processing.",
+        "background": "Existing retrieval systems fail to combine vector and keyword search.",
+        "description": "A hybrid retrieval pipeline merges dense embeddings with BM25 scoring.",
+        "claims": "1. A method comprising dynamically routing queries based on query intent.",
+        "summary": "The Hybrid Retrieval Pipeline improves search quality.",
+        "abstract": "A hybrid retrieval pipeline is disclosed.",
+    }
+    invention = {
+        "invention_title": "Hybrid Retrieval Pipeline",
+        "technical_field": "information retrieval",
+        "problem_being_solved": "Existing retrieval systems fail to combine vector and keyword search.",
+        "core_technical_solution": "A hybrid retrieval pipeline merges dense embeddings with BM25 scoring.",
+        "novel_mechanism": "Dynamic query routing selects retrieval mode based on query intent.",
+        "alternative_embodiments": [],
+        "key_components": [],
+    }
+    response = client.post("/qa-report", json={"sections": sections, "invention": invention})
+    assert response.status_code == 200
+    report = response.json()
+    assert report[: len(PATENT_SECTIONS)] == get_format_qa_report(sections)
+    assert report[len(PATENT_SECTIONS) :] == get_invention_alignment_qa_report(sections, invention)
 
 
 @patch("main.is_learning_enabled", return_value=True)

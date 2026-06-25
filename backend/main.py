@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from drafter.extractor import extract_invention_details, extract_invention_field
-from drafter.figures import generate_patent_figures
+from drafter.figures import generate_patent_figures, regenerate_patent_figure
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
 from drafter.sections import draft_all_sections_parallel, draft_section
 from learning.config import is_learning_enabled
@@ -25,6 +25,7 @@ from exporter.docx_export import export_patent_docx
 from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
+from exporter.invention_qa import get_invention_alignment_qa_report
 from exporter.text_format import get_format_qa_report
 from parsers.confluence import ConfluenceClient
 from parsers.docx_parser import extract_text_from_docx
@@ -45,6 +46,8 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -139,6 +142,12 @@ class GenerateFiguresRequest(InventionDetails):
     description_text: str = ""
 
 
+class RegenerateFigureRequest(InventionDetails):
+    figure_number: int
+    description_text: str = ""
+    existing_figures: list[PatentFigureModel] = Field(default_factory=list)
+
+
 class RenderMermaidRequest(BaseModel):
     mermaid: str
 
@@ -154,6 +163,7 @@ class ExportRequest(BaseModel):
 
 class QAReportRequest(BaseModel):
     sections: dict[str, str] = Field(default_factory=dict)
+    invention: Optional[InventionDetails] = None
 
 
 class PrerenderFiguresRequest(BaseModel):
@@ -500,6 +510,34 @@ def generate_figures(body: GenerateFiguresRequest) -> dict:
     return result
 
 
+@app.post("/figures/regenerate-one")
+def regenerate_one_figure(body: RegenerateFigureRequest) -> dict:
+    """Regenerate a single patent figure with a unique Mermaid diagram type."""
+    invention = body.model_dump(
+        exclude={"description_text", "figure_number", "existing_figures"}
+    )
+    existing = [fig.model_dump() for fig in body.existing_figures]
+    try:
+        result = regenerate_patent_figure(
+            invention,
+            body.description_text,
+            body.figure_number,
+            existing,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Single figure regeneration failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to regenerate figure: {exc}",
+        ) from exc
+
+    return result
+
+
 @app.post("/figures/render")
 def render_figure_png(body: RenderMermaidRequest) -> Response:
     """Render Mermaid source to a PNG image for preview or download."""
@@ -551,7 +589,12 @@ def prerender_figures(body: PrerenderFiguresRequest) -> dict:
 @app.post("/qa-report")
 def qa_report(body: QAReportRequest) -> List[Dict[str, Union[str, List[str]]]]:
     """Return per-section format QA results for a patent draft."""
-    return get_format_qa_report(body.sections)
+    report = get_format_qa_report(body.sections)
+    if body.invention is not None:
+        report.extend(
+            get_invention_alignment_qa_report(body.sections, body.invention.model_dump())
+        )
+    return report
 
 
 @app.post("/export/docx")

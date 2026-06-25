@@ -152,7 +152,7 @@ export default function Export() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchQAReport(exportSections)
+    void fetchQAReport(exportSections, invention ?? undefined)
       .then((report) => {
         if (!cancelled) {
           setQaReport(report);
@@ -166,7 +166,7 @@ export default function Export() {
     return () => {
       cancelled = true;
     };
-  }, [exportSections]);
+  }, [exportSections, invention]);
 
   const emptyDraftSections = useMemo(
     () => PATENT_SECTION_IDS.filter((id) => !sections[id]?.trim()),
@@ -600,14 +600,17 @@ export default function Export() {
         </div>
 
         <div className="pb-8">
-          <Link
-            to="/"
-            onClick={() => clearWorkflow()}
+          <button
+            type="button"
+            onClick={() => {
+              clearWorkflow();
+              navigate("/", { replace: true });
+            }}
             className="font-label-md text-label-md text-secondary hover:text-primary transition-colors flex items-center gap-2 underline underline-offset-4"
           >
             <span className="material-symbols-outlined text-sm">add</span>
             Start a New Patent
-          </Link>
+          </button>
         </div>
       </div>
     </AppShell>

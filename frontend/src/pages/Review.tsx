@@ -10,7 +10,8 @@ import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator"
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
-import { defaultInvention, usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
+import { defaultInvention } from "../types/patent";
+import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import {
   ApiError,
@@ -31,6 +32,8 @@ import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
 
 type ReviewFieldKey = ExtractableInventionField;
+
+const TITLE_MAX_LENGTH = 500;
 
 const CORE_REVIEW_FIELD_KEYS = [
   "invention_title",
@@ -155,6 +158,7 @@ export default function Review() {
     requestAutoDraft,
     extractionSourceKey,
     setExtractionSourceKey,
+    workflowResetting,
   } = usePatentWorkflow();
 
   const {
@@ -201,19 +205,25 @@ export default function Review() {
   }, [invention, reset]);
 
   useEffect(() => {
+    if (workflowResetting) {
+      return;
+    }
     if (!invention) {
       navigate("/", { replace: true });
     }
-  }, [invention, navigate]);
+  }, [invention, navigate, workflowResetting]);
 
   useEffect(() => {
+    if (workflowResetting || !invention) {
+      return;
+    }
     setInvention(form);
     saveToStorage();
     if (suppressSavedIndicator.current) return;
 
     const timer = window.setTimeout(() => flashSaved(), 400);
     return () => window.clearTimeout(timer);
-  }, [form, setInvention, saveToStorage, flashSaved]);
+  }, [form, invention, setInvention, saveToStorage, flashSaved, workflowResetting]);
 
   const extractionNotes = extractionNotesFromSources(inputSources);
 
@@ -403,6 +413,9 @@ export default function Review() {
   const textareaClassName =
     "w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none";
 
+  const titleLength = form.invention_title?.length ?? 0;
+  const titleTooLong = titleLength > TITLE_MAX_LENGTH;
+
   const renderFieldValue = (field: (typeof REVIEW_FIELDS)[number]) => {
     if (field.key === "alternative_embodiments") {
       const altText = form.alternative_embodiments.join("\n");
@@ -421,6 +434,37 @@ export default function Review() {
             )
           }
         />
+      );
+    }
+
+    if (field.key === "invention_title") {
+      const titleValue = typeof form.invention_title === "string" ? form.invention_title : "";
+      const length = titleValue.length;
+      const nearLimit = length >= TITLE_MAX_LENGTH - 50;
+      const atOrOverLimit = length >= TITLE_MAX_LENGTH;
+
+      return (
+        <>
+          <AutoResizeTextarea
+            className={textareaClassName}
+            value={titleValue}
+            maxLength={TITLE_MAX_LENGTH}
+            disabled={regeneratingFields.has(field.key)}
+            onChange={(e) => updateField("invention_title", e.target.value)}
+          />
+          <div className="flex flex-col items-end gap-1">
+            <p
+              className={`font-body-sm text-body-sm ${nearLimit ? "text-error" : "text-on-surface-variant"}`}
+            >
+              {length} / {TITLE_MAX_LENGTH}
+            </p>
+            {atOrOverLimit && (
+              <p className="font-body-sm text-body-sm text-error">
+                Title must be 500 characters or fewer.
+              </p>
+            )}
+          </div>
+        </>
       );
     }
 
@@ -457,7 +501,7 @@ export default function Review() {
               />
               <WorkflowNextLink
                 to="/draft"
-                disabled={allCoreFieldsEmpty}
+                disabled={allCoreFieldsEmpty || titleTooLong}
                 onClick={() => {
                   markStepComplete("review");
                   requestAutoDraft();

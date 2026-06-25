@@ -119,7 +119,7 @@ def _inject_missing_top_level_nodes(
     sorted_items = sorted(missing.items(), key=lambda item: int(item[0]))
     for numeral, name in sorted_items:
         node_id = f"auto{numeral}"
-        additions.append(f'{node_id}["{name}<br/>{numeral}"]')
+        additions.append(f'{node_id}["{name} {numeral}"]')
 
     if len(sorted_items) > 1:
         for index in range(len(sorted_items) - 1):
@@ -236,7 +236,7 @@ def repair_figure_numerals(
 
     - FIG. 1: drop subgraph titles that duplicate a main-flow node numeral
     - FIG. 1: pull sub-components 203/209/211 out of the main chain and nest under parents
-    - FIG. 2/3: inject any missing top-level module boxes from FIG. 1
+    - FIG. 2/3: align labels with canonical names (no forced injection of all FIG. 1 modules)
     """
     fig1 = next((figure for figure in figures if int(figure.get("number", 0)) == 1), None)
     top_level: dict[str, str] = {}
@@ -256,10 +256,8 @@ def repair_figure_numerals(
 
         if number == 1 and fig1_mermaid is not None:
             mermaid = fig1_mermaid
-        elif number in (2, 3) and top_level:
-            mermaid = _inject_missing_top_level_nodes(mermaid, top_level)
-            if canonical:
-                mermaid = _apply_canonical_labels(mermaid, canonical)
+        elif number in (2, 3) and canonical:
+            mermaid = _apply_canonical_labels(mermaid, canonical)
 
         reference_numerals = dict(figure.get("reference_numerals") or {})
         for numeral, name in extract_mermaid_numerals(mermaid).items():
@@ -364,7 +362,7 @@ def _relabel_node(label: str, canonical: dict[str, str]) -> str:
     if _normalize_component_name(name) == _normalize_component_name(canonical[numeral]):
         return label
 
-    return "<br/>".join([canonical[numeral], *parts[numeral_idx:]])
+    return " ".join([canonical[numeral], *parts[numeral_idx:]])
 
 
 def _apply_canonical_labels(mermaid: str, canonical: dict[str, str]) -> str:
@@ -486,35 +484,8 @@ def validate_figure_numerals(
 
 
 def _validate_figure_coverage(figures: list[dict[str, Any]]) -> list[str]:
-    """Require every FIG. 1 top-level module to appear in FIG. 2 and FIG. 3."""
-    errors: list[str] = []
-    fig1 = next((figure for figure in figures if int(figure.get("number", 0)) == 1), None)
-    if not fig1:
-        return errors
-
-    fig1_map = extract_mermaid_numerals(str(fig1.get("mermaid", "")))
-    top_level = {
-        numeral: name
-        for numeral, name in fig1_map.items()
-        if numeral not in _SUB_COMPONENT_NUMERALS and "|CONFLICT|" not in name
-    }
-    if not top_level:
-        return errors
-
-    for figure in figures:
-        number = int(figure.get("number", 0))
-        if number not in (2, 3):
-            continue
-        figure_numerals = set(extract_mermaid_numerals(str(figure.get("mermaid", ""))).keys())
-        for numeral, name in sorted(top_level.items(), key=lambda item: int(item[0])):
-            if numeral not in figure_numerals:
-                errors.append(
-                    f"FIG. {number}: missing labeled box for {name} ({numeral}) — "
-                    f"every top-level module from FIG. 1 must appear as a labeled box "
-                    f"in FIG. 2 and FIG. 3."
-                )
-
-    return errors
+    """Figures may show different component subsets — no full-list coverage requirement."""
+    return []
 
 
 def _validate_fig1_double_representation(mermaid: str) -> list[str]:
@@ -533,8 +504,8 @@ def _validate_fig1_double_representation(mermaid: str) -> list[str]:
         labels = "; ".join(f'"{name}" ({location})' for name, location in occurrences)
         errors.append(
             f"FIG. 1: reference numeral {numeral} appears more than once ({labels}) — "
-            f"each module must appear only once in a single processing chain; do not "
-            f"duplicate modules as parallel column headers and main-flow boxes."
+            f"each module must appear only once per diagram; do not duplicate modules "
+            f"as both a subgraph header and a separate node."
         )
 
     return errors
@@ -610,15 +581,11 @@ def format_numeral_validation_errors(errors: list[str]) -> str:
         f"{bullet_lines}\n"
         "Regenerate all figures correcting these issues. "
         "Use ONLY numerals and names from the detailed description. "
-        "In FIG. 1, nest sub-components (203, 209, 211) inside their parent modules. "
-        "In FIG. 2 and FIG. 3, label nodes with the same module names and numerals as FIG. 1 "
-        "(e.g. 'Ingestion module<br/>200'), not numbered prefixes like '1. Ingestion<br/>200' "
-        "and not alternate names like 'Layout preservation 200'. "
+        "In FIG. 1, nest sub-components (203, 209, 211) inside their parent module subgraphs when shown. "
+        "In FIG. 2, use method/process step labels with decision diamonds — not a copy of FIG. 1's module list. "
+        "In FIG. 3, use a subset of key actors with loop/alt blocks — not every module from FIG. 1. "
+        "Each figure MUST use different components or a different subset — do NOT repeat the same "
+        "full list of components across all figures. "
         "Never duplicate the same component as two separate boxes in one figure. "
-        "FIG. 2 and FIG. 3 must each include every top-level module from FIG. 1 "
-        "as a labeled box — do not skip modules such as a synthesis engine 206. "
-        "FIG. 1 must show one single processing chain — never duplicate a module as "
-        "both a subgraph/column header and a main-flow box. "
-        "Use untitled subgraphs (subgraph id only) or subgraph titles without numerals "
-        "when nesting sub-components."
+        "FIG. 1 must use layered subgraphs — NOT a single vertical linear chain of all modules."
     )

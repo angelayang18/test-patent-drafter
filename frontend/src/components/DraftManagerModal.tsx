@@ -36,6 +36,7 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   if (!open) return null;
 
@@ -104,17 +105,10 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
     }
   };
 
-  const handleStartFresh = () => {
-    if (
-      !window.confirm(
-        "Start a new draft? Your current in-progress work will be cleared from this browser.",
-      )
-    ) {
-      return;
-    }
-    clearWorkflow();
+  const handleConfirmClear = () => {
     onClose();
-    navigate("/");
+    clearWorkflow();
+    navigate("/", { replace: true });
   };
 
   return (
@@ -263,14 +257,39 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
           </section>
 
           {invention && (
-            <section className="pt-2 border-t border-outline-variant">
-              <button
-                type="button"
-                onClick={handleStartFresh}
-                className="font-label-sm text-label-sm text-error hover:underline"
-              >
-                Start a new draft (clear current work)
-              </button>
+            <section className="pt-2 border-t border-outline-variant space-y-3">
+              {confirmingClear ? (
+                <div className="p-4 rounded-lg border border-error/30 bg-error-container/10 space-y-3">
+                  <p className="font-body-sm text-body-sm text-on-surface">
+                    Start a new draft? Your current in-progress work will be cleared from this
+                    browser.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleConfirmClear}
+                      className="px-4 py-2 rounded-lg bg-error text-on-error font-label-md text-label-md hover:bg-error/90 transition-all active:scale-95"
+                    >
+                      Yes, clear my work
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingClear(false)}
+                      className="px-4 py-2 rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md hover:bg-surface-container-high transition-all active:scale-95"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingClear(true)}
+                  className="font-label-sm text-label-sm text-error hover:underline"
+                >
+                  Start a new draft (clear current work)
+                </button>
+              )}
             </section>
           )}
         </div>

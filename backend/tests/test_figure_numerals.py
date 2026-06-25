@@ -156,7 +156,7 @@ def test_validate_detects_duplicate_nodes_in_one_figure():
     assert any("appears 2 times" in err and "202" in err for err in errors)
 
 
-def test_validate_detects_missing_top_level_module_in_fig2_and_fig3():
+def test_validate_allows_different_component_subsets_in_fig2_and_fig3():
     figures = [
         {
             "number": 1,
@@ -180,8 +180,8 @@ def test_validate_detects_missing_top_level_module_in_fig2_and_fig3():
         },
     ]
     errors = validate_figure_numerals(figures, "")
-    assert any("206" in err and "FIG. 2" in err for err in errors)
-    assert any("206" in err and "FIG. 3" in err for err in errors)
+    assert not any("206" in err and "FIG. 2" in err for err in errors)
+    assert not any("206" in err and "FIG. 3" in err for err in errors)
 
 
 def test_repair_strips_duplicate_subgraph_numerals_on_fig1():
@@ -205,7 +205,7 @@ def test_repair_strips_duplicate_subgraph_numerals_on_fig1():
     assert not validate_figure_numerals(repaired, "")
 
 
-def test_repair_injects_missing_top_level_modules_in_fig2_and_fig3():
+def test_repair_does_not_inject_missing_top_level_modules_in_fig2_and_fig3():
     figures = [
         {
             "number": 1,
@@ -235,8 +235,9 @@ def test_repair_injects_missing_top_level_modules_in_fig2_and_fig3():
     repaired = repair_figure_numerals(figures, "")
     fig2 = extract_mermaid_numerals(repaired[1]["mermaid"])
     fig3 = extract_mermaid_numerals(repaired[2]["mermaid"])
-    assert "206" in fig2 and "212" in fig2 and "216" in fig2
-    assert "206" in fig3 and "212" in fig3 and "216" in fig3
+    assert "206" not in fig2 and "212" not in fig2 and "216" not in fig2
+    assert "206" not in fig3 and "212" not in fig3 and "216" not in fig3
+    assert "auto206" not in repaired[1]["mermaid"]
     assert not validate_figure_numerals(repaired, "")
 
 

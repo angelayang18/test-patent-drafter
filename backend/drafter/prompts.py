@@ -94,6 +94,10 @@ prior art: what is structurally or algorithmically different, not merely a busin
 Write 1-3 sentences. Do not leave this empty if the documentation describes distinctive \
 technical approaches, algorithms, or integrations.
 
+IMPORTANT: Both fields are required. If the documentation describes any technical system, \
+method, or algorithm — even at a high level — you must produce non-empty values. Never \
+return empty strings for these fields.
+
 Technical documentation:
 {combined_text}
 """
@@ -430,16 +434,125 @@ Draft the abstract now (output ONLY the abstract text, no word count or commenta
 
 FIGURES_SYSTEM = (
     "You are an expert US patent illustrator and technical writer. "
-    "You produce black-and-white patent-style line-art diagrams as valid Mermaid flowchart syntax. "
-    "Each component must display its reference numeral as plain Arabic digits (no brackets) "
-    "on a separate line below the component name, e.g. A[\"Ingestion module<br/>200\"]. "
+    "You produce black-and-white patent-style line-art diagrams as valid Mermaid syntax. "
+    "Each figure MUST use the exact diagram type assigned to its figure number "
+    "(FIG. 1: graph LR, FIG. 2: flowchart TD, FIG. 3: sequenceDiagram, FIG. 4: classDiagram). "
+    "Do NOT use graph LR or flowchart TD for figures 3 or 4. "
+    "Do NOT produce two figures with the same visual structure. "
+    "Each figure MUST use a different Mermaid diagram type AND a different structural layout — "
+    "never repeat the same vertical linear chain of components across figures. "
+    "Each component must display its reference numeral as plain Arabic digits (no brackets). "
+    "In flowchart/graph diagrams, include the numeral in the plain-text label, "
+    "e.g. A[\"Ingestion module 200\"]. "
+    "Do NOT use HTML tags like <br/>, <b>, or any HTML in Mermaid node labels — "
+    "Mermaid runs in strict mode and HTML inside labels causes parse errors. "
+    "Use plain text only; keep labels short if needed. "
     "Use reference numerals (200, 202, 204, ...) matching the detailed description exactly. "
     "NEVER assign the same numeral to two different parts — each numeral designates one part only. "
-    "Keep diagrams simple: rectangles for modules, black borders on white fill, "
-    "arrows for data/control flow, no colors or styling. "
-    "Always use vertical top-to-bottom layout (flowchart TB) — never horizontal layouts. "
+    "Keep diagrams simple: black borders on white fill, arrows for flow, no colors or styling. "
     "Output only valid JSON matching the requested schema."
 )
+
+MERMAID_NO_HTML_RULES = """
+- Do NOT use HTML tags like <br/>, <br>, <b>, </b>, or any HTML in Mermaid node labels.
+  Mermaid runs in strict mode — HTML inside labels will cause parse errors.
+  Use plain text only. If you need a line break effect, use a shorter label instead.
+  Put the reference numeral in the same plain-text label as the component name,
+  e.g. A["Ingestion module 200"], not A["Ingestion module<br/>200"].
+"""
+
+DIAGRAM_TYPE_DIVERSITY_RULES = """
+DIAGRAM TYPE DIVERSITY (mandatory):
+- Each figure MUST use a DIFFERENT Mermaid diagram type. Do NOT use flowchart for more than one figure.
+- Each figure MUST use different components or a different subset — do NOT repeat the same full list
+  of components across all figures. Each figure illuminates a different aspect of the invention.
+- Each figure must cover a DISTINCT aspect (architecture vs. method vs. interaction vs. data model) —
+  NOT the same high-level overview repeated in different diagram types or layouts.
+"""
+
+FIGURE_COMPONENT_SUBSET_RULE = (
+    "Each figure MUST use different components or a different subset — do NOT repeat the same "
+    "full list of components across all figures. Each figure illuminates a different aspect "
+    "of the invention."
+)
+
+REFERENCE_NUMERAL_CONSISTENCY_RULE = """
+CRITICAL: Reference numerals must be consistent across ALL figures.
+Pick a master list of numerals and component names BEFORE writing any figure.
+Every time numeral 204 appears in any figure, it must refer to the exact same
+component with the exact same name. Do not reuse a numeral for a different component
+in a different figure. Use the component names exactly as they appear in the
+detailed description text.
+"""
+
+FIG_1_STRUCTURE_RULES = """
+FIG. 1 — System Architecture (use graph LR or graph TD — NOT flowchart):
+- Use `graph LR` (left-to-right) or `graph TD` with subgraphs
+- Show components grouped into logical LAYERS or SUBSYSTEMS, not a single chain
+- Use subgraph blocks (e.g., `subgraph IngestionLayer ["Ingestion Layer"]`,
+  `subgraph StorageLayer ["Storage Layer"]`) to cluster related components
+- Show parallel paths and lateral connections between subsystems
+- NOT a top-to-bottom linear list of every module in processing order
+- Include reference numerals in plain-text node labels, e.g. A["Ingestion module 200"]
+"""
+
+FIG_2_STRUCTURE_RULES = """
+FIG. 2 — Method Flowchart (use flowchart TD):
+- Use `flowchart TD`
+- Must include at least one decision diamond (`{{...}}`) with branching paths (yes/no or condition-based)
+- Show distinct START and END nodes
+- Steps should reflect the actual method/process steps, NOT the same component list as FIG. 1
+- Should depict WHAT THE SYSTEM DOES step-by-step, not what components exist
+- Use action-oriented step labels (e.g. "Receive document", "Extract structure", "Generate embedding")
+  with reference numerals where a step maps to a described module
+"""
+
+FIG_3_STRUCTURE_RULES = """
+FIG. 3 — Data Flow / Interaction (use sequenceDiagram):
+- Use `sequenceDiagram`
+- Show messages passed between named actors (e.g., Client, Ingestion Module 200, Vector DB 209,
+  Retrieval Pipeline 210)
+- Actors should be a SUBSET of the key components — not all components from FIG. 1
+- Include at least 2 `loop` or `alt` blocks showing conditional or repeated interactions
+- Focus on runtime message/data exchange, not static architecture
+"""
+
+FIG_4_PLUS_STRUCTURE_RULES = """
+FIG. 4+ — Data Model / State (use classDiagram or stateDiagram-v2):
+- Use `classDiagram` or `stateDiagram-v2` (not flowchart or graph)
+- For classDiagram: show data entities with attributes and relationships — NOT a process flow
+- For stateDiagram-v2: show states the system transitions through with labeled transitions
+- Include only entities/states relevant to that aspect — a subset of the invention
+"""
+
+FIGURE_DIAGRAM_TYPE_REQUIREMENTS = """
+MANDATORY DIAGRAM TYPE PER FIGURE (each figure MUST use the exact type specified):
+1. FIG. 1 — `graph LR` with subgraphs grouping related components (system architecture overview; must use at least 2 subgraph blocks)
+2. FIG. 2 — `flowchart TD` with at least one decision diamond (`{Decision?}`) showing branching logic (method/process flow)
+3. FIG. 3 — `sequenceDiagram` with at least 3 named participants and `alt`/`loop` blocks (data flow / interaction)
+4. FIG. 4 — `classDiagram` with at least 3 classes showing relationships (component/data model)
+
+Each figure MUST use the exact diagram type specified above. Do NOT use `graph LR` or `flowchart TD` for figures 3 or 4. Do NOT produce two figures with the same visual structure.
+"""
+
+FIGURE_STRUCTURE_RULES = f"""
+PER-FIGURE STRUCTURAL RULES (mandatory — follow exactly for each figure number):
+{FIGURE_DIAGRAM_TYPE_REQUIREMENTS}
+{FIG_1_STRUCTURE_RULES}
+{FIG_2_STRUCTURE_RULES}
+{FIG_3_STRUCTURE_RULES}
+{FIG_4_PLUS_STRUCTURE_RULES}
+"""
+
+
+def figure_structure_rules_for_number(figure_number: int) -> str:
+    """Return structural rules for a single figure number."""
+    rules_by_number = {
+        1: FIG_1_STRUCTURE_RULES,
+        2: FIG_2_STRUCTURE_RULES,
+        3: FIG_3_STRUCTURE_RULES,
+    }
+    return rules_by_number.get(figure_number, FIG_4_PLUS_STRUCTURE_RULES)
 
 
 def get_figures_prompt(invention: dict, description_text: str = "") -> str:
@@ -468,77 +581,118 @@ Return a JSON object with exactly these keys:
   - title: str (short title, e.g. "System architecture")
   - brief_description: str (single sentence for the figure caption, starting with "FIG. N is...")
   - reference_numerals: object mapping numeral strings to component names (e.g. {{"200": "ingestion module", "202": "structural parser"}})
-  - mermaid: str — valid Mermaid flowchart for black-and-white patent figures
+  - mermaid: str — valid Mermaid diagram for black-and-white patent figures
 
 REQUIREMENTS:
+{DIAGRAM_TYPE_DIVERSITY_RULES}
+{FIGURE_COMPONENT_SUBSET_RULE}
+{FIGURE_STRUCTURE_RULES}
 - The USPTO sample does not require a specific number of figures — the applicant chooses
   how many drawings to include. Where drawings are present, the brief description must list
-  every figure by number with a statement of what it depicts, and every element in the
-  detailed description must appear in the drawings (and vice versa).
-- For this AI/ML invention, generate a complete default set of 3 figures unless the
+  every figure by number with a statement of what it depicts.
+- For this AI/ML invention, generate a complete default set of 4 figures unless the
   detailed description clearly needs fewer or more:
-  1. FIG. 1 — system block diagram of top-level modules only in the main processing chain
-  2. FIG. 2 — method flowchart showing the processing flow from ingestion through output;
-     must include every top-level module from FIG. 1 as a labeled box in flow order
-  3. FIG. 3 — data flow diagram showing data types/formats between the SAME modules as FIG. 1;
-     must include every top-level module from FIG. 1 as a labeled box
+{FIGURE_DIAGRAM_TYPE_REQUIREMENTS}
 
 REFERENCE NUMERAL RULES (mandatory — USPTO sample format):
+{REFERENCE_NUMERAL_CONSISTENCY_RULE}
 - Extract numerals and component names from the detailed description and use them exactly
 - Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
 - NEVER reuse a numeral for a different part (e.g. do NOT label "Layout preservation 200" if
   200 is already the ingestion module)
-- In FIG. 3, every node must use the same module name and numeral as in FIG. 1; put data-type
-  annotations on an optional third label line, e.g. A["Ingestion module<br/>200<br/>(binary data)"]
+- When a numeral appears in multiple figures, it must refer to the same component — but each
+  figure may show only the subset of components relevant to that figure's aspect
 
-FIG. 1 LAYOUT RULES (system architecture):
-- Show ONE single top-to-bottom processing chain — each top-level module appears exactly ONCE
-- Do NOT use parallel columns that duplicate modules (e.g. a left column of subgraph headers
-  labeled "Parsing module 202" alongside the same module 202 in the main flow on the right)
-- Main processing chain shows ONLY top-level modules in order, e.g.:
-  200 (ingestion) → 202 (parsing) → 204 (chunking) → 206 (enrichment) → 208 (indexing) → 210 (retrieval)
-- Sub-components must NOT appear as separate downstream boxes after their parent module:
-  - vision-language model 203 is a sub-component OF parsing module 202
-  - vector database 209 is a sub-component OF indexing engine 208
-  - cluster index 211 is a sub-component OF retrieval module 210 (NOT a step after 210)
-- Nest sub-components inside their parent module box using a Mermaid subgraph that wraps
-  ONLY the sub-component nodes — the parent module must NOT also appear separately elsewhere;
-  or omit sub-components from the diagram entirely rather than placing them downstream
-
-- Mermaid rules:
-  - Use "flowchart TB" only — NEVER use LR, RL, or any horizontal layout (hard to format in Word)
-  - Node labels MUST show the component name on the first line and the reference numeral alone
-    on the second line using <br/>, e.g. A["Ingestion module<br/>200"]
-  - Reference numerals must be plain Arabic digits with no brackets or parentheses
+- Mermaid rules (all diagram types):
+{MERMAID_NO_HTML_RULES}
+  - Each figure's mermaid must start with its diagram type on the first non-comment line
+  - Include reference numerals in every labeled component/participant/node/state/class
   - No classDef, no style directives, no colors, no subgraph styling
-  - Subgraphs are allowed ONLY to nest sub-components inside a parent module (FIG. 1)
-  - Subgraph titles must NOT repeat a module numeral that also appears on a main-flow node
-    (use an untitled subgraph, e.g. subgraph parse202, or a title without numerals like
-    ["Parsing module"] — never subgraph x ["Parsing module<br/>202"] AND A["Parsing module<br/>202"])
-  - Do NOT use direction statements inside the diagram
-  - Maximum 12 nodes per diagram
-  - Use --> for arrows; label critical flows on arrows when helpful
-- Layout rules (critical for Word export — target ~4:3 aspect ratio on one page):
-  - Arrange nodes top-to-bottom; use branching and parallel columns instead of horizontal rows
-  - Do NOT draw a single long vertical column (max 5 nodes before splitting into parallel branches)
-  - Use branching only to shorten vertical length — never to duplicate the same module
-  - FIG. 1: one linear or lightly branched top-to-bottom chain; each module/numeral appears
-    AT MOST ONCE (no parallel column headers duplicating modules from the main flow)
-  - FIG. 2: flowchart TB with method steps in a zigzag or two-column layout; label each
-    node with the same module name and numeral as FIG. 1 (e.g. "Ingestion module<br/>200"),
-    NOT numbered prefixes like "1. Ingestion<br/>200"; each module/numeral must appear
-    AT MOST ONCE as a box — never show the same component twice (e.g. do not duplicate
-    "Parsing module 202" as two separate nodes)
-  - FIG. 3: flowchart TB with data stages split across parallel branches (not one straight chain)
+  - Maximum 12 nodes/participants/entities per diagram
+  - Node labels MUST be plain text with component name and reference numeral together,
+    e.g. A["Ingestion module 200"]
+  - Do NOT use direction statements inside subgraphs
+  - When using subgraphs in Mermaid, always give them a quoted display title using bracket
+    syntax, e.g. `subgraph ingestion [Ingestion Layer]`. Never use bare IDs like
+    `subgraph sg203` — these render as ugly labels.
+
 - reference_numerals must use even numbers starting at 200 (200, 202, 204, ...) and match labels in mermaid
-- The same reference numeral must designate the same component across all figures
-- When FIG. 2 and FIG. 3 are included, each must include EVERY top-level module shown in
-  FIG. 1 as a labeled box with the same name and numeral — do not omit modules (e.g. if
-  FIG. 1 shows a synthesis engine 206, FIG. 2 and FIG. 3 must also show synthesis engine
-  206 as a labeled box)
+- The same reference numeral must designate the same component whenever it appears across figures
 - brief_description_of_drawings: one sentence per figure, each starting with "FIG. N is a
   ...", separated by blank lines — NOT one combined paragraph
 - brief_description_of_drawings must list every generated figure in consecutive numerical order
+
+Output ONLY the JSON object, no markdown fences."""
+
+
+def get_regenerate_figure_prompt(
+    invention: dict,
+    description_text: str,
+    figure_number: int,
+    existing_figures: list[dict],
+    used_diagram_types: list[str],
+) -> str:
+    """
+    Returns the prompt for regenerating a single patent figure with a unique diagram type.
+    """
+    context = _format_invention_context(invention)
+    description_block = ""
+    if description_text.strip():
+        description_block = f"""
+DETAILED DESCRIPTION (use for consistency of names, steps, and reference numerals):
+{description_text.strip()[:12000]}
+"""
+
+    other_figures_lines: list[str] = []
+    for fig in sorted(existing_figures, key=lambda f: int(f.get("number", 0))):
+        num = int(fig.get("number", 0))
+        if num == figure_number:
+            continue
+        title = str(fig.get("title", "")).strip()
+        mermaid = str(fig.get("mermaid", "")).strip()
+        first_line = next(
+            (line.strip() for line in mermaid.splitlines() if line.strip() and not line.strip().startswith("%%")),
+            "(unknown)",
+        )
+        other_figures_lines.append(f"  - FIG. {num}: {title} — diagram type: {first_line}")
+
+    other_figures_block = "\n".join(other_figures_lines) if other_figures_lines else "  (none)"
+    used_types_str = ", ".join(used_diagram_types) if used_diagram_types else "(none yet)"
+
+    return f"""{context}
+{description_block}
+
+TASK: Regenerate ONLY FIG. {figure_number} for a US provisional patent application.
+
+OTHER EXISTING FIGURES (do NOT duplicate their diagram types or subject matter):
+{other_figures_block}
+
+DIAGRAM TYPES ALREADY IN USE (you MUST NOT reuse any of these):
+{used_types_str}
+
+{DIAGRAM_TYPE_DIVERSITY_RULES}
+{figure_structure_rules_for_number(figure_number)}
+
+Return a JSON object with exactly this key:
+- figure: object with:
+  - number: int (must be {figure_number})
+  - title: str (short title, e.g. "System architecture")
+  - brief_description: str (single sentence for the figure caption, starting with "FIG. {figure_number} is...")
+  - reference_numerals: object mapping numeral strings to component names (e.g. {{"200": "ingestion module", "202": "structural parser"}})
+  - mermaid: str — valid Mermaid diagram using a diagram type NOT in the used-types list above
+
+REQUIREMENTS:
+{MERMAID_NO_HTML_RULES}
+{REFERENCE_NUMERAL_CONSISTENCY_RULE}
+{figure_structure_rules_for_number(figure_number)}
+- {FIGURE_COMPONENT_SUBSET_RULE}
+- Regenerate FIG. {figure_number} only — cover a distinct aspect of the invention not already
+  depicted by the other figures
+- Use a Mermaid diagram type that is NOT already used by any other figure
+- Extract reference numerals and component names from the detailed description and use them exactly
+- Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
+- Keep the diagram black-and-white with no classDef, style directives, or colors
+- Maximum 12 nodes/participants per diagram
 
 Output ONLY the JSON object, no markdown fences."""
 

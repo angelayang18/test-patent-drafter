@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 from .llm_client import generate_json
 from .prompts import (
@@ -228,7 +231,33 @@ def _run_group_pass(system: str, user_template: str, source: str) -> dict:
         system,
         user_template.format(combined_text=source),
     )
+    if not parsed:
+        raise ValueError("Group extraction returned empty JSON object.")
     return parsed
+
+
+def _run_group_pass_with_retry(
+    system: str, user_template: str, source: str, label: str
+) -> dict:
+    """Run one group extraction pass, retrying once on failure."""
+    last_exc: Exception | None = None
+    for attempt in range(2):
+        try:
+            return _run_group_pass(system, user_template, source)
+        except Exception as exc:
+            last_exc = exc
+            log.warning(
+                "Group extraction '%s' failed (attempt %d/2): %s",
+                label,
+                attempt + 1,
+                exc,
+            )
+    log.error(
+        "Group extraction '%s' gave up after retry: %s",
+        label,
+        last_exc,
+    )
+    return {}
 
 
 def _extract_grouped(system: str, source: str) -> dict:
@@ -237,12 +266,32 @@ def _extract_grouped(system: str, source: str) -> dict:
     max_workers = min(len(_GROUP_EXTRACTORS), 3)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_run_group_pass, system, template, source): label
+            executor.submit(
+                _run_group_pass_with_retry, system, template, source, label
+            ): label
             for label, template in _GROUP_EXTRACTORS
         }
         for future in as_completed(futures):
-            merged.update(future.result())
-    return _normalize_extraction(merged)
+            label = futures[future]
+            try:
+                merged.update(future.result())
+            except Exception as exc:
+                log.exception(
+                    "Unexpected error collecting group '%s' result: %s",
+                    label,
+                    exc,
+                )
+    normalized = _normalize_extraction(merged)
+    if not normalized["core_technical_solution"] and not normalized["novel_mechanism"]:
+        log.warning(
+            "Solution fields empty after grouped extraction; running targeted fallback."
+        )
+        fallback = _run_group_pass_with_retry(
+            system, EXTRACT_GROUP_SOLUTION_USER, source, "solution"
+        )
+        merged.update(fallback)
+        normalized = _normalize_extraction(merged)
+    return normalized
 
 
 def _extract_parallel_fields(

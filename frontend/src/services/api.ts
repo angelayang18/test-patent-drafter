@@ -3,12 +3,19 @@ import type {
   InventionDetails,
   PatentDraft,
   PatentFigure,
+  RegenerateFigureResult,
 } from "../types/patent";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? import.meta.env.REACT_APP_API_URL ?? "http://localhost:8000";
 
-export type { InventionDetails, PatentDraft, PatentFigure, FiguresResult };
+export type {
+  InventionDetails,
+  PatentDraft,
+  PatentFigure,
+  FiguresResult,
+  RegenerateFigureResult,
+};
 
 export interface SourceContent {
   title?: string;
@@ -289,6 +296,24 @@ export async function generateFigures(
   });
 }
 
+export async function regenerateFigure(
+  figureNumber: number,
+  invention: InventionDetails,
+  descriptionText: string,
+  existingFigures: PatentFigure[],
+): Promise<RegenerateFigureResult> {
+  return requestJson<RegenerateFigureResult>("/figures/regenerate-one", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...invention,
+      figure_number: figureNumber,
+      description_text: descriptionText,
+      existing_figures: existingFigures,
+    }),
+  });
+}
+
 export async function renderFigurePng(mermaid: string): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/figures/render`, {
     method: "POST",
@@ -338,11 +363,12 @@ export interface QAReportEntry {
 
 export async function fetchQAReport(
   sections: Record<string, string>,
+  invention?: InventionDetails,
 ): Promise<QAReportEntry[]> {
   return requestJson<QAReportEntry[]>("/qa-report", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sections }),
+    body: JSON.stringify({ sections, invention: invention ?? null }),
   });
 }
 
