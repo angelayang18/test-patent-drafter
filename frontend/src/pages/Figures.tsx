@@ -45,6 +45,7 @@ export default function Figures() {
   const [pngLoading, setPngLoading] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [numFigures, setNumFigures] = useState(3);
 
   const previewSections = useMemo(
     () => ({
@@ -108,6 +109,7 @@ export default function Figures() {
       const result = await generateFigures(
         details,
         sections.description ?? "",
+        numFigures,
       );
       setFiguresResult(result);
       if (result.warnings?.length) {
@@ -247,7 +249,28 @@ export default function Figures() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 mb-6">
+      <div className="flex flex-wrap items-end gap-3 mb-6">
+        <label className="flex flex-col gap-1">
+          <span className="font-label-sm text-label-sm text-on-surface-variant">
+            Number of figures
+          </span>
+          <select
+            value={numFigures}
+            onChange={(e) => setNumFigures(Number(e.target.value))}
+            disabled={loading}
+            className="px-3 py-2.5 border border-outline-variant rounded-lg bg-surface-container-lowest font-body-sm text-body-sm min-w-[5rem]"
+          >
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+          <span className="font-body-sm text-body-sm text-on-surface-variant max-w-xs">
+            Provisional applications have no required minimum — choose what best illustrates
+            your invention.
+          </span>
+        </label>
         <button
           type="button"
           onClick={() => void handleGenerate()}

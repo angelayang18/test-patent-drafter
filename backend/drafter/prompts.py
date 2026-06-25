@@ -435,9 +435,11 @@ Draft the abstract now (output ONLY the abstract text, no word count or commenta
 FIGURES_SYSTEM = (
     "You are an expert US patent illustrator and technical writer. "
     "You produce black-and-white patent-style line-art diagrams as valid Mermaid syntax. "
+    "Provisional applications have no required minimum number of figures — the applicant "
+    "chooses how many drawings to include. "
     "Each figure MUST use the exact diagram type assigned to its figure number "
-    "(FIG. 1: graph LR, FIG. 2: flowchart TD, FIG. 3: sequenceDiagram, FIG. 4: classDiagram). "
-    "Do NOT use graph LR or flowchart TD for figures 3 or 4. "
+    "(FIG. 1: graph LR, FIG. 2: flowchart TD, FIG. 3: sequenceDiagram, FIG. 4+: classDiagram). "
+    "Do NOT use graph LR or flowchart TD for figures 3 or higher. "
     "Do NOT produce two figures with the same visual structure. "
     "Each figure MUST use a different Mermaid diagram type AND a different structural layout — "
     "never repeat the same vertical linear chain of components across figures. "
@@ -587,11 +589,11 @@ REQUIREMENTS:
 {DIAGRAM_TYPE_DIVERSITY_RULES}
 {FIGURE_COMPONENT_SUBSET_RULE}
 {FIGURE_STRUCTURE_RULES}
-- The USPTO sample does not require a specific number of figures — the applicant chooses
-  how many drawings to include. Where drawings are present, the brief description must list
-  every figure by number with a statement of what it depicts.
-- For this AI/ML invention, generate a complete default set of 4 figures unless the
-  detailed description clearly needs fewer or more:
+- Provisional applications have no required minimum number of figures — the applicant
+  chooses how many drawings to include. Where drawings are present, the brief description
+  must list every figure by number with a statement of what it depicts.
+- Generate only the number of figures requested in the user prompt. When multiple figures
+  are requested, assign diagram types by figure number:
 {FIGURE_DIAGRAM_TYPE_REQUIREMENTS}
 
 REFERENCE NUMERAL RULES (mandatory — USPTO sample format):
@@ -621,6 +623,90 @@ REFERENCE NUMERAL RULES (mandatory — USPTO sample format):
 - brief_description_of_drawings: one sentence per figure, each starting with "FIG. N is a
   ...", separated by blank lines — NOT one combined paragraph
 - brief_description_of_drawings must list every generated figure in consecutive numerical order
+
+Output ONLY the JSON object, no markdown fences."""
+
+
+def _figure_diagram_type_requirement(figure_number: int) -> str:
+    """Return the mandatory Mermaid diagram type for a figure number."""
+    if figure_number == 1:
+        return "`graph LR` with subgraphs grouping related components (system architecture overview)"
+    if figure_number == 2:
+        return (
+            "`flowchart TD` with at least one decision diamond (`{Decision?}`) "
+            "showing branching logic (method/process flow)"
+        )
+    if figure_number == 3:
+        return (
+            "`sequenceDiagram` with at least 3 named participants and "
+            "`alt`/`loop` blocks (data flow / interaction)"
+        )
+    return (
+        "`classDiagram` with at least 3 classes showing relationships "
+        "(component/data model)"
+    )
+
+
+def get_single_figure_prompt(
+    invention: dict,
+    description_text: str,
+    figure_number: int,
+    total_figures: int,
+) -> str:
+    """
+    Returns the prompt for generating a single patent figure as Mermaid JSON.
+    """
+    context = _format_invention_context(invention)
+    description_block = ""
+    if description_text.strip():
+        description_block = f"""
+DETAILED DESCRIPTION (use for consistency of names, steps, and reference numerals):
+{description_text.strip()[:12000]}
+"""
+
+    diagram_type = _figure_diagram_type_requirement(figure_number)
+
+    return f"""{context}
+{description_block}
+
+TASK: Generate FIG. {figure_number} of {total_figures} for a US provisional patent application
+covering an AI/ML invention. You are generating figure {figure_number} of {total_figures} only.
+Provisional applications have no required minimum number of figures — the applicant chose
+{total_figures} drawing(s) for this application.
+
+Return a JSON object with exactly this key:
+- figure: object with:
+  - number: int (must be {figure_number})
+  - title: str (short title, e.g. "System architecture")
+  - brief_description: str (single sentence for the figure caption, starting with "FIG. {figure_number} is...")
+  - reference_numerals: object mapping numeral strings to component names (e.g. {{"200": "ingestion module", "202": "structural parser"}})
+  - mermaid: str — valid Mermaid diagram for black-and-white patent figures
+
+MANDATORY DIAGRAM TYPE FOR FIG. {figure_number}:
+- FIG. {figure_number} MUST use {diagram_type}
+- Do NOT use `graph LR` or `flowchart TD` for figures 3 or 4+
+- Do NOT produce the same visual structure as other figures in the set
+
+REQUIREMENTS:
+{DIAGRAM_TYPE_DIVERSITY_RULES}
+{FIGURE_COMPONENT_SUBSET_RULE}
+{figure_structure_rules_for_number(figure_number)}
+{REFERENCE_NUMERAL_CONSISTENCY_RULE}
+- Extract reference numerals and component names from the detailed description and use them exactly
+- Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
+- This is figure {figure_number} of {total_figures} — cover a distinct aspect of the invention
+  (architecture vs. method vs. interaction vs. data model) appropriate to this figure number
+- Mermaid rules:
+{MERMAID_NO_HTML_RULES}
+  - The mermaid field must start with its diagram type on the first non-comment line
+  - Include reference numerals in every labeled component/participant/node/state/class
+  - No classDef, no style directives, no colors, no subgraph styling
+  - Maximum 12 nodes/participants/entities per diagram
+  - Node labels MUST be plain text with component name and reference numeral together,
+    e.g. A["Ingestion module 200"]
+  - Do NOT use direction statements inside subgraphs
+  - When using subgraphs in Mermaid, always give them a quoted display title using bracket
+    syntax, e.g. `subgraph ingestion [Ingestion Layer]`
 
 Output ONLY the JSON object, no markdown fences."""
 

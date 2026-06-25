@@ -2,32 +2,19 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
-import {
-  UploadProgressPanel,
-  type UploadQueueItem,
-} from "../components/UploadProgressPanel";
+import { UploadProgressPanel } from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowNextButton } from "../components/WorkflowNavButtons";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
 import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
-import {
-  ApiError,
-  extractionNotesFromSources,
-  extractInvention,
-  uploadDocuments,
-} from "../services/api";
+import { useFileUpload } from "../hooks/useFileUpload";
+import { ApiError, extractionNotesFromSources, extractGrant, extractInvention } from "../services/api";
+import type { WorkflowMode } from "../types/patent";
 import { fileIcon, formatFileSize } from "../utils/format";
 import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
 import { computeExtractionSourceKey } from "../utils/extractionSourceKey";
 import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
-
-const ACCEPTED_EXTENSIONS = [".pdf", ".docx", ".pptx"];
-
-function isAcceptedFile(file: File): boolean {
-  const name = file.name.toLowerCase();
-  return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
-}
 
 function getWebsiteUrlError(value: string): string | null {
   const trimmed = value.trim();
@@ -49,14 +36,17 @@ export default function InputPage() {
   const dropzoneRef = useRef<HTMLDivElement>(null);
 
   const {
+    workflowMode,
+    setWorkflowMode,
     uploadedFiles,
     inputSources,
     invention,
-    addUploadedFilesAndPersist,
+    grantDetails,
     removeUploadedFile,
     setInputSources,
     gatherSourceText,
     setInvention,
+    setGrantDetails,
     setExtractionSourceKey,
     getWorkflowSnapshot,
     saveToStorage,
@@ -67,8 +57,9 @@ export default function InputPage() {
   const hasSavedProgress =
     !workflowResetting && workflowHasProgress(getWorkflowSnapshot());
 
+  const { processFiles, uploadQueue, error: uploadError, uploading } = useFileUpload();
+
   const [showToken, setShowToken] = useState(false);
-  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,9 +67,6 @@ export default function InputPage() {
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
-  const uploading = uploadQueue.some(
-    (item) => item.status === "pending" || item.status === "parsing",
-  );
   const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
   const hasPastedText = inputSources.pastedText.trim().length > 0;
   const hasUploadedFiles = uploadedFiles.length > 0;
@@ -98,86 +86,6 @@ export default function InputPage() {
   const clearConfluenceError = useCallback(() => {
     setConfluenceError(null);
   }, []);
-
-  const processFiles = useCallback(
-    async (fileList: FileList | File[]) => {
-      const files = Array.from(fileList).filter(isAcceptedFile);
-      if (files.length === 0) {
-        setError("Please upload PDF, DOCX, or PPTX files only.");
-        return;
-      }
-      setError(null);
-
-      const queue: UploadQueueItem[] = files.map((file, index) => ({
-        id: `${Date.now()}-${index}-${file.name}`,
-        filename: file.name,
-        sizeBytes: file.size,
-        status: "pending",
-      }));
-      setUploadQueue(queue.map((item) => ({ ...item, status: "parsing" as const })));
-
-      const parsed: {
-        id: string;
-        filename: string;
-        sizeBytes: number;
-        content: string;
-      }[] = [];
-
-      try {
-        const results = await uploadDocuments(files);
-        const resultByName = new Map(
-          results.map((result) => [result.filename ?? "", result]),
-        );
-
-        const finalQueue: UploadQueueItem[] = queue.map((item) => {
-          const result = resultByName.get(item.filename);
-          if (!result) {
-            return {
-              ...item,
-              status: "error" as const,
-              error: "No response from server.",
-            };
-          }
-
-          parsed.push({
-            id: item.id,
-            filename: result.filename ?? item.filename,
-            sizeBytes: item.sizeBytes,
-            content: result.content,
-          });
-          return { ...item, status: "done" as const };
-        });
-        setUploadQueue(finalQueue);
-      } catch (err) {
-        const message = err instanceof ApiError ? err.message : "Upload failed.";
-        setUploadQueue((prev) =>
-          prev.map((item) => ({ ...item, status: "error", error: message })),
-        );
-      }
-
-      if (parsed.length > 0) {
-        addUploadedFilesAndPersist(parsed);
-      }
-
-      const failedCount = files.length - parsed.length;
-      if (failedCount > 0 && parsed.length === 0) {
-        setError(
-          failedCount === 1
-            ? "Could not parse the uploaded file."
-            : `Could not parse ${failedCount} file(s).`,
-        );
-      } else if (failedCount > 0) {
-        setError(
-          `${parsed.length} file(s) added; ${failedCount} failed to parse. See details below.`,
-        );
-      }
-
-      if (failedCount === 0) {
-        window.setTimeout(() => setUploadQueue([]), 2000);
-      }
-    },
-    [addUploadedFilesAndPersist],
-  );
 
   useEffect(() => {
     const dropzone = dropzoneRef.current;
@@ -215,12 +123,15 @@ export default function InputPage() {
     }
   };
 
+  const isGrant = workflowMode === "grant";
+  const hasExtractedDetails = isGrant ? Boolean(grantDetails) : Boolean(invention);
+
   const handleContinue = async () => {
     setHasAttemptedSubmit(true);
     setError(null);
     setConfluenceError(null);
 
-    if (invention) {
+    if (hasExtractedDetails) {
       navigate("/review");
       return;
     }
@@ -255,9 +166,19 @@ export default function InputPage() {
         return;
       }
 
-      setExtractPhase("Extracting invention details (parallel AI analysis)…");
-      const details = await extractInvention(combined, extractionNotesFromSources(inputSources));
-      setInvention(details);
+      setExtractPhase(
+        isGrant
+          ? "Extracting grant application details (parallel AI analysis)…"
+          : "Extracting invention details (parallel AI analysis)…",
+      );
+      const notes = extractionNotesFromSources(inputSources);
+      if (isGrant) {
+        const details = await extractGrant(combined, notes);
+        setGrantDetails(details);
+      } else {
+        const details = await extractInvention(combined, notes);
+        setInvention(details);
+      }
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/review");
@@ -266,7 +187,13 @@ export default function InputPage() {
         setConfluenceError(err.message);
         return;
       }
-      setError(err instanceof ApiError ? err.message : "Failed to extract invention details.");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : isGrant
+            ? "Failed to extract grant application details."
+            : "Failed to extract invention details.",
+      );
     } finally {
       setSubmitting(false);
       setExtractPhase(null);
@@ -314,9 +241,9 @@ export default function InputPage() {
         </div>
       )}
 
-      {error && (
+      {(error || uploadError) && (
         <div className="mb-6 p-4 rounded-lg bg-error-container/20 text-error border border-error/30">
-          {error}
+          {error ?? uploadError}
         </div>
       )}
 
@@ -324,9 +251,13 @@ export default function InputPage() {
         <div className="mb-6 p-4 rounded-lg bg-secondary-container/15 border border-secondary/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <p className="font-title-md text-title-md text-on-surface">
-              {invention?.invention_title?.trim()
-                ? `Continue “${invention.invention_title}”?`
-                : "Continue your saved draft?"}
+              {isGrant
+                ? grantDetails?.project_title?.trim()
+                  ? `Continue “${grantDetails.project_title}”?`
+                  : "Continue your saved grant draft?"
+                : invention?.invention_title?.trim()
+                  ? `Continue “${invention.invention_title}”?`
+                  : "Continue your saved draft?"}
             </p>
             <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
               Your progress is saved in this browser. Use <strong>Drafts</strong> in the header to
@@ -344,6 +275,38 @@ export default function InputPage() {
       )}
 
       <div className="flex flex-col gap-10">
+        <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
+          <div className="mb-6">
+            <h2 className="font-headline-md text-headline-md text-primary mb-3">Workflow mode</h2>
+            <div className="inline-flex rounded-lg border border-outline-variant p-1 bg-surface-container-low">
+              {(
+                [
+                  { id: "patent" as WorkflowMode, label: "Patent Draft" },
+                  { id: "grant" as WorkflowMode, label: "Grant Application" },
+                ] as const
+              ).map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => setWorkflowMode(option.id)}
+                  className={`px-5 py-2.5 rounded-md font-label-md text-label-md transition-all ${
+                    workflowMode === option.id
+                      ? "bg-secondary text-on-secondary shadow-sm"
+                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-lowest"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="font-body-sm text-body-sm text-on-surface-variant mt-3">
+              {isGrant
+                ? "Extract grant details and draft application sections for funding proposals."
+                : "Extract invention details and draft a US provisional patent application."}
+            </p>
+          </div>
+        </section>
+
         <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
           <div className="flex items-start gap-3 mb-6">
             <div className="p-2 bg-primary/10 rounded-lg shrink-0">

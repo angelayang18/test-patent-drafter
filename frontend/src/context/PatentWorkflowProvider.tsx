@@ -8,9 +8,11 @@ import {
 import type {
   FiguresResult,
   FilingInfo,
+  GrantDetails,
   InventionDetails,
   PatentFigure,
   PatentSectionId,
+  WorkflowMode,
 } from "../types/patent";
 import { EMPTY_FILING_INFO, emptyApprovedExemplars, emptyAttorneyFeedback } from "../types/patent";
 import {
@@ -44,8 +46,14 @@ function readStorage(): StoredWorkflow {
 
 export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const initial = readStorage();
+  const [workflowMode, setWorkflowModeState] = useState<WorkflowMode>(
+    initial.workflowMode ?? "patent",
+  );
   const [invention, setInventionState] = useState<InventionDetails | null>(
     initial.invention,
+  );
+  const [grantDetails, setGrantDetailsState] = useState<GrantDetails | null>(
+    initial.grantDetails,
   );
   const [sections, setSectionsState] = useState<Record<string, string>>(
     initial.sections,
@@ -155,7 +163,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const applyWorkflowSnapshot = useCallback(
     (next: WorkflowSnapshot) => {
+      setWorkflowModeState(next.workflowMode ?? "patent");
       setInventionState(next.invention);
+      setGrantDetailsState(next.grantDetails);
       setSectionsState(next.sections);
       setFigures(next.figures);
       setBriefDescriptionOfDrawings(next.brief_description_of_drawings);
@@ -177,7 +187,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const buildSnapshot = useCallback(
     (): WorkflowSnapshot => ({
+      workflowMode,
       invention,
+      grantDetails,
       sections,
       figures,
       brief_description_of_drawings: briefDescriptionOfDrawings,
@@ -195,7 +207,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       autoDraftPending,
     }),
     [
+      workflowMode,
       invention,
+      grantDetails,
       sections,
       figures,
       briefDescriptionOfDrawings,
@@ -274,6 +288,18 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const setInvention = useCallback((details: InventionDetails) => {
     setInventionState(details);
   }, []);
+
+  const setGrantDetails = useCallback((details: GrantDetails) => {
+    setGrantDetailsState(details);
+  }, []);
+
+  const setWorkflowMode = useCallback(
+    (mode: WorkflowMode) => {
+      setWorkflowModeState(mode);
+      writeStoragePayload({ workflowMode: mode });
+    },
+    [writeStoragePayload],
+  );
 
   const setSection = useCallback((sectionId: string, content: string) => {
     setSectionsState((prev) => ({ ...prev, [sectionId]: content }));
@@ -445,7 +471,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(
     () => ({
+      workflowMode,
       invention,
+      grantDetails,
       sections,
       figures,
       briefDescriptionOfDrawings,
@@ -462,7 +490,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       extractionSourceKey,
       autoDraftPending,
       workflowResetting,
+      setWorkflowMode,
       setInvention,
+      setGrantDetails,
       setSection,
       setSections,
       captureAiInitialSections,
@@ -497,7 +527,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       clearAutoDraftPending,
     }),
     [
+      workflowMode,
       invention,
+      grantDetails,
       sections,
       figures,
       briefDescriptionOfDrawings,
@@ -514,7 +546,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       extractionSourceKey,
       autoDraftPending,
       workflowResetting,
+      setWorkflowMode,
       setInvention,
+      setGrantDetails,
       setSection,
       setSections,
       captureAiInitialSections,

@@ -1,8 +1,8 @@
-import type { FilingInfo, PatentFigure, PatentSectionId } from "../types/patent";
+import type { FilingInfo, PatentFigure, PatentSectionId, WorkflowMode } from "../types/patent";
 import { EMPTY_FILING_INFO, emptyApprovedExemplars, emptyAttorneyFeedback } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
-import type { InventionDetails } from "../types/patent";
+import type { GrantDetails, InventionDetails } from "../types/patent";
 import { sanitizePatentProse } from "./documentPreview";
 
 export type WorkflowStep = "input" | "review" | "draft" | "figures" | "export";
@@ -30,8 +30,16 @@ const DRAFT_FILE_FORMAT = "patent-drafter-draft";
 const DRAFT_FILE_VERSION = 2;
 const MAX_SAVED_DRAFTS = 20;
 
+export const GRANT_STEP_ORDER: WorkflowStep[] = ["input", "review", "draft", "export"];
+
+export function getWorkflowStepOrder(mode: WorkflowMode = "patent"): WorkflowStep[] {
+  return mode === "grant" ? GRANT_STEP_ORDER : WORKFLOW_STEP_ORDER;
+}
+
 export interface WorkflowSnapshot {
+  workflowMode: WorkflowMode;
   invention: InventionDetails | null;
+  grantDetails: GrantDetails | null;
   sections: Record<string, string>;
   figures: PatentFigure[];
   brief_description_of_drawings: string;
@@ -92,7 +100,9 @@ export function normalizeWorkflow(
   raw: Partial<WorkflowSnapshot> | null | undefined,
 ): WorkflowSnapshot {
   return {
+    workflowMode: raw?.workflowMode ?? "patent",
     invention: raw?.invention ?? null,
+    grantDetails: raw?.grantDetails ?? null,
     sections: sanitizeSections(raw?.sections),
     figures: raw?.figures ?? [],
     brief_description_of_drawings: raw?.brief_description_of_drawings ?? "",
@@ -122,14 +132,15 @@ export function hasFiguresProgress(workflow: WorkflowSnapshot): boolean {
 /** Completed steps from explicit marks plus saved workflow data (for resume and nav gating). */
 export function getCompletedSteps(workflow: WorkflowSnapshot): Set<WorkflowStep> {
   const completed = new Set<WorkflowStep>(workflow.completedSteps ?? []);
+  const isGrant = workflow.workflowMode === "grant";
 
-  if (workflow.invention) {
+  if (isGrant ? workflow.grantDetails : workflow.invention) {
     completed.add("input");
   }
   if (hasDraftSections(workflow.sections)) {
     completed.add("review");
   }
-  if (hasFiguresProgress(workflow)) {
+  if (!isGrant && hasFiguresProgress(workflow)) {
     completed.add("draft");
     completed.add("figures");
   }
@@ -146,14 +157,25 @@ export function isWorkflowStepAccessible(
     return true;
   }
 
-  // Export requires explicitly finishing the Figures step (footer "Next: Export"),
-  // not merely inferred progress from saved figure data in localStorage.
+  const isGrant = workflow.workflowMode === "grant";
+  const stepOrder = getWorkflowStepOrder(workflow.workflowMode);
+
+  if (step === "figures" && isGrant) {
+    return false;
+  }
+
   if (step === "export") {
+    if (isGrant) {
+      return (workflow.completedSteps ?? []).includes("draft");
+    }
     return (workflow.completedSteps ?? []).includes("figures");
   }
 
-  const stepIndex = WORKFLOW_STEP_ORDER.indexOf(step);
-  const previousStep = WORKFLOW_STEP_ORDER[stepIndex - 1];
+  const stepIndex = stepOrder.indexOf(step);
+  if (stepIndex <= 0) {
+    return false;
+  }
+  const previousStep = stepOrder[stepIndex - 1];
   return getCompletedSteps(workflow).has(previousStep);
 }
 
@@ -241,13 +263,18 @@ export function deleteSavedDraft(id: string): void {
 }
 
 export function defaultDraftName(workflow: WorkflowSnapshot): string {
-  const title = workflow.invention?.invention_title?.trim();
+  const title =
+    workflow.workflowMode === "grant"
+      ? workflow.grantDetails?.project_title?.trim()
+      : workflow.invention?.invention_title?.trim();
   if (title) return title;
-  return `Patent draft ${new Date().toLocaleDateString()}`;
+  return workflow.workflowMode === "grant"
+    ? `Grant application ${new Date().toLocaleDateString()}`
+    : `Patent draft ${new Date().toLocaleDateString()}`;
 }
 
 export function workflowHasProgress(workflow: WorkflowSnapshot): boolean {
-  if (workflow.invention) return true;
+  if (workflow.invention || workflow.grantDetails) return true;
   if (workflow.uploadedFiles.length > 0) return true;
   if (Object.values(workflow.inputSources).some((value) => value.trim())) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
@@ -258,6 +285,16 @@ export function workflowHasProgress(workflow: WorkflowSnapshot): boolean {
 
 /** Best step to resume editing after loading a saved workflow. */
 export function getResumePath(workflow: WorkflowSnapshot): string {
+  if (workflow.workflowMode === "grant") {
+    if (Object.values(workflow.sections).some((section) => section?.trim())) {
+      return "/draft";
+    }
+    if (workflow.grantDetails) {
+      return "/review";
+    }
+    return "/";
+  }
+
   if (workflow.figures.length > 0 || workflow.brief_description_of_drawings.trim()) {
     return "/figures";
   }

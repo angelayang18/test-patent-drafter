@@ -1,6 +1,6 @@
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
-import type { InventionDetails } from "../types/patent";
+import type { GrantDetails, InventionDetails } from "../types/patent";
 
 const REVIEW_EXTRACTION_FIELDS: (keyof InventionDetails)[] = [
   "invention_title",
@@ -10,12 +10,31 @@ const REVIEW_EXTRACTION_FIELDS: (keyof InventionDetails)[] = [
   "alternative_embodiments",
 ];
 
+const GRANT_REVIEW_EXTRACTION_FIELDS: (keyof GrantDetails)[] = [
+  "project_title",
+  "problem_statement",
+  "proposed_solution",
+  "innovation_and_impact",
+  "target_population",
+  "team_qualifications",
+  "budget_overview",
+  "evaluation_plan",
+];
+
 function hashString(value: string): string {
   let hash = 5381;
   for (let i = 0; i < value.length; i += 1) {
     hash = (hash * 33) ^ value.charCodeAt(i);
   }
   return (hash >>> 0).toString(36);
+}
+
+/** True when at least one grant review field has extracted content. */
+export function hasExtractedGrantReviewContent(grant: GrantDetails): boolean {
+  return GRANT_REVIEW_EXTRACTION_FIELDS.some((field) => {
+    const value = grant[field];
+    return typeof value === "string" && value.trim().length > 0;
+  });
 }
 
 /** True when at least one review field has extracted content. */
@@ -115,6 +134,33 @@ export function needsExtraction(
   }
   if (extractionSourceKey == null) {
     // Legacy saved drafts: content exists but no fingerprint was stored yet.
+    return false;
+  }
+  const currentKey = computeExtractionSourceKey(
+    uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
+  );
+  return extractionSourceKey !== currentKey;
+}
+
+/**
+ * Whether the Review step should run grant extraction automatically.
+ */
+export function needsGrantExtraction(
+  grant: GrantDetails | null,
+  extractionSourceKey: string | null | undefined,
+  uploadedFiles: UploadedSourceFile[],
+  inputSources: InputSources,
+  cachedRemoteSources: CachedRemoteSources = {},
+): boolean {
+  if (!hasSourceMaterialConfigured(uploadedFiles, inputSources, cachedRemoteSources)) {
+    return false;
+  }
+  if (!grant || !hasExtractedGrantReviewContent(grant)) {
+    return true;
+  }
+  if (extractionSourceKey == null) {
     return false;
   }
   const currentKey = computeExtractionSourceKey(

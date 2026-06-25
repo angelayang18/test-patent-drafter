@@ -2,8 +2,11 @@ import { useId, useState } from "react";
 import type { PatentSectionId } from "../types/patent";
 
 interface AttorneyFeedbackPanelProps {
-  sectionId: PatentSectionId;
+  sectionId: PatentSectionId | string;
   sectionLabel: string;
+  panelTitle?: string;
+  panelDescription?: string;
+  showApprove?: boolean;
   value: string;
   onChange: (value: string) => void;
   approved?: boolean;
@@ -14,6 +17,9 @@ interface AttorneyFeedbackPanelProps {
 export function AttorneyFeedbackPanel({
   sectionId,
   sectionLabel,
+  panelTitle = "Patent professional feedback",
+  panelDescription,
+  showApprove = true,
   value,
   onChange,
   approved = false,
@@ -38,11 +44,11 @@ export function AttorneyFeedbackPanel({
           </span>
           <div className="min-w-0">
             <h2 className="font-label-md text-label-md text-on-surface">
-              Patent professional feedback
+              {panelTitle}
             </h2>
             <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
-              Notes for {sectionLabel.toLowerCase()} — submitted at export to improve future drafts
-              org-wide.
+              {panelDescription ??
+                `Notes for ${sectionLabel.toLowerCase()} — submitted at export to improve future drafts org-wide.`}
             </p>
           </div>
         </div>
@@ -54,7 +60,7 @@ export function AttorneyFeedbackPanel({
       {expanded && (
         <div id={`${textareaId}-panel`} className="px-4 pb-4 border-t border-outline-variant/60">
           <label htmlFor={textareaId} className="sr-only">
-            Patent professional feedback for {sectionLabel}
+            {panelTitle} for {sectionLabel}
           </label>
           <textarea
             id={textareaId}
@@ -62,10 +68,14 @@ export function AttorneyFeedbackPanel({
             disabled={disabled}
             value={value}
             onChange={(event) => onChange(event.target.value)}
-            placeholder={`e.g. Claims should use "comprising" not "including"; tighten background prior-art contrast for ${sectionId}…`}
+            placeholder={
+              showApprove
+                ? `e.g. Claims should use "comprising" not "including"; tighten background prior-art contrast for ${sectionId}…`
+                : `Notes for revising ${sectionLabel.toLowerCase()}…`
+            }
             className="mt-3 w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px] disabled:opacity-60"
           />
-          {onApprove && (
+          {showApprove && onApprove && (
             <label className="mt-3 flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"

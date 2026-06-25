@@ -1,5 +1,6 @@
 import type {
   FiguresResult,
+  GrantDetails,
   InventionDetails,
   PatentDraft,
   PatentFigure,
@@ -11,6 +12,7 @@ const API_BASE_URL =
 
 export type {
   InventionDetails,
+  GrantDetails,
   PatentDraft,
   PatentFigure,
   FiguresResult,
@@ -191,6 +193,60 @@ export async function extractInventionField(
   });
 }
 
+export async function extractGrant(
+  combinedText: string,
+  notes?: ExtractionNotes,
+): Promise<GrantDetails> {
+  return requestJson<GrantDetails>("/extract/grant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+}
+
+export type ExtractableGrantField = keyof GrantDetails;
+
+export async function extractGrantField(
+  combinedText: string,
+  field: ExtractableGrantField,
+  current?: GrantDetails,
+  notes?: ExtractionNotes,
+): Promise<Partial<GrantDetails>> {
+  return requestJson<Partial<GrantDetails>>("/extract/grant/field", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      field,
+      current: current ?? null,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+}
+
+export async function regenerateSelection(
+  combinedText: string,
+  fullFieldText: string,
+  selectedText: string,
+  instruction?: string,
+): Promise<string> {
+  return requestJson<{ result: string }>("/regenerate/selection", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      full_field_text: fullFieldText,
+      selected_text: selectedText,
+      instruction: instruction ?? "",
+    }),
+  }).then((d) => d.result);
+}
+
 export interface DraftSectionOptions {
   priorDraft?: string;
   attorneyFeedback?: string;
@@ -228,6 +284,40 @@ export async function draftAllSections(
       ...invention,
       ...(sections?.length ? { sections } : {}),
       attorney_feedback: attorneyFeedback ?? {},
+    }),
+  });
+
+  return data.sections;
+}
+
+export async function draftGrantSection(
+  grant: GrantDetails,
+  section: string,
+  options?: DraftSectionOptions,
+): Promise<string> {
+  const data = await requestJson<{ section: string; content: string }>("/draft/grant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...grant,
+      section,
+      prior_draft: options?.priorDraft?.trim() ?? "",
+    }),
+  });
+
+  return data.content;
+}
+
+export async function draftAllGrantSections(
+  grant: GrantDetails,
+  sections?: string[],
+): Promise<Record<string, string>> {
+  const data = await requestJson<{ sections: Record<string, string> }>("/draft/grant/all", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...grant,
+      ...(sections?.length ? { sections } : {}),
     }),
   });
 
@@ -285,6 +375,7 @@ export async function approveLearningExemplar(
 export async function generateFigures(
   invention: InventionDetails,
   descriptionText = "",
+  numFigures = 3,
 ): Promise<FiguresResult> {
   return requestJson<FiguresResult>("/figures/generate", {
     method: "POST",
@@ -292,6 +383,7 @@ export async function generateFigures(
     body: JSON.stringify({
       ...invention,
       description_text: descriptionText,
+      num_figures: numFigures,
     }),
   });
 }
@@ -392,6 +484,48 @@ export async function exportPdf(draft: PatentDraft): Promise<Blob> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: exportPayloadBody(draft),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportGrantDocx(
+  sections: Record<string, string>,
+  projectTitle?: string,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/grant/docx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      project_title: projectTitle ?? "",
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportGrantPdf(
+  sections: Record<string, string>,
+  projectTitle?: string,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/grant/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      project_title: projectTitle ?? "",
+    }),
   });
 
   if (!response.ok) {

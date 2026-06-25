@@ -15,13 +15,17 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from drafter.extractor import extract_invention_details, extract_invention_field
+from drafter.grant_extractor import extract_grant_details, extract_grant_field
+from drafter.grant_sections import draft_all_grant_sections_parallel, draft_single_grant_section
 from drafter.figures import generate_patent_figures, regenerate_patent_figure
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
+from drafter.selection_regenerate import regenerate_selection
 from drafter.sections import draft_all_sections_parallel, draft_section
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
 from learning.storage import get_storage
 from exporter.docx_export import export_patent_docx
+from exporter.grant_export import export_grant_docx, export_grant_pdf
 from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
@@ -105,6 +109,52 @@ class ExtractFieldRequest(BaseModel):
     irrelevant_notes: str = ""
 
 
+class GrantDetails(BaseModel):
+    project_title: str = ""
+    problem_statement: str = ""
+    proposed_solution: str = ""
+    innovation_and_impact: str = ""
+    target_population: str = ""
+    team_qualifications: str = ""
+    budget_overview: str = ""
+    evaluation_plan: str = ""
+
+
+class ExtractGrantRequest(BaseModel):
+    combined_text: str
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class ExtractGrantFieldRequest(BaseModel):
+    combined_text: str
+    field: str
+    current: Optional[GrantDetails] = None
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class GrantDraftRequest(GrantDetails):
+    section: str
+    prior_draft: str = ""
+
+
+class GrantDraftAllRequest(GrantDetails):
+    sections: Optional[List[str]] = None
+
+
+class GrantExportRequest(BaseModel):
+    sections: dict[str, str] = Field(default_factory=dict)
+    project_title: str = ""
+
+
+class RegenerateSelectionRequest(BaseModel):
+    combined_text: str
+    full_field_text: str
+    selected_text: str
+    instruction: str = ""
+
+
 class DraftRequest(InventionDetails):
     section: str
     prior_draft: str = ""
@@ -140,6 +190,7 @@ class PatentFigureModel(BaseModel):
 
 class GenerateFiguresRequest(InventionDetails):
     description_text: str = ""
+    num_figures: int = Field(default=3, ge=1, le=8)
 
 
 class RegenerateFigureRequest(InventionDetails):
@@ -293,6 +344,35 @@ def scrape_page(body: ScrapeRequest) -> dict:
     return {"url": body.url.strip(), "content": content}
 
 
+@app.post("/regenerate/selection")
+def regenerate_selection_endpoint(body: RegenerateSelectionRequest) -> dict:
+    """Rewrite a selected portion of a patent field or draft section."""
+    if not body.full_field_text.strip():
+        raise HTTPException(status_code=400, detail="full_field_text is required.")
+    if not body.selected_text.strip():
+        raise HTTPException(status_code=400, detail="selected_text is required.")
+
+    try:
+        result = regenerate_selection(
+            body.combined_text,
+            body.full_field_text,
+            body.selected_text,
+            body.instruction,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Selection regeneration failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to regenerate selection: {exc}",
+        ) from exc
+
+    return {"result": result}
+
+
 @app.post("/extract/field")
 def extract_field(body: ExtractFieldRequest) -> dict:
     """Re-extract a single invention detail field from combined source text."""
@@ -343,6 +423,59 @@ def extract_details(body: ExtractRequest) -> dict:
         raise HTTPException(
             status_code=502,
             detail=f"Failed to extract invention details: {exc}",
+        ) from exc
+
+
+@app.post("/extract/grant")
+def extract_grant(body: ExtractGrantRequest) -> dict:
+    """Extract structured grant application details from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+
+    try:
+        return extract_grant_details(
+            body.combined_text,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Grant extraction failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to extract grant details: {exc}",
+        ) from exc
+
+
+@app.post("/extract/grant/field")
+def extract_grant_field_endpoint(body: ExtractGrantFieldRequest) -> dict:
+    """Re-extract a single grant detail field from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+    if not body.field.strip():
+        raise HTTPException(status_code=400, detail="field is required.")
+
+    current = body.current.model_dump() if body.current else None
+    try:
+        return extract_grant_field(
+            body.combined_text,
+            body.field.strip(),
+            current=current,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Grant field extraction failed for %s", body.field)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to extract grant field '{body.field}': {exc}",
         ) from exc
 
 
@@ -406,6 +539,56 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
         raise HTTPException(
             status_code=502,
             detail=f"Failed to draft sections in parallel: {exc}",
+        ) from exc
+
+    return {"sections": drafted}
+
+
+@app.post("/draft/grant")
+def draft_grant_section(body: GrantDraftRequest) -> dict:
+    """Draft a single grant application section via one dedicated section agent."""
+    if not body.section.strip():
+        raise HTTPException(status_code=400, detail="section is required.")
+
+    grant = body.model_dump(exclude={"section", "prior_draft"})
+    section = body.section.strip()
+    try:
+        content = draft_single_grant_section(grant, section, body.prior_draft)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Grant section drafting failed for %s", body.section)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft grant section '{section}': {exc}",
+        ) from exc
+
+    return {"section": section, "content": content}
+
+
+@app.post("/draft/grant/all")
+def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
+    """Draft multiple grant sections in parallel — one isolated LLM agent per section."""
+    grant = body.model_dump(exclude={"sections"})
+    section_list = body.sections
+    if section_list is not None:
+        section_list = [s.strip() for s in section_list if s.strip()]
+        if not section_list:
+            raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
+
+    try:
+        drafted = draft_all_grant_sections_parallel(grant, section_list)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Parallel grant section drafting failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft grant sections in parallel: {exc}",
         ) from exc
 
     return {"sections": drafted}
@@ -491,11 +674,15 @@ def list_learning_guidelines() -> dict:
 
 
 @app.post("/figures/generate")
-def generate_figures(body: GenerateFiguresRequest) -> dict:
+async def generate_figures(body: GenerateFiguresRequest) -> dict:
     """Generate patent figures (Mermaid) and Brief Description of the Drawings."""
-    invention = body.model_dump(exclude={"description_text"})
+    invention = body.model_dump(exclude={"description_text", "num_figures"})
     try:
-        result = generate_patent_figures(invention, body.description_text)
+        result = await generate_patent_figures(
+            invention,
+            body.description_text,
+            num_figures=body.num_figures,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMUnavailableError:
@@ -654,4 +841,48 @@ def export_pdf(body: ExportRequest) -> Response:
         content=buffer.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="patent-draft.pdf"'},
+    )
+
+
+@app.post("/export/grant/docx")
+def export_grant_docx_endpoint(body: GrantExportRequest) -> Response:
+    """Export the grant application draft as a downloadable DOCX file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_grant_docx(body.sections, project_title=body.project_title)
+    except Exception as exc:
+        log.exception("Grant DOCX export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate grant DOCX export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="grant-application.docx"'},
+    )
+
+
+@app.post("/export/grant/pdf")
+def export_grant_pdf_endpoint(body: GrantExportRequest) -> Response:
+    """Export the grant application draft as a downloadable PDF file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_grant_pdf(body.sections, project_title=body.project_title)
+    except Exception as exc:
+        log.exception("Grant PDF export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate grant PDF export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="grant-application.pdf"'},
     )

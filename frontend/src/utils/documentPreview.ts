@@ -1,4 +1,4 @@
-import { PATENT_SECTION_IDS } from "../types/patent";
+import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS, PATENT_SECTION_IDS } from "../types/patent";
 
 export const DOCUMENT_SECTION_ORDER = [
   "cross_reference",
@@ -135,6 +135,11 @@ export function splitParagraphs(text: string): string[] {
 }
 
 export function draftPreviewSectionKeys(sections: Record<string, string>): string[] {
+  const hasGrantSections = GRANT_SECTION_IDS.some((key) => Boolean(sections[key]?.trim()));
+  if (hasGrantSections) {
+    return GRANT_SECTION_IDS.filter((key) => Boolean(sections[key]?.trim()));
+  }
+
   return DOCUMENT_SECTION_ORDER.filter(
     (key) =>
       STATIC_SECTION_KEYS.has(key) ||
@@ -150,5 +155,8 @@ export function orderedPreviewSectionKeys(sections: Record<string, string>): str
 }
 
 export function sectionDisplayTitle(key: string): string {
+  if (key in GRANT_SECTION_LABELS) {
+    return GRANT_SECTION_LABELS[key as keyof typeof GRANT_SECTION_LABELS].toUpperCase();
+  }
   return DOCUMENT_SECTION_TITLES[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

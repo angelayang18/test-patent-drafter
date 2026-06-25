@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
@@ -17,7 +18,7 @@ from .figure_numerals import (
 )
 from .llm_client import generate_json, get_llm_model
 from .mermaid_sanitize import sanitize_mermaid_source
-from .prompts import FIGURES_SYSTEM, get_figures_prompt, get_regenerate_figure_prompt
+from .prompts import FIGURES_SYSTEM, get_regenerate_figure_prompt
 
 log = logging.getLogger(__name__)
 
@@ -31,13 +32,6 @@ _MERMAID_TYPE_RE = re.compile(
     r"erDiagram|block-beta|block|journey|timeline|mindmap)\b",
     re.IGNORECASE,
 )
-
-# Default diagram headers when the model omits a type declaration.
-_FIGURE_DEFAULT_HEADER = {
-    1: "graph LR",
-    2: "flowchart TD",
-}
-
 
 # Default diagram headers when the model omits a type declaration.
 _FIGURE_DEFAULT_HEADER = {
@@ -291,54 +285,43 @@ def validate_figure_diagram_types(figures: list[dict[str, Any]]) -> list[str]:
     return warnings
 
 
-def generate_patent_figures(
+async def generate_single_figure(
     invention: dict,
-    description_text: str = "",
+    description_text: str,
+    figure_number: int,
+    total_figures: int,
 ) -> dict[str, Any]:
-    """
-    Generate patent figures and Brief Description of the Drawings.
+    """Generate one patent figure asynchronously."""
+    from .prompts import get_single_figure_prompt
 
-    Returns:
-        {
-            "brief_description_of_drawings": str,
-            "figures": list[dict],
-            "warnings": list[str] | omitted when numerals are consistent,
-        }
-    """
-    prompt = get_figures_prompt(invention, description_text)
+    prompt = get_single_figure_prompt(
+        invention,
+        description_text,
+        figure_number,
+        total_figures,
+    )
 
     last_error: ValueError | None = None
     user_prompt = prompt
     for attempt in range(3):
-        raw = generate_json(FIGURES_SYSTEM, user_prompt)
+        raw = await asyncio.to_thread(generate_json, FIGURES_SYSTEM, user_prompt)
         try:
-            brief, figures = _figures_from_response(raw)
-            figures = reconcile_figure_labels(figures, description_text)
+            figure = _figure_from_regenerate_response(raw, figure_number)
+            figures = reconcile_figure_labels([figure], description_text)
             figures = repair_figure_numerals(figures, description_text)
             numeral_errors = validate_figure_numerals(figures, description_text)
-            diagram_warnings = validate_figure_diagram_types(figures)
             if numeral_errors and attempt < 2:
                 user_prompt = prompt + format_numeral_validation_errors(numeral_errors)
                 continue
-            warnings = [*numeral_errors, *diagram_warnings]
-            if warnings:
-                if numeral_errors:
-                    _log_numeral_warnings(numeral_errors, "Figure")
-                return {
-                    "brief_description_of_drawings": brief,
-                    "figures": figures,
-                    "warnings": warnings,
-                }
-            return {
-                "brief_description_of_drawings": brief,
-                "figures": figures,
-            }
+            if numeral_errors:
+                _log_numeral_warnings(numeral_errors, f"FIG. {figure_number}")
+            return figures[0]
         except ValueError as exc:
             last_error = exc
-            if attempt < 2 and "figures list" in str(exc).lower():
+            if attempt < 2 and "figure object" in str(exc).lower():
                 user_prompt = prompt + (
-                    "\n\nIMPORTANT: Return a JSON object with a non-empty figures array. "
-                    "Do not omit the figures key."
+                    "\n\nIMPORTANT: Return a JSON object with a figure key containing "
+                    "the generated figure. Do not omit the figure key."
                 )
                 continue
             if attempt < 2:
@@ -347,7 +330,60 @@ def generate_patent_figures(
 
     if last_error:
         raise last_error
-    raise ValueError(f"Failed to generate figures with LLM ({get_llm_model()}).")
+    raise ValueError(
+        f"Failed to generate figure {figure_number} with LLM ({get_llm_model()})."
+    )
+
+
+async def generate_patent_figures(
+    invention: dict,
+    description_text: str = "",
+    num_figures: int = 3,
+) -> dict[str, Any]:
+    """
+    Generate patent figures and Brief Description of the Drawings.
+
+    Each figure is generated in a separate parallel LLM call.
+    Provisional applications have no USPTO-required minimum figure count; ``num_figures``
+    is an applicant choice (default 3: architecture, method, interaction).
+
+    Returns:
+        {
+            "brief_description_of_drawings": str,
+            "figures": list[dict],
+            "warnings": list[str] | omitted when numerals are consistent,
+        }
+    """
+    if num_figures < 1:
+        raise ValueError("num_figures must be at least 1.")
+
+    tasks = [
+        generate_single_figure(invention, description_text, i + 1, num_figures)
+        for i in range(num_figures)
+    ]
+    figures = list(await asyncio.gather(*tasks))
+
+    figures = reconcile_figure_labels(figures, description_text)
+    figures = repair_figure_numerals(figures, description_text)
+    numeral_errors = validate_figure_numerals(figures, description_text)
+    if numeral_errors:
+        _log_numeral_warnings(numeral_errors, "Figure")
+
+    brief = "\n\n".join(
+        f["brief_description"]
+        for f in sorted(figures, key=lambda f: int(f["number"]))
+    )
+    brief = normalize_brief_description_of_drawings(brief)
+
+    diagram_warnings = validate_figure_diagram_types(figures)
+    warnings = [*numeral_errors, *diagram_warnings]
+    result: dict[str, Any] = {
+        "brief_description_of_drawings": brief,
+        "figures": figures,
+    }
+    if warnings:
+        result["warnings"] = warnings
+    return result
 
 
 def _figure_from_regenerate_response(raw: dict[str, Any], figure_number: int) -> dict[str, Any]:

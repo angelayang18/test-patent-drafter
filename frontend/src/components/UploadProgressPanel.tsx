@@ -1,15 +1,8 @@
 import { useEffect, useState } from "react";
+import { type UploadFileStatus, type UploadQueueItem } from "../types/upload";
 import { fileIcon, formatFileSize } from "../utils/format";
 
-export type UploadFileStatus = "pending" | "parsing" | "done" | "error";
-
-export interface UploadQueueItem {
-  id: string;
-  filename: string;
-  sizeBytes: number;
-  status: UploadFileStatus;
-  error?: string;
-}
+export type { UploadFileStatus, UploadQueueItem };
 
 interface UploadProgressPanelProps {
   items: UploadQueueItem[];

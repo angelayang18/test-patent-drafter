@@ -1,3 +1,5 @@
+export type WorkflowMode = "patent" | "grant";
+
 export interface InventionDetails {
   invention_title: string;
   technical_field: string;
@@ -7,6 +9,28 @@ export interface InventionDetails {
   alternative_embodiments: string[];
   key_components: string[];
 }
+
+export interface GrantDetails {
+  project_title: string;
+  problem_statement: string;
+  proposed_solution: string;
+  innovation_and_impact: string;
+  target_population: string;
+  team_qualifications: string;
+  budget_overview: string;
+  evaluation_plan: string;
+}
+
+export const defaultGrantDetails: GrantDetails = {
+  project_title: "",
+  problem_statement: "",
+  proposed_solution: "",
+  innovation_and_impact: "",
+  target_population: "",
+  team_qualifications: "",
+  budget_overview: "",
+  evaluation_plan: "",
+};
 
 export const defaultInvention: InventionDetails = {
   invention_title: "",
@@ -103,3 +127,25 @@ export function emptyApprovedExemplars(): Record<PatentSectionId, boolean> {
     boolean
   >;
 }
+
+export const GRANT_SECTION_IDS = [
+  "executive_summary",
+  "problem_statement",
+  "project_description",
+  "methodology",
+  "evaluation",
+  "budget_narrative",
+  "organizational_capacity",
+] as const;
+
+export type GrantSectionId = (typeof GRANT_SECTION_IDS)[number];
+
+export const GRANT_SECTION_LABELS: Record<GrantSectionId, string> = {
+  executive_summary: "Executive Summary",
+  problem_statement: "Problem Statement",
+  project_description: "Project Description",
+  methodology: "Methodology",
+  evaluation: "Evaluation Plan",
+  budget_narrative: "Budget Narrative",
+  organizational_capacity: "Organizational Capacity",
+};

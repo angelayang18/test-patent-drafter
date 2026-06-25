@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { FilingInfo, PatentFigure, PatentSectionId } from "../types/patent";
+import type { FilingInfo, PatentFigure } from "../types/patent";
 import { PatentDocumentPreview } from "./PatentDocumentPreview";
 
 interface DocumentPreviewModalProps {
@@ -8,9 +8,9 @@ interface DocumentPreviewModalProps {
   inventionTitle?: string;
   filingInfo?: FilingInfo | null;
   sections: Record<string, string>;
-  pendingSectionIds?: PatentSectionId[];
+  pendingSectionIds?: string[];
   figures?: PatentFigure[];
-  onSectionClick?: (sectionId: PatentSectionId) => void;
+  onSectionClick?: (sectionId: string) => void;
   footerNote?: ReactNode;
 }
 

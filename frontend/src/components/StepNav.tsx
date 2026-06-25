@@ -1,27 +1,34 @@
 import { Link } from "react-router-dom";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
+  getWorkflowStepOrder,
   isWorkflowStepAccessible,
-  WORKFLOW_STEP_ORDER,
   WORKFLOW_STEP_PATHS,
   type WorkflowStep,
 } from "../utils/draftStorage";
 
 export type { WorkflowStep };
 
-const STEPS = WORKFLOW_STEP_ORDER.map((id) => ({
-  id,
-  label: `${WORKFLOW_STEP_ORDER.indexOf(id) + 1}. ${id.charAt(0).toUpperCase()}${id.slice(1)}`,
-  path: WORKFLOW_STEP_PATHS[id],
-}));
+const STEP_LABELS: Record<WorkflowStep, string> = {
+  input: "Input",
+  review: "Review",
+  draft: "Draft",
+  figures: "Figures",
+  export: "Export",
+};
 
 export function StepNav({ current }: { current: WorkflowStep }) {
   const { getWorkflowSnapshot } = usePatentWorkflow();
   const snapshot = getWorkflowSnapshot();
+  const steps = getWorkflowStepOrder(snapshot.workflowMode).map((id, index) => ({
+    id,
+    label: `${index + 1}. ${STEP_LABELS[id]}`,
+    path: WORKFLOW_STEP_PATHS[id],
+  }));
 
   return (
     <nav className="hidden md:flex items-center gap-6">
-      {STEPS.map((step) => {
+      {steps.map((step) => {
         const accessible = isWorkflowStepAccessible(step.id, snapshot);
         const isCurrent = step.id === current;
 

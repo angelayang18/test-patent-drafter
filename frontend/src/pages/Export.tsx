@@ -11,6 +11,8 @@ import {
   approveLearningExemplar,
   downloadBlob,
   exportDocx,
+  exportGrantDocx,
+  exportGrantPdf,
   exportPdf,
   fetchQAReport,
   submitLearningCorpus,
@@ -23,7 +25,7 @@ import {
 } from "../utils/figurePngPrerender";
 import { PROVISIONAL_FILING_DISCLAIMER } from "../constants/patentSubmissionGuide";
 import { isWorkflowStepAccessible } from "../utils/draftStorage";
-import { PATENT_SECTION_IDS, SECTION_LABELS } from "../types/patent";
+import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS, PATENT_SECTION_IDS, SECTION_LABELS } from "../types/patent";
 import type { FilingInfo } from "../types/patent";
 import "../styles/patent-drafter.css";
 
@@ -71,7 +73,9 @@ function filingField(
 export default function Export() {
   const navigate = useNavigate();
   const {
+    workflowMode,
     invention,
+    grantDetails,
     sections,
     figures,
     briefDescriptionOfDrawings,
@@ -87,6 +91,9 @@ export default function Export() {
     clearWorkflow,
     getWorkflowSnapshot,
   } = usePatentWorkflow();
+  const isGrant = workflowMode === "grant";
+  const sectionIds = isGrant ? GRANT_SECTION_IDS : PATENT_SECTION_IDS;
+  const sectionLabels = isGrant ? GRANT_SECTION_LABELS : SECTION_LABELS;
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [prerenderingFigures, setPrerenderingFigures] = useState(false);
@@ -98,12 +105,12 @@ export default function Export() {
 
   useEffect(() => {
     if (!isWorkflowStepAccessible("export", getWorkflowSnapshot())) {
-      navigate("/figures", { replace: true });
+      navigate(isGrant ? "/draft" : "/figures", { replace: true });
     }
-  }, [getWorkflowSnapshot, navigate]);
+  }, [getWorkflowSnapshot, navigate, isGrant]);
 
   useEffect(() => {
-    if (figures.length === 0) {
+    if (isGrant || figures.length === 0) {
       setFigurePngCache({});
       setPrerenderingFigures(false);
       return;
@@ -138,19 +145,23 @@ export default function Export() {
     return () => {
       cancelled = true;
     };
-  }, [figures, signature]);
+  }, [figures, signature, isGrant]);
 
   const exportSections = useMemo<Record<string, string>>(
     () => ({
       ...sections,
-      ...(briefDescriptionOfDrawings
+      ...(!isGrant && briefDescriptionOfDrawings
         ? { brief_description_of_drawings: briefDescriptionOfDrawings }
         : {}),
     }),
-    [sections, briefDescriptionOfDrawings],
+    [sections, briefDescriptionOfDrawings, isGrant],
   );
 
   useEffect(() => {
+    if (isGrant) {
+      setQaReport([]);
+      return;
+    }
     let cancelled = false;
     void fetchQAReport(exportSections, invention ?? undefined)
       .then((report) => {
@@ -166,16 +177,19 @@ export default function Export() {
     return () => {
       cancelled = true;
     };
-  }, [exportSections, invention]);
+  }, [exportSections, invention, isGrant]);
 
   const emptyDraftSections = useMemo(
-    () => PATENT_SECTION_IDS.filter((id) => !sections[id]?.trim()),
-    [sections],
+    () => sectionIds.filter((id) => !sections[id]?.trim()),
+    [sections, sectionIds],
   );
   const isDraftComplete = emptyDraftSections.length === 0;
   const exporting =
-    docxState === "preparing" || pdfState === "preparing" || prerenderingFigures;
+    docxState === "preparing" ||
+    pdfState === "preparing" ||
+    (!isGrant && prerenderingFigures);
   const exportDisabled = exporting || !isDraftComplete;
+  const backPath = isGrant ? "/draft" : "/figures";
   const exportDisabledTitle = !isDraftComplete
     ? "Complete your draft first"
     : exporting
@@ -243,12 +257,17 @@ export default function Export() {
     setError(null);
     setDocxState("preparing");
     try {
-      const figurePngs = await ensureFigurePngsReady();
-      const blob = await exportDocx({
-        ...buildExportPayload(),
-        figure_pngs: figurePngs,
-      });
-      downloadBlob(blob, "patent-draft.docx");
+      if (isGrant) {
+        const blob = await exportGrantDocx(exportSections, grantDetails?.project_title ?? "");
+        downloadBlob(blob, "grant-application.docx");
+      } else {
+        const figurePngs = await ensureFigurePngsReady();
+        const blob = await exportDocx({
+          ...buildExportPayload(),
+          figure_pngs: figurePngs,
+        });
+        downloadBlob(blob, "patent-draft.docx");
+      }
       setDocxState("idle");
       void submitCorpusIfEnabled();
     } catch (err) {
@@ -266,12 +285,17 @@ export default function Export() {
     setError(null);
     setPdfState("preparing");
     try {
-      const figurePngs = await ensureFigurePngsReady();
-      const blob = await exportPdf({
-        ...buildExportPayload(),
-        figure_pngs: figurePngs,
-      });
-      downloadBlob(blob, "patent-draft.pdf");
+      if (isGrant) {
+        const blob = await exportGrantPdf(exportSections, grantDetails?.project_title ?? "");
+        downloadBlob(blob, "grant-application.pdf");
+      } else {
+        const figurePngs = await ensureFigurePngsReady();
+        const blob = await exportPdf({
+          ...buildExportPayload(),
+          figure_pngs: figurePngs,
+        });
+        downloadBlob(blob, "patent-draft.pdf");
+      }
       setPdfState("idle");
       void submitCorpusIfEnabled();
     } catch (err) {
@@ -286,10 +310,10 @@ export default function Export() {
       step="export"
       layout="document"
       mainClassName="px-margin-mobile md:px-margin-desktop pt-10 pb-28"
-      footer={<WorkflowFooter left={<WorkflowBackLink to="/figures" />} />}
+      footer={<WorkflowFooter left={<WorkflowBackLink to={backPath} />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
-        {prerenderingFigures && (
+        {!isGrant && prerenderingFigures && (
           <GenerationProgress
             active
             label="Preparing figure drawings for export…"
@@ -313,11 +337,12 @@ export default function Export() {
                   </span>
                 </div>
                 <h1 className="font-headline-lg text-headline-lg text-primary mb-2">
-                  Your Patent Draft Is Ready
+                  {isGrant ? "Your Grant Application Is Ready" : "Your Patent Draft Is Ready"}
                 </h1>
                 <p className="font-body-lg text-body-lg text-on-surface-variant max-w-xl mx-auto">
-                  Download your provisional patent application with USPTO-style section headings,
-                  separate Claims and Abstract pages, and black-and-white drawing sheets.
+                  {isGrant
+                    ? "Download your grant application with numbered section headings in a clean, submission-ready format."
+                    : "Download your provisional patent application with USPTO-style section headings, separate Claims and Abstract pages, and black-and-white drawing sheets."}
                 </p>
               </>
             ) : (
@@ -339,7 +364,7 @@ export default function Export() {
                 {emptyDraftSections.length > 0 && (
                   <p className="font-body-sm text-body-sm text-on-surface-variant max-w-xl mx-auto mb-6">
                     Missing:{" "}
-                    {emptyDraftSections.map((id) => SECTION_LABELS[id]).join(", ")}
+                    {emptyDraftSections.map((id) => sectionLabels[id as keyof typeof sectionLabels]).join(", ")}
                   </p>
                 )}
                 <Link
@@ -359,6 +384,7 @@ export default function Export() {
             </div>
           )}
 
+          {!isGrant && (
           <section className="p-10 border-b border-outline-variant">
             <h2 className="font-title-lg text-title-lg text-primary mb-2">
               Cover Sheet (PTO/SB/16)
@@ -437,9 +463,11 @@ export default function Export() {
               </div>
             </div>
           </section>
+          )}
 
-          <QAReportPanel report={qaReport} />
+          {!isGrant && <QAReportPanel report={qaReport} />}
 
+          {!isGrant && (
           <section className="p-10 border-b border-outline-variant bg-surface-container-low/30">
             <div className="flex items-start gap-3 mb-4">
               <span className="material-symbols-outlined text-secondary text-[24px] shrink-0">
@@ -482,6 +510,7 @@ export default function Export() {
               </span>
             </label>
           </section>
+          )}
 
           <section className="p-10">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">
@@ -493,8 +522,9 @@ export default function Export() {
                   <h3 className="font-title-lg text-title-lg text-primary">Word Document (.docx)</h3>
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-8 flex-grow">
-                  Editable format with cover sheet, USPTO-style headings, drawing sheets numbered
-                  1/3–3/3, and Claims and Abstract on separate pages.
+                  {isGrant
+                    ? "Editable Word document with numbered grant section headings."
+                    : "Editable format with cover sheet, USPTO-style headings, drawing sheets numbered 1/3–3/3, and Claims and Abstract on separate pages."}
                 </p>
                 <span
                   className="w-full block"
@@ -530,7 +560,7 @@ export default function Export() {
                     {(docxState === "idle" || docxState === "error") && (
                       <>
                         <span className="material-symbols-outlined text-sm">download</span>
-                        Download DOCX
+                        {isGrant ? "Download Grant Application (.docx)" : "Download DOCX"}
                       </>
                     )}
                   </button>
@@ -544,8 +574,9 @@ export default function Export() {
                   <h3 className="font-title-lg text-title-lg text-primary">PDF Document (.pdf)</h3>
                 </div>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-8 flex-grow">
-                  Read-only PDF with the same section layout, cover sheet, drawing sheets, and page
-                  breaks for Claims and Abstract.
+                  {isGrant
+                    ? "Read-only PDF with numbered grant section headings."
+                    : "Read-only PDF with the same section layout, cover sheet, drawing sheets, and page breaks for Claims and Abstract."}
                 </p>
                 <span
                   className="w-full block"
@@ -581,7 +612,7 @@ export default function Export() {
                     {(pdfState === "idle" || pdfState === "error") && (
                       <>
                         <span className="material-symbols-outlined text-sm">download</span>
-                        Download PDF
+                        {isGrant ? "Download Grant Application (.pdf)" : "Download PDF"}
                       </>
                     )}
                   </button>

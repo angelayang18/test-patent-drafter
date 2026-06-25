@@ -3,7 +3,6 @@ import {
   PATENT_SECTION_IDS,
   type FilingInfo,
   type PatentFigure,
-  type PatentSectionId,
 } from "../types/patent";
 import MermaidPreview from "./MermaidPreview";
 import {
@@ -20,10 +19,10 @@ export interface PatentDocumentPreviewProps {
   inventionTitle?: string;
   filingInfo?: FilingInfo | null;
   sections: Record<string, string>;
-  pendingSectionIds?: PatentSectionId[];
+  pendingSectionIds?: string[];
   figures?: PatentFigure[];
   includeEmptySections?: boolean;
-  onSectionClick?: (sectionId: PatentSectionId) => void;
+  onSectionClick?: (sectionId: string) => void;
 }
 
 function hasCoverSheetData(
@@ -54,7 +53,7 @@ export function PatentDocumentPreview({
   const sectionKeys = includeEmptySections
     ? draftPreviewSectionKeys(sections)
     : orderedPreviewSectionKeys(sections).filter(
-        (key) => Boolean(sections[key]?.trim()) || pending.has(key as PatentSectionId),
+        (key) => Boolean(sections[key]?.trim()) || pending.has(key),
       );
 
   const hasAnyContent =
@@ -146,7 +145,7 @@ export function PatentDocumentPreview({
               key === "cross_reference"
                 ? crossReferenceBody(filingInfo)
                 : (sections[key] ?? "");
-            const isPending = pending.has(key as PatentSectionId);
+            const isPending = pending.has(key);
             const isEmpty = !body.trim();
             const paragraphs = splitParagraphs(body);
             const isDraftSection = (PATENT_SECTION_IDS as readonly string[]).includes(key);
@@ -164,7 +163,7 @@ export function PatentDocumentPreview({
                   }`}
                   onClick={
                     sectionClickHandler
-                      ? () => sectionClickHandler(key as PatentSectionId)
+                      ? () => sectionClickHandler(key)
                       : undefined
                   }
                   onKeyDown={
@@ -172,7 +171,7 @@ export function PatentDocumentPreview({
                       ? (e) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            sectionClickHandler(key as PatentSectionId);
+                            sectionClickHandler(key);
                           }
                         }
                       : undefined

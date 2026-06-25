@@ -2,9 +2,11 @@ import { createContext, useContext } from "react";
 import type {
   FiguresResult,
   FilingInfo,
+  GrantDetails,
   InventionDetails,
   PatentFigure,
   PatentSectionId,
+  WorkflowMode,
 } from "../types/patent";
 import type { CachedRemoteSources, GatheredSourceText, GatherSourceTextOptions } from "../utils/gatherSourceText";
 import type { SavedDraftRecord, WorkflowSnapshot, WorkflowStep } from "../utils/draftStorage";
@@ -27,7 +29,9 @@ export interface InputSources {
 }
 
 export interface PatentWorkflowContextValue {
+  workflowMode: WorkflowMode;
   invention: InventionDetails | null;
+  grantDetails: GrantDetails | null;
   sections: Record<string, string>;
   figures: PatentFigure[];
   briefDescriptionOfDrawings: string;
@@ -45,7 +49,9 @@ export interface PatentWorkflowContextValue {
   autoDraftPending: boolean;
   /** True while a full workflow reset is in progress (suppresses auto-save and step redirects). */
   workflowResetting: boolean;
+  setWorkflowMode: (mode: WorkflowMode) => void;
   setInvention: (details: InventionDetails) => void;
+  setGrantDetails: (details: GrantDetails) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
   captureAiInitialSections: (drafted: Record<string, string>) => void;

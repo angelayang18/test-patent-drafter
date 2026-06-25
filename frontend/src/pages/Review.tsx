@@ -4,29 +4,38 @@ import { AppShell } from "../components/AppShell";
 import { AutoResizeTextarea } from "../components/AutoResizeTextarea";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { HorizontalSplitPane } from "../components/HorizontalSplitPane";
+import { MidWorkflowUpload } from "../components/MidWorkflowUpload";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
 import { SourceTextPreviewModal } from "../components/SourceTextPreviewModal";
+import { SelectionRegeneratePopover } from "../components/SelectionRegeneratePopover";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
-import { defaultInvention } from "../types/patent";
+import { defaultGrantDetails, defaultInvention } from "../types/patent";
 import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
 import { useUndoRedo } from "../hooks/useUndoRedo";
+import { useTextareaSelectionRegenerate } from "../hooks/useTextareaSelectionRegenerate";
 import {
   ApiError,
   extractionNotesFromSources,
+  extractGrant,
+  extractGrantField,
   extractInvention,
   extractInventionField,
+  regenerateSelection,
+  type ExtractableGrantField,
   type ExtractableInventionField,
 } from "../services/api";
-import type { InventionDetails } from "../types/patent";
+import type { GrantDetails, InventionDetails } from "../types/patent";
 import { fileIcon, formatFileSize } from "../utils/format";
 import {
   computeExtractionSourceKey,
+  hasExtractedGrantReviewContent,
   hasExtractedReviewContent,
   hasSourceMaterialConfigured,
   needsExtraction,
+  needsGrantExtraction,
 } from "../utils/extractionSourceKey";
 import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
@@ -84,6 +93,69 @@ const REVIEW_FIELDS: {
     key: "alternative_embodiments",
     label: "Alternative Embodiments",
     hint: "Other ways the invention could be built or deployed (one per line).",
+    multiline: true,
+  },
+];
+
+const GRANT_CORE_REVIEW_FIELD_KEYS = [
+  "project_title",
+  "problem_statement",
+  "proposed_solution",
+  "innovation_and_impact",
+] as const satisfies readonly ExtractableGrantField[];
+
+const GRANT_REVIEW_FIELDS: {
+  key: ExtractableGrantField;
+  label: string;
+  hint: string;
+  multiline: boolean;
+}[] = [
+  {
+    key: "project_title",
+    label: "Project Title",
+    hint: "Concise working title for the grant proposal.",
+    multiline: true,
+  },
+  {
+    key: "problem_statement",
+    label: "Problem Statement",
+    hint: "The need or gap the project addresses.",
+    multiline: true,
+  },
+  {
+    key: "proposed_solution",
+    label: "Proposed Solution",
+    hint: "What the project will do and how it addresses the problem.",
+    multiline: true,
+  },
+  {
+    key: "innovation_and_impact",
+    label: "Innovation & Impact",
+    hint: "What is novel and the expected outcomes or impact.",
+    multiline: true,
+  },
+  {
+    key: "target_population",
+    label: "Target Population",
+    hint: "Who benefits and at what scale.",
+    multiline: true,
+  },
+  {
+    key: "team_qualifications",
+    label: "Team Qualifications",
+    hint: "Relevant expertise and organizational capacity.",
+    multiline: true,
+  },
+  {
+    key: "budget_overview",
+    label: "Budget Overview",
+    hint: "High-level budget categories and rationale if available.",
+    multiline: true,
+  },
+  {
+    key: "evaluation_plan",
+    label: "Evaluation Plan",
+    hint: "How success will be measured.",
     multiline: true,
   },
 ];
@@ -147,8 +219,11 @@ function AiField({
 export default function Review() {
   const navigate = useNavigate();
   const {
+    workflowMode,
     invention,
+    grantDetails,
     setInvention,
+    setGrantDetails,
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
@@ -161,20 +236,28 @@ export default function Review() {
     workflowResetting,
   } = usePatentWorkflow();
 
-  const {
-    value: form,
-    replace,
-    push,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    reset,
-  } = useUndoRedo<InventionDetails>(invention ?? defaultInvention);
+  const isGrant = workflowMode === "grant";
+  const reviewData = isGrant ? grantDetails : invention;
 
-  const [regeneratingFields, setRegeneratingFields] = useState<Set<ReviewFieldKey | "all">>(
+  const patentUndo = useUndoRedo<InventionDetails>(invention ?? defaultInvention);
+  const grantUndo = useUndoRedo<GrantDetails>(grantDetails ?? defaultGrantDetails);
+  const form = isGrant ? grantUndo.value : patentUndo.value;
+  const undo = isGrant ? grantUndo.undo : patentUndo.undo;
+  const redo = isGrant ? grantUndo.redo : patentUndo.redo;
+  const canUndo = isGrant ? grantUndo.canUndo : patentUndo.canUndo;
+  const canRedo = isGrant ? grantUndo.canRedo : patentUndo.canRedo;
+  const pushForm = (next: InventionDetails | GrantDetails) => {
+    if (isGrant) {
+      grantUndo.push(next as GrantDetails);
+    } else {
+      patentUndo.push(next as InventionDetails);
+    }
+  };
+
+  const [regeneratingFields, setRegeneratingFields] = useState<Set<string>>(
     new Set(),
   );
+  const [regeneratingSelection, setRegeneratingSelection] = useState(false);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
@@ -188,42 +271,61 @@ export default function Review() {
   const initialSynced = useRef(false);
   const suppressSavedIndicator = useRef(true);
   const autoExtractStarted = useRef(false);
-  const formRef = useRef(form);
+  const formRef = useRef<InventionDetails | GrantDetails>(form);
+  const selectionFieldRef = useRef<string | null>(null);
+
+  const reviewFields = isGrant ? GRANT_REVIEW_FIELDS : REVIEW_FIELDS;
+
+  const isBusy = regeneratingFields.size > 0 || regeneratingSelection;
+  const {
+    selection: textareaSelection,
+    dismiss: dismissSelectionPopover,
+    handleMouseUp,
+    handleKeyUp,
+  } = useTextareaSelectionRegenerate(isBusy);
 
   useEffect(() => {
     formRef.current = form;
   }, [form]);
 
   useEffect(() => {
-    if (invention && !initialSynced.current) {
-      reset(invention);
+    if (reviewData && !initialSynced.current) {
+      if (isGrant) {
+        grantUndo.reset(reviewData as GrantDetails);
+      } else {
+        patentUndo.reset(reviewData as InventionDetails);
+      }
       initialSynced.current = true;
       window.setTimeout(() => {
         suppressSavedIndicator.current = false;
       }, 0);
     }
-  }, [invention, reset]);
+  }, [reviewData, isGrant, grantUndo, patentUndo]);
 
   useEffect(() => {
     if (workflowResetting) {
       return;
     }
-    if (!invention) {
+    if (!reviewData) {
       navigate("/", { replace: true });
     }
-  }, [invention, navigate, workflowResetting]);
+  }, [reviewData, navigate, workflowResetting]);
 
   useEffect(() => {
-    if (workflowResetting || !invention) {
+    if (workflowResetting || !reviewData) {
       return;
     }
-    setInvention(form);
+    if (isGrant) {
+      setGrantDetails(form as GrantDetails);
+    } else {
+      setInvention(form as InventionDetails);
+    }
     saveToStorage();
     if (suppressSavedIndicator.current) return;
 
     const timer = window.setTimeout(() => flashSaved(), 400);
     return () => window.clearTimeout(timer);
-  }, [form, invention, setInvention, saveToStorage, flashSaved, workflowResetting]);
+  }, [form, reviewData, isGrant, setInvention, setGrantDetails, saveToStorage, flashSaved, workflowResetting]);
 
   const extractionNotes = extractionNotesFromSources(inputSources);
 
@@ -236,13 +338,15 @@ export default function Review() {
   };
 
   useEffect(() => {
-    if (autoExtractStarted.current || !invention) {
+    if (autoExtractStarted.current || !reviewData) {
       return;
     }
 
     if (
       !extractionSourceKey &&
-      hasExtractedReviewContent(invention) &&
+      (isGrant
+        ? hasExtractedGrantReviewContent(reviewData as GrantDetails)
+        : hasExtractedReviewContent(reviewData as InventionDetails)) &&
       hasSourceMaterialConfigured(uploadedFiles, inputSources, cachedRemoteSources)
     ) {
       rememberExtractionSources();
@@ -250,15 +354,23 @@ export default function Review() {
       return;
     }
 
-    if (
-      !needsExtraction(
-        invention,
-        extractionSourceKey,
-        uploadedFiles,
-        inputSources,
-        cachedRemoteSources,
-      )
-    ) {
+    const shouldExtract = isGrant
+      ? needsGrantExtraction(
+          grantDetails,
+          extractionSourceKey,
+          uploadedFiles,
+          inputSources,
+          cachedRemoteSources,
+        )
+      : needsExtraction(
+          invention,
+          extractionSourceKey,
+          uploadedFiles,
+          inputSources,
+          cachedRemoteSources,
+        );
+
+    if (!shouldExtract) {
       autoExtractStarted.current = true;
       return;
     }
@@ -277,10 +389,21 @@ export default function Review() {
           setError("No source material available. Go back to Input and add sources.");
           return;
         }
-        setExtractPhase("Extracting invention details (parallel AI analysis)…");
-        const details = await extractInvention(combined, extractionNotes);
-        reset(details);
-        setInvention(details);
+        setExtractPhase(
+          isGrant
+            ? "Extracting grant application details (parallel AI analysis)…"
+            : "Extracting invention details (parallel AI analysis)…",
+        );
+        const details = isGrant
+          ? await extractGrant(combined, extractionNotes)
+          : await extractInvention(combined, extractionNotes);
+        if (isGrant) {
+          grantUndo.reset(details as GrantDetails);
+          setGrantDetails(details as GrantDetails);
+        } else {
+          patentUndo.reset(details as InventionDetails);
+          setInvention(details as InventionDetails);
+        }
         rememberExtractionSources(cache);
         saveToStorage();
       } catch (err) {
@@ -304,15 +427,20 @@ export default function Review() {
 
     void runAutoExtraction();
   }, [
+    reviewData,
+    isGrant,
     invention,
+    grantDetails,
     extractionSourceKey,
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
     gatherSourceText,
     extractionNotes,
-    reset,
+    grantUndo,
+    patentUndo,
     setInvention,
+    setGrantDetails,
     saveToStorage,
     setExtractionSourceKey,
   ]);
@@ -320,16 +448,22 @@ export default function Review() {
   const handleRegenerateAll = async () => {
     setError(null);
     setRegeneratingFields((prev) => new Set(prev).add("all"));
-    push(structuredClone(form));
+    pushForm(structuredClone(form));
     try {
       const { combined, cache } = await gatherSourceText();
       if (!combined.trim()) {
         setError("No source material available. Go back to Input and add sources.");
         return;
       }
-      const details = await extractInvention(combined, extractionNotes);
-      push(details);
-      setInvention(details);
+      const details = isGrant
+        ? await extractGrant(combined, extractionNotes)
+        : await extractInvention(combined, extractionNotes);
+      pushForm(details);
+      if (isGrant) {
+        setGrantDetails(details as GrantDetails);
+      } else {
+        setInvention(details as InventionDetails);
+      }
       rememberExtractionSources(cache);
       saveToStorage();
       flashSaved();
@@ -344,11 +478,13 @@ export default function Review() {
     }
   };
 
-  const handleRegenerateField = (field: ReviewFieldKey) => {
-    if (regeneratingFields.has(field) || regeneratingFields.has("all")) return;
+  const handleRegenerateField = (field: string) => {
+    if (regeneratingFields.has(field) || regeneratingFields.has("all") || regeneratingSelection) {
+      return;
+    }
 
     setError(null);
-    push(structuredClone(formRef.current));
+    pushForm(structuredClone(formRef.current));
     setRegeneratingFields((prev) => new Set(prev).add(field));
 
     void (async () => {
@@ -358,16 +494,27 @@ export default function Review() {
           setError("No source material available. Go back to Input and add sources.");
           return;
         }
-        const patch = await extractInventionField(
-          combined,
-          field,
-          formRef.current,
-          extractionNotes,
-        );
+        const patch = isGrant
+          ? await extractGrantField(
+              combined,
+              field as ExtractableGrantField,
+              formRef.current as GrantDetails,
+              extractionNotes,
+            )
+          : await extractInventionField(
+              combined,
+              field as ExtractableInventionField,
+              formRef.current as InventionDetails,
+              extractionNotes,
+            );
         const next = { ...formRef.current, ...patch };
         formRef.current = next;
-        push(next);
-        setInvention(next);
+        pushForm(next);
+        if (isGrant) {
+          setGrantDetails(next as GrantDetails);
+        } else {
+          setInvention(next as InventionDetails);
+        }
         saveToStorage();
         flashSaved();
       } catch (err) {
@@ -382,21 +529,122 @@ export default function Review() {
     })();
   };
 
-  const updateField = <K extends keyof InventionDetails>(key: K, value: InventionDetails[K]) => {
-    replace({ ...form, [key]: value });
+  const getFieldText = (fieldKey: string): string => {
+    const current = formRef.current as unknown as Record<string, unknown>;
+    if (!isGrant && fieldKey === "alternative_embodiments") {
+      return ((current.alternative_embodiments as string[]) ?? []).join("\n");
+    }
+    const value = current[fieldKey];
+    return typeof value === "string" ? value : "";
   };
 
-  const isBusy = regeneratingFields.size > 0;
+  const applyFieldText = (fieldKey: string, text: string) => {
+    if (!isGrant && fieldKey === "alternative_embodiments") {
+      const embodiments = text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const next = {
+        ...(formRef.current as InventionDetails),
+        alternative_embodiments: embodiments,
+      };
+      formRef.current = next;
+      pushForm(next);
+      setInvention(next);
+      return;
+    }
+
+    const next = { ...formRef.current, [fieldKey]: text };
+    formRef.current = next;
+    pushForm(next);
+    if (isGrant) {
+      setGrantDetails(next as GrantDetails);
+    } else {
+      setInvention(next as InventionDetails);
+    }
+  };
+
+  const handleConfirmSelectionRegenerate = (instruction: string) => {
+    const fieldKey = selectionFieldRef.current;
+    if (!fieldKey || !textareaSelection) return;
+
+    setError(null);
+    setRegeneratingSelection(true);
+    pushForm(structuredClone(formRef.current));
+
+    void (async () => {
+      try {
+        const { combined } = await gatherSourceText();
+        if (!combined.trim()) {
+          setError("No source material available. Go back to Input and add sources.");
+          return;
+        }
+
+        const fullFieldText = getFieldText(fieldKey);
+        const replacement = await regenerateSelection(
+          combined,
+          fullFieldText,
+          textareaSelection.text,
+          instruction,
+        );
+        const newText =
+          fullFieldText.slice(0, textareaSelection.start) +
+          replacement +
+          fullFieldText.slice(textareaSelection.end);
+        applyFieldText(fieldKey, newText);
+        saveToStorage();
+        flashSaved();
+        dismissSelectionPopover();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Selection rewrite failed.");
+      } finally {
+        setRegeneratingSelection(false);
+      }
+    })();
+  };
+
+  const selectionHandlers = (fieldKey: string) => ({
+    onMouseUp: (event: React.MouseEvent<HTMLTextAreaElement>) => {
+      selectionFieldRef.current = fieldKey;
+      handleMouseUp(event);
+    },
+    onKeyUp: (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      selectionFieldRef.current = fieldKey;
+      handleKeyUp(event);
+    },
+  });
+
+  const updateField = (key: string, value: string | string[]) => {
+    if (isGrant) {
+      grantUndo.replace({ ...(form as GrantDetails), [key]: value });
+    } else {
+      patentUndo.replace({ ...(form as InventionDetails), [key]: value });
+    }
+  };
+
+  const fieldDisabled = (fieldKey: string) =>
+    regeneratingFields.has(fieldKey) || regeneratingSelection;
 
   const { allCoreFieldsEmpty, someCoreFieldsEmpty } = useMemo(() => {
+    if (isGrant) {
+      const grantForm = form as GrantDetails;
+      const filledCount = GRANT_CORE_REVIEW_FIELD_KEYS.filter(
+        (key) => typeof grantForm[key] === "string" && grantForm[key].trim().length > 0,
+      ).length;
+      return {
+        allCoreFieldsEmpty: filledCount === 0,
+        someCoreFieldsEmpty: filledCount > 0 && filledCount < GRANT_CORE_REVIEW_FIELD_KEYS.length,
+      };
+    }
+    const patentForm = form as InventionDetails;
     const filledCount = CORE_REVIEW_FIELD_KEYS.filter((key) =>
-      hasCoreReviewFieldContent(form, key),
+      hasCoreReviewFieldContent(patentForm, key),
     ).length;
     return {
       allCoreFieldsEmpty: filledCount === 0,
       someCoreFieldsEmpty: filledCount > 0 && filledCount < CORE_REVIEW_FIELD_KEYS.length,
     };
-  }, [form]);
+  }, [form, isGrant]);
 
   const confluenceSource = cachedRemoteSources.confluence;
   const websiteSource = cachedRemoteSources.website;
@@ -413,17 +661,20 @@ export default function Review() {
   const textareaClassName =
     "w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none";
 
-  const titleLength = form.invention_title?.length ?? 0;
-  const titleTooLong = titleLength > TITLE_MAX_LENGTH;
+  const titleLength = isGrant
+    ? ((form as GrantDetails).project_title?.length ?? 0)
+    : ((form as InventionDetails).invention_title?.length ?? 0);
+  const titleTooLong = !isGrant && titleLength > TITLE_MAX_LENGTH;
 
-  const renderFieldValue = (field: (typeof REVIEW_FIELDS)[number]) => {
-    if (field.key === "alternative_embodiments") {
-      const altText = form.alternative_embodiments.join("\n");
+  const renderFieldValue = (field: (typeof reviewFields)[number]) => {
+    if (!isGrant && field.key === "alternative_embodiments") {
+      const altText = (form as InventionDetails).alternative_embodiments.join("\n");
       return (
         <AutoResizeTextarea
           className={textareaClassName}
           value={altText}
-          disabled={regeneratingFields.has(field.key)}
+          disabled={fieldDisabled(field.key)}
+          {...selectionHandlers(field.key)}
           onChange={(e) =>
             updateField(
               "alternative_embodiments",
@@ -437,8 +688,11 @@ export default function Review() {
       );
     }
 
-    if (field.key === "invention_title") {
-      const titleValue = typeof form.invention_title === "string" ? form.invention_title : "";
+    if (!isGrant && field.key === "invention_title") {
+      const titleValue =
+        typeof (form as InventionDetails).invention_title === "string"
+          ? (form as InventionDetails).invention_title
+          : "";
       const length = titleValue.length;
       const nearLimit = length >= TITLE_MAX_LENGTH - 50;
       const atOrOverLimit = length >= TITLE_MAX_LENGTH;
@@ -449,7 +703,8 @@ export default function Review() {
             className={textareaClassName}
             value={titleValue}
             maxLength={TITLE_MAX_LENGTH}
-            disabled={regeneratingFields.has(field.key)}
+            disabled={fieldDisabled(field.key)}
+            {...selectionHandlers(field.key)}
             onChange={(e) => updateField("invention_title", e.target.value)}
           />
           <div className="flex flex-col items-end gap-1">
@@ -468,14 +723,15 @@ export default function Review() {
       );
     }
 
-    const value = form[field.key];
+    const value = (form as unknown as Record<string, unknown>)[field.key];
     if (field.multiline) {
       return (
         <AutoResizeTextarea
           className={textareaClassName}
           value={typeof value === "string" ? value : ""}
-          disabled={regeneratingFields.has(field.key)}
-          onChange={(e) => updateField(field.key, e.target.value as InventionDetails[typeof field.key])}
+          disabled={fieldDisabled(field.key)}
+          {...selectionHandlers(field.key)}
+          onChange={(e) => updateField(field.key, e.target.value)}
         />
       );
     }
@@ -528,10 +784,12 @@ export default function Review() {
             label={
               extractPhase ??
               (regeneratingFields.has("all")
-                ? "Regenerating all invention fields"
+                ? isGrant
+                  ? "Regenerating all grant fields"
+                  : "Regenerating all invention fields"
                 : regeneratingFields.size > 1
-                  ? `Regenerating ${regeneratingFields.size} invention fields`
-                  : `Regenerating ${REVIEW_FIELDS.find((f) => regeneratingFields.has(f.key))?.label ?? "field"}`)
+                  ? `Regenerating ${regeneratingFields.size} fields`
+                  : `Regenerating ${reviewFields.find((f) => regeneratingFields.has(f.key))?.label ?? "field"}`)
             }
           />
         </div>
@@ -553,8 +811,8 @@ export default function Review() {
             <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar">
               {!hasAnySource && !hasRelevanceGuidance ? (
                 <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  No source material found. Go back to Input and add files, pasted text, Confluence,
-                  or a website URL.
+                  No source material found. Add files below, or go back to Input for pasted text,
+                  Confluence, or a website URL.
                 </p>
               ) : (
                 <>
@@ -721,6 +979,7 @@ export default function Review() {
                   ))}
                 </>
               )}
+              <MidWorkflowUpload />
             </div>
           </>
         }
@@ -729,10 +988,12 @@ export default function Review() {
             <div className="p-8 border-b border-outline-variant flex justify-between items-start gap-4 shrink-0">
               <div>
                 <h2 className="font-headline-md text-headline-md font-semibold text-on-surface">
-                  Extracted Invention Details
+                  {isGrant ? "Extracted Grant Details" : "Extracted Invention Details"}
                 </h2>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-                  Edit fields below, then continue to draft full patent sections.
+                  {isGrant
+                    ? "Edit fields below, then continue to draft grant application sections."
+                    : "Edit fields below, then continue to draft full patent sections."}
                 </p>
               </div>
               <button
@@ -755,16 +1016,16 @@ export default function Review() {
                   role="alert"
                   className="p-4 rounded-lg bg-error-container/20 text-error border border-error/30 font-body-sm text-body-sm"
                 >
-                  Please fill in at least one invention detail before drafting.
+                  Please fill in at least one {isGrant ? "grant detail" : "invention detail"} before drafting.
                 </div>
               )}
               {someCoreFieldsEmpty && (
                 <div className="p-4 rounded-lg bg-secondary/10 text-on-surface border border-secondary/30 font-body-sm text-body-sm">
-                  Some invention details are still empty. You can continue, but draft quality may
+                  Some {isGrant ? "grant details are" : "invention details are"} still empty. You can continue, but draft quality may
                   improve if you fill in the remaining fields.
                 </div>
               )}
-              {REVIEW_FIELDS.map((field) => (
+              {reviewFields.map((field) => (
                 <AiField
                   key={field.key}
                   label={field.label}
@@ -788,6 +1049,12 @@ export default function Review() {
           onClose={() => setTextPreview(null)}
         />
       )}
+      <SelectionRegeneratePopover
+        anchorRect={textareaSelection?.anchorRect ?? null}
+        loading={regeneratingSelection}
+        onConfirm={handleConfirmSelectionRegenerate}
+        onDismiss={dismissSelectionPopover}
+      />
     </AppShell>
   );
 }
