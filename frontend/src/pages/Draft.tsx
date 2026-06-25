@@ -43,8 +43,8 @@ export default function Draft() {
   const [parallelDrafting, setParallelDrafting] = useState(false);
   const [parallelAgentCount, setParallelAgentCount] = useState(0);
   const [pendingSectionIds, setPendingSectionIds] = useState<PatentSectionId[]>([]);
-  const [regeneratingSection, setRegeneratingSection] = useState<PatentSectionId | null>(
-    null,
+  const [regeneratingSections, setRegeneratingSections] = useState<Set<PatentSectionId>>(
+    new Set(),
   );
   const [regeneratingAll, setRegeneratingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -123,7 +123,7 @@ export default function Draft() {
       if (nextSection === activeSection) return;
 
       const leavingPending = pendingSectionIdsRef.current.includes(activeSection);
-      const leavingRegenerating = regeneratingSection === activeSection;
+      const leavingRegenerating = regeneratingSections.has(activeSection);
       if (!leavingPending && !leavingRegenerating) {
         flushActiveSection(activeSection, draftText);
       }
@@ -135,7 +135,7 @@ export default function Draft() {
         enteringPending ? "" : (sectionsRef.current[nextSection] ?? ""),
       );
     },
-    [activeSection, draftText, flushActiveSection, regeneratingSection, resetDraftHistory],
+    [activeSection, draftText, flushActiveSection, regeneratingSections, resetDraftHistory],
   );
 
   const setPendingSections = useCallback((sectionIds: PatentSectionId[]) => {
@@ -217,7 +217,7 @@ export default function Draft() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      if (pendingSectionIds.includes(activeSection) || regeneratingSection === activeSection) {
+      if (pendingSectionIds.includes(activeSection) || regeneratingSections.has(activeSection)) {
         return;
       }
       flushActiveSection(activeSection, draftText);
@@ -231,7 +231,7 @@ export default function Draft() {
     draftText,
     activeSection,
     pendingSectionIds,
-    regeneratingSection,
+    regeneratingSections,
     flushActiveSection,
     saveToStorage,
     flashSaved,
@@ -246,9 +246,9 @@ export default function Draft() {
   const sectionIndex = PATENT_SECTION_IDS.indexOf(activeSection);
   const isDone = (id: PatentSectionId) => Boolean(sections[id]?.trim());
   const isSectionPending = (id: PatentSectionId) =>
-    pendingSectionIds.includes(id) || regeneratingSection === id;
+    pendingSectionIds.includes(id) || regeneratingSections.has(id);
   const isGeneratingActive = isSectionPending(activeSection);
-  const isBusy = pendingSectionIds.length > 0 || regeneratingSection !== null;
+  const isBusy = pendingSectionIds.length > 0 || regeneratingSections.size > 0;
   const hasEmptySections = PATENT_SECTION_IDS.some(
     (id) => !sections[id]?.trim() && !pendingSectionIds.includes(id),
   );
@@ -263,29 +263,38 @@ export default function Draft() {
     }
   };
 
-  const handleRegenerateSection = async () => {
+  const handleRegenerateSection = () => {
     if (!invention) return;
     const sectionId = activeSection;
+    if (regeneratingSections.has(sectionId) || pendingSectionIds.includes(sectionId)) return;
+
     setError(null);
     pushDraftText(draftText);
-    setRegeneratingSection(sectionId);
-    try {
-      const content = await draftSection(invention ?? defaultInvention, sectionId, {
-        priorDraft: sectionsRef.current[sectionId] ?? draftText,
-        attorneyFeedback: attorneyFeedback[sectionId] ?? "",
-      });
-      captureAiInitialSections({ [sectionId]: content });
-      setSection(sectionId, content);
-      if (activeSectionRef.current === sectionId) {
-        pushDraftText(content);
+    setRegeneratingSections((prev) => new Set(prev).add(sectionId));
+
+    void (async () => {
+      try {
+        const content = await draftSection(invention ?? defaultInvention, sectionId, {
+          priorDraft: sectionsRef.current[sectionId] ?? draftText,
+          attorneyFeedback: attorneyFeedback[sectionId] ?? "",
+        });
+        captureAiInitialSections({ [sectionId]: content });
+        setSection(sectionId, content);
+        if (activeSectionRef.current === sectionId) {
+          pushDraftText(content);
+        }
+        saveToStorage();
+        flashSaved();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Failed to regenerate section.");
+      } finally {
+        setRegeneratingSections((prev) => {
+          const next = new Set(prev);
+          next.delete(sectionId);
+          return next;
+        });
       }
-      saveToStorage();
-      flashSaved();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to regenerate section.");
-    } finally {
-      setRegeneratingSection((current) => (current === sectionId ? null : current));
-    }
+    })();
   };
 
   const handleCopy = async () => {
@@ -299,21 +308,21 @@ export default function Draft() {
   const previewSections = useMemo(() => {
     const merged = { ...sections };
     const activePending = pendingSectionIds.includes(activeSection);
-    const activeRegenerating = regeneratingSection === activeSection;
+    const activeRegenerating = regeneratingSections.has(activeSection);
     if (!activePending && !activeRegenerating) {
       merged[activeSection] = draftText;
     }
     return merged;
-  }, [sections, activeSection, draftText, pendingSectionIds, regeneratingSection]);
+  }, [sections, activeSection, draftText, pendingSectionIds, regeneratingSections]);
 
   const openPreview = useCallback(() => {
     const activePending = pendingSectionIdsRef.current.includes(activeSection);
-    const activeRegenerating = regeneratingSection === activeSection;
+    const activeRegenerating = regeneratingSections.has(activeSection);
     if (!activePending && !activeRegenerating) {
       flushActiveSection(activeSection, draftText);
     }
     setPreviewOpen(true);
-  }, [activeSection, draftText, flushActiveSection, regeneratingSection]);
+  }, [activeSection, draftText, flushActiveSection, regeneratingSections]);
 
   const handlePreviewSectionClick = useCallback(
     (sectionId: PatentSectionId) => {
@@ -459,7 +468,7 @@ export default function Draft() {
               />
             )}
 
-            {regeneratingSection === activeSection && !parallelDrafting && (
+            {regeneratingSections.has(activeSection) && !parallelDrafting && (
               <GenerationProgress
                 active
                 label={`Regenerating ${SECTION_LABELS[activeSection]} (single agent)`}
@@ -522,7 +531,7 @@ export default function Draft() {
                       progress_activity
                     </span>
                     <p className="font-title-lg text-title-lg text-primary text-center px-6">
-                      {regeneratingSection === activeSection
+                      {regeneratingSections.has(activeSection)
                         ? `Agent is regenerating ${SECTION_LABELS[activeSection].toLowerCase()}…`
                         : `Agent is drafting ${SECTION_LABELS[activeSection].toLowerCase()}…`}
                     </p>
@@ -550,8 +559,8 @@ export default function Draft() {
             <div className="flex justify-between items-center px-2">
               <button
                 type="button"
-                disabled={isBusy}
-                onClick={() => void handleRegenerateSection()}
+                disabled={isGeneratingActive}
+                onClick={handleRegenerateSection}
                 className="flex items-center gap-2 px-5 py-2 border border-outline text-on-surface-variant rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-all active:scale-95 disabled:opacity-60"
               >
                 <span

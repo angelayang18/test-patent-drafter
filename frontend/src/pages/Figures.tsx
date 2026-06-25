@@ -39,6 +39,7 @@ export default function Figures() {
   const [error, setError] = useState<string | null>(null);
   const [pngLoading, setPngLoading] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const previewSections = useMemo(
     () => ({
@@ -74,6 +75,18 @@ export default function Figures() {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [figureRenderSignature, figures]);
+
+  useEffect(() => {
+    setLightboxOpen(false);
+  }, [activeFigure]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxOpen(false);
+    };
+    if (lightboxOpen) window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [lightboxOpen]);
 
   const handleGenerate = async () => {
     setError(null);
@@ -126,22 +139,24 @@ export default function Figures() {
   return (
     <AppShell
       step="figures"
-      mainClassName="overflow-y-auto max-w-[1200px] w-full mx-auto px-margin-desktop py-10"
+      mainClassName="overflow-y-auto max-w-[1200px] w-full mx-auto px-margin-desktop pt-10 pb-28"
       footer={
-        <WorkflowFooter
-          left={<WorkflowBackLink to="/draft" />}
-          right={
-            <WorkflowNextLink
-              to="/export"
-              onClick={() => {
-                markStepComplete("figures");
-                saveToStorage();
-              }}
-            >
-              Next: Export
-            </WorkflowNextLink>
-          }
-        />
+        lightboxOpen ? null : (
+          <WorkflowFooter
+            left={<WorkflowBackLink to="/draft" />}
+            right={
+              <WorkflowNextLink
+                to="/export"
+                onClick={() => {
+                  markStepComplete("figures");
+                  saveToStorage();
+                }}
+              >
+                Next: Export
+              </WorkflowNextLink>
+            }
+          />
+        )
       }
     >
       <div className="mb-8 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -258,7 +273,18 @@ export default function Figures() {
                       </ul>
                     </div>
                   )}
-                  <MermaidPreview source={current.mermaid} />
+                  <div
+                    className="relative cursor-zoom-in group"
+                    onClick={() => setLightboxOpen(true)}
+                  >
+                    <MermaidPreview source={current.mermaid} />
+                    <button
+                      type="button"
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container rounded p-1 shadow"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">fullscreen</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-6">
@@ -298,6 +324,41 @@ export default function Figures() {
         figures={figures}
         footerNote="Drawing sheets appear after Brief Description of the Drawings with sheet numbers 1/3–3/3."
       />
+
+      {lightboxOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setLightboxOpen(false)}
+        >
+          <div
+            className="relative bg-surface rounded-xl p-6"
+            style={{ width: "90vw", height: "90vh", display: "flex", flexDirection: "column" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="absolute top-2 right-2 bg-surface-container rounded p-1 shadow z-10"
+              onClick={() => setLightboxOpen(false)}
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+            <p className="text-label-sm text-secondary uppercase tracking-widest mb-3 shrink-0">
+              FIG. {current?.number} — {current?.title}
+            </p>
+            <div
+              style={{
+                flex: 1,
+                overflow: "auto",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <MermaidPreview source={current?.mermaid ?? ""} className="w-full h-full" />
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

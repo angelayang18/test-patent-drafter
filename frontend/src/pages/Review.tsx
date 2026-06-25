@@ -168,8 +168,8 @@ export default function Review() {
     reset,
   } = useUndoRedo<InventionDetails>(invention ?? defaultInvention);
 
-  const [regeneratingField, setRegeneratingField] = useState<ReviewFieldKey | "all" | null>(
-    null,
+  const [regeneratingFields, setRegeneratingFields] = useState<Set<ReviewFieldKey | "all">>(
+    new Set(),
   );
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -184,6 +184,12 @@ export default function Review() {
   const initialSynced = useRef(false);
   const suppressSavedIndicator = useRef(true);
   const autoExtractStarted = useRef(false);
+  const formRef = useRef(form);
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
   useEffect(() => {
     if (invention && !initialSynced.current) {
       reset(invention);
@@ -251,7 +257,7 @@ export default function Review() {
 
     const runAutoExtraction = async () => {
       setError(null);
-      setRegeneratingField("all");
+      setRegeneratingFields((prev) => new Set(prev).add("all"));
       suppressSavedIndicator.current = true;
       try {
         const { combined, cache } = await gatherSourceText({
@@ -274,7 +280,11 @@ export default function Review() {
         }
         setError(err instanceof ApiError ? err.message : "Extraction failed.");
       } finally {
-        setRegeneratingField(null);
+        setRegeneratingFields((prev) => {
+          const next = new Set(prev);
+          next.delete("all");
+          return next;
+        });
         setExtractPhase(null);
         window.setTimeout(() => {
           suppressSavedIndicator.current = false;
@@ -299,7 +309,7 @@ export default function Review() {
 
   const handleRegenerateAll = async () => {
     setError(null);
-    setRegeneratingField("all");
+    setRegeneratingFields((prev) => new Set(prev).add("all"));
     push(structuredClone(form));
     try {
       const { combined, cache } = await gatherSourceText();
@@ -316,38 +326,57 @@ export default function Review() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Regeneration failed.");
     } finally {
-      setRegeneratingField(null);
+      setRegeneratingFields((prev) => {
+        const next = new Set(prev);
+        next.delete("all");
+        return next;
+      });
     }
   };
 
-  const handleRegenerateField = async (field: ReviewFieldKey) => {
+  const handleRegenerateField = (field: ReviewFieldKey) => {
+    if (regeneratingFields.has(field) || regeneratingFields.has("all")) return;
+
     setError(null);
-    setRegeneratingField(field);
-    push(structuredClone(form));
-    try {
-      const { combined } = await gatherSourceText();
-      if (!combined.trim()) {
-        setError("No source material available. Go back to Input and add sources.");
-        return;
+    push(structuredClone(formRef.current));
+    setRegeneratingFields((prev) => new Set(prev).add(field));
+
+    void (async () => {
+      try {
+        const { combined } = await gatherSourceText();
+        if (!combined.trim()) {
+          setError("No source material available. Go back to Input and add sources.");
+          return;
+        }
+        const patch = await extractInventionField(
+          combined,
+          field,
+          formRef.current,
+          extractionNotes,
+        );
+        const next = { ...formRef.current, ...patch };
+        formRef.current = next;
+        push(next);
+        setInvention(next);
+        saveToStorage();
+        flashSaved();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Regeneration failed.");
+      } finally {
+        setRegeneratingFields((prev) => {
+          const next = new Set(prev);
+          next.delete(field);
+          return next;
+        });
       }
-      const patch = await extractInventionField(combined, field, form, extractionNotes);
-      const next = { ...form, ...patch };
-      push(next);
-      setInvention(next);
-      saveToStorage();
-      flashSaved();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Regeneration failed.");
-    } finally {
-      setRegeneratingField(null);
-    }
+    })();
   };
 
   const updateField = <K extends keyof InventionDetails>(key: K, value: InventionDetails[K]) => {
     replace({ ...form, [key]: value });
   };
 
-  const isBusy = regeneratingField !== null;
+  const isBusy = regeneratingFields.size > 0;
 
   const { allCoreFieldsEmpty, someCoreFieldsEmpty } = useMemo(() => {
     const filledCount = CORE_REVIEW_FIELD_KEYS.filter((key) =>
@@ -381,7 +410,7 @@ export default function Review() {
         <AutoResizeTextarea
           className={textareaClassName}
           value={altText}
-          disabled={regeneratingField === field.key}
+          disabled={regeneratingFields.has(field.key)}
           onChange={(e) =>
             updateField(
               "alternative_embodiments",
@@ -401,7 +430,7 @@ export default function Review() {
         <AutoResizeTextarea
           className={textareaClassName}
           value={typeof value === "string" ? value : ""}
-          disabled={regeneratingField === field.key}
+          disabled={regeneratingFields.has(field.key)}
           onChange={(e) => updateField(field.key, e.target.value as InventionDetails[typeof field.key])}
         />
       );
@@ -454,9 +483,11 @@ export default function Review() {
             active
             label={
               extractPhase ??
-              (regeneratingField === "all"
+              (regeneratingFields.has("all")
                 ? "Regenerating all invention fields"
-                : `Regenerating ${REVIEW_FIELDS.find((f) => f.key === regeneratingField)?.label ?? "field"}`)
+                : regeneratingFields.size > 1
+                  ? `Regenerating ${regeneratingFields.size} invention fields`
+                  : `Regenerating ${REVIEW_FIELDS.find((f) => regeneratingFields.has(f.key))?.label ?? "field"}`)
             }
           />
         </div>
@@ -667,7 +698,7 @@ export default function Review() {
                 className="px-4 py-2 bg-secondary/10 text-secondary rounded-lg font-label-md text-label-md hover:bg-secondary/20 disabled:opacity-50 flex items-center gap-2 shrink-0"
               >
                 <span
-                  className={`material-symbols-outlined text-sm ${regeneratingField === "all" ? "loading-spin" : ""}`}
+                  className={`material-symbols-outlined text-sm ${regeneratingFields.has("all") ? "loading-spin" : ""}`}
                 >
                   autorenew
                 </span>
@@ -694,8 +725,8 @@ export default function Review() {
                   key={field.key}
                   label={field.label}
                   hint={field.hint}
-                  onRegenerate={() => void handleRegenerateField(field.key)}
-                  regenerating={regeneratingField === field.key}
+                  onRegenerate={() => handleRegenerateField(field.key)}
+                  regenerating={regeneratingFields.has(field.key)}
                 >
                   {renderFieldValue(field)}
                 </AiField>

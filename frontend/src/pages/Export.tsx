@@ -285,7 +285,7 @@ export default function Export() {
     <AppShell
       step="export"
       layout="document"
-      mainClassName="px-margin-mobile md:px-margin-desktop py-10 pb-16"
+      mainClassName="px-margin-mobile md:px-margin-desktop pt-10 pb-28"
       footer={<WorkflowFooter left={<WorkflowBackLink to="/figures" />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
