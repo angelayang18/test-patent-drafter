@@ -54,13 +54,20 @@ export function WorkflowNextButton({
   children,
   onClick,
   disabled,
+  className = "",
 }: {
   children: ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <button type="button" onClick={onClick} disabled={disabled} className={nextClassName}>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`${nextClassName} ${className}`.trim()}
+    >
       {children}
       <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
     </button>

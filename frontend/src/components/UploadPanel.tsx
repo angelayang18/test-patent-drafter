@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { UploadProgressPanel } from "./UploadProgressPanel";
+import { RelevanceGuidancePanel } from "./RelevanceGuidancePanel";
 import { SourceFilePreviewModal } from "./SourceFilePreviewModal";
 import type { InputSources, UploadedSourceFile } from "../context/grantContext";
 import { useGrantFileUpload } from "../hooks/useGrantFileUpload";
@@ -103,53 +104,12 @@ export default function UploadPanel({
 
   return (
     <>
-      <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
-        <div className="flex items-start gap-3 mb-6">
-          <div className="p-2 bg-primary/10 rounded-lg shrink-0">
-            <span className="material-symbols-outlined text-primary">tune</span>
-          </div>
-          <div>
-            <h2 className="font-headline-md text-headline-md text-primary">Relevance guidance</h2>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-              Optional — tell the AI what to prioritize or ignore across all sources below.
-            </p>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
-          <div>
-            <label
-              htmlFor={`${fileInputId}-relevant`}
-              className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-            >
-              Relevant content
-            </label>
-            <textarea
-              id={`${fileInputId}-relevant`}
-              className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
-              placeholder="e.g. Project goals, budget notes, team bios…"
-              rows={3}
-              value={inputSources.relevantContentNotes}
-              onChange={(e) => onInputSourcesChange({ relevantContentNotes: e.target.value })}
-            />
-          </div>
-          <div>
-            <label
-              htmlFor={`${fileInputId}-irrelevant`}
-              className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-            >
-              Irrelevant content
-            </label>
-            <textarea
-              id={`${fileInputId}-irrelevant`}
-              className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
-              placeholder="e.g. Marketing pages, unrelated HR content…"
-              rows={3}
-              value={inputSources.irrelevantContentNotes}
-              onChange={(e) => onInputSourcesChange({ irrelevantContentNotes: e.target.value })}
-            />
-          </div>
-        </div>
-      </section>
+      <RelevanceGuidancePanel
+        relevantContentNotes={inputSources.relevantContentNotes}
+        irrelevantContentNotes={inputSources.irrelevantContentNotes}
+        onRelevantChange={(value) => onInputSourcesChange({ relevantContentNotes: value })}
+        onIrrelevantChange={(value) => onInputSourcesChange({ irrelevantContentNotes: value })}
+      />
 
       <div>
         <h2 className="font-headline-md text-headline-md text-primary">Add source material</h2>

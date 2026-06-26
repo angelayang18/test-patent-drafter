@@ -5,6 +5,7 @@ import { GenerationProgress } from "../components/GenerationProgress";
 import { UploadProgressPanel } from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowNextButton } from "../components/WorkflowNavButtons";
+import { RelevanceGuidancePanel } from "../components/RelevanceGuidancePanel";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
 import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
 import { usePatentFileUpload } from "../hooks/usePatentFileUpload";
@@ -74,6 +75,7 @@ export default function InputPage() {
   const hasAnySource =
     hasPastedText || hasUploadedFiles || hasWebsiteUrl || confluenceConfigured;
   const missingSource = !hasAnySource;
+  const emptyPrimarySource = !hasUploadedFiles && !hasPastedText;
   const continueDisabled = submitting || uploading || Boolean(websiteUrlError);
   const confluenceLoading =
     submitting && Boolean(extractPhase?.toLowerCase().includes("confluence"));
@@ -202,6 +204,7 @@ export default function InputPage() {
               )}
               <WorkflowNextButton
                 disabled={continueDisabled}
+                className={emptyPrimarySource ? "opacity-50 cursor-not-allowed" : ""}
                 onClick={() => void handleContinue()}
               >
                 {submitting ? "Extracting..." : "Next: Review"}
@@ -250,60 +253,12 @@ export default function InputPage() {
       )}
 
       <div className="flex flex-col gap-10">
-        <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
-          <div className="flex items-start gap-3 mb-6">
-            <div className="p-2 bg-primary/10 rounded-lg shrink-0">
-              <span className="material-symbols-outlined text-primary">tune</span>
-            </div>
-            <div>
-              <h2 className="font-headline-md text-headline-md text-primary">Relevance guidance</h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-                Optional — tell the AI what to prioritize or ignore across all sources below.
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-gutter">
-            <div>
-              <label
-                htmlFor="relevant-content-notes"
-                className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-              >
-                Relevant content
-              </label>
-              <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                Topics, documents, or sections to prioritize (e.g. core RAG architecture, slide 5 in
-                the deck).
-              </p>
-              <textarea
-                id="relevant-content-notes"
-                className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
-                placeholder="e.g. Hybrid retrieval pipeline, embedding model, agent orchestration…"
-                rows={3}
-                value={inputSources.relevantContentNotes}
-                onChange={(e) => setInputSources({ relevantContentNotes: e.target.value })}
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="irrelevant-content-notes"
-                className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-              >
-                Irrelevant content
-              </label>
-              <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                Material to ignore or de-emphasize (e.g. marketing pages, HR wiki, roadmap slides).
-              </p>
-              <textarea
-                id="irrelevant-content-notes"
-                className="w-full bg-white border border-outline-variant rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm resize-y min-h-[88px]"
-                placeholder="e.g. Company overview, pricing, team bios, %%qa%% template blocks…"
-                rows={3}
-                value={inputSources.irrelevantContentNotes}
-                onChange={(e) => setInputSources({ irrelevantContentNotes: e.target.value })}
-              />
-            </div>
-          </div>
-        </section>
+        <RelevanceGuidancePanel
+          relevantContentNotes={inputSources.relevantContentNotes}
+          irrelevantContentNotes={inputSources.irrelevantContentNotes}
+          onRelevantChange={(value) => setInputSources({ relevantContentNotes: value })}
+          onIrrelevantChange={(value) => setInputSources({ irrelevantContentNotes: value })}
+        />
 
         <div>
           <h2 className="font-headline-md text-headline-md text-primary">Add source material</h2>

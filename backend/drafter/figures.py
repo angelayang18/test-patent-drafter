@@ -35,23 +35,23 @@ _MERMAID_TYPE_RE = re.compile(
 
 # Default diagram headers when the model omits a type declaration.
 _FIGURE_DEFAULT_HEADER = {
-    1: "graph LR",
+    1: "graph TD",
     2: "flowchart TD",
-    3: "sequenceDiagram",
+    3: "flowchart TD",
     4: "classDiagram",
 }
 
 _EXPECTED_DIAGRAM_TYPE_PATTERNS: dict[int, re.Pattern[str]] = {
-    1: re.compile(r"^graph\s+LR\b", re.IGNORECASE),
+    1: re.compile(r"^graph\s+TD\b", re.IGNORECASE),
     2: re.compile(r"^flowchart\s+TD\b", re.IGNORECASE),
-    3: re.compile(r"^sequenceDiagram\b", re.IGNORECASE),
+    3: re.compile(r"^flowchart\s+TD\b", re.IGNORECASE),
     4: re.compile(r"^classDiagram\b", re.IGNORECASE),
 }
 
 _EXPECTED_DIAGRAM_TYPE_LABELS: dict[int, str] = {
-    1: "graph LR",
+    1: "graph TD",
     2: "flowchart TD",
-    3: "sequenceDiagram",
+    3: "flowchart TD",
     4: "classDiagram",
 }
 
@@ -114,7 +114,7 @@ def _default_diagram_header(number: int) -> str:
 def _apply_flowchart_layout_rules(mermaid: str, number: int) -> str:
     """Normalize flowchart/graph direction per figure role without breaking FIG. 1 architecture."""
     if number == 1:
-        # FIG. 1 architecture: preserve horizontal/layered graph layouts.
+        # FIG. 1 architecture: top-down graph layout for letter-size portrait paper.
         if re.match(r"^\s*flowchart\b", mermaid, re.IGNORECASE):
             mermaid = re.sub(
                 r"^flowchart\b",
@@ -123,9 +123,35 @@ def _apply_flowchart_layout_rules(mermaid: str, number: int) -> str:
                 count=1,
                 flags=re.IGNORECASE,
             )
+        mermaid = re.sub(
+            r"^graph\s+LR\b",
+            "graph TD",
+            mermaid,
+            count=1,
+            flags=re.IGNORECASE,
+        )
         return mermaid
 
     if number == 2:
+        mermaid = re.sub(
+            r"^flowchart\s+(?:TB|BT|LR|RL)\b",
+            "flowchart TD",
+            mermaid,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        return mermaid
+
+    if number == 3:
+        # FIG. 3 data flow: force flowchart TD if the model ignored the prompt.
+        if re.match(r"^\s*sequenceDiagram\b", mermaid, re.IGNORECASE):
+            mermaid = re.sub(
+                r"^sequenceDiagram\b",
+                "flowchart TD",
+                mermaid,
+                count=1,
+                flags=re.IGNORECASE,
+            )
         mermaid = re.sub(
             r"^flowchart\s+(?:TB|BT|LR|RL)\b",
             "flowchart TD",
@@ -179,7 +205,9 @@ def _normalize_figure(raw: dict[str, Any], index: int) -> dict[str, Any]:
         mermaid = f"{_default_diagram_header(number)}\n{mermaid}"
         diagram_type = detect_mermaid_diagram_type(mermaid)
 
-    if _is_flowchart_type(diagram_type):
+    if _is_flowchart_type(diagram_type) or (
+        number == 3 and diagram_type == "sequencediagram"
+    ):
         mermaid = _apply_flowchart_layout_rules(mermaid, number)
 
     mermaid = apply_patent_mermaid_theme(mermaid)

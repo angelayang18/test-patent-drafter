@@ -20,17 +20,17 @@ def test_detect_mermaid_diagram_type_sequence():
     assert detect_mermaid_diagram_type(source) == "sequencediagram"
 
 
-def test_normalize_figure_preserves_sequence_diagram():
+def test_normalize_figure_preserves_flowchart_td_for_fig3():
     raw = {
         "number": 3,
         "title": "Interactions",
-        "brief_description": "FIG. 3 is a sequence diagram.",
+        "brief_description": "FIG. 3 is a data flow diagram.",
         "reference_numerals": {"200": "module"},
-        "mermaid": "sequenceDiagram\nparticipant A as Ingestion module 200",
+        "mermaid": "flowchart TD\nA[Ingestion module 200] -- \"raw text\" --> B[Parser 202]",
     }
     result = _normalize_figure(raw, 3)
-    assert "sequenceDiagram" in result["mermaid"]
-    assert "flowchart" not in result["mermaid"].split("sequenceDiagram")[0]
+    assert "flowchart TD" in result["mermaid"]
+    assert "sequenceDiagram" not in result["mermaid"]
 
 
 def test_normalize_figure_adds_graph_prefix_for_fig1():
@@ -43,7 +43,7 @@ def test_normalize_figure_adds_graph_prefix_for_fig1():
     }
     result = _normalize_figure(raw, 1)
     assert result["mermaid"].startswith("%%{init:")
-    assert "graph LR" in result["mermaid"]
+    assert "graph TD" in result["mermaid"]
     assert result["number"] == 1
 
 
@@ -74,7 +74,7 @@ def test_normalize_figure_sanitizes_ampersands():
     assert " and " in result["mermaid"]
 
 
-def test_normalize_figure_preserves_graph_lr_for_fig1():
+def test_normalize_figure_converts_graph_lr_to_td_for_fig1():
     raw = {
         "number": 1,
         "title": "System",
@@ -82,8 +82,8 @@ def test_normalize_figure_preserves_graph_lr_for_fig1():
         "mermaid": "graph LR\nA[10 Module] --> B[12 Parser]",
     }
     result = _normalize_figure(raw, 1)
-    assert "graph LR" in result["mermaid"]
-    assert "graph TD" not in result["mermaid"].split("graph LR")[0]
+    assert "graph TD" in result["mermaid"]
+    assert "graph LR" not in result["mermaid"]
 
 
 def test_normalize_figure_uses_flowchart_td_for_fig2():
@@ -134,7 +134,7 @@ def test_validate_figure_diagram_types_flags_wrong_type():
         },
         {
             "number": 3,
-            "mermaid": "flowchart TD\nA --> B",
+            "mermaid": "sequenceDiagram\nparticipant A as Module 200",
         },
     ]
     warnings = validate_figure_diagram_types(figures)
@@ -143,13 +143,13 @@ def test_validate_figure_diagram_types_flags_wrong_type():
     assert not any("FIG. 2" in warning for warning in warnings)
 
 
-def test_normalize_figure_adds_sequence_header_for_fig3():
+def test_normalize_figure_converts_sequence_diagram_to_flowchart_for_fig3():
     raw = {
         "number": 3,
         "title": "Interaction",
         "brief_description": "FIG. 3",
-        "mermaid": "participant A as Module 200\nA->>B: message",
+        "mermaid": "sequenceDiagram\nparticipant A as Module 200\nA->>B: message",
     }
     result = _normalize_figure(raw, 3)
-    assert "sequenceDiagram" in result["mermaid"]
-    assert "flowchart TD" not in result["mermaid"].split("sequenceDiagram")[0]
+    assert "flowchart TD" in result["mermaid"]
+    assert "sequenceDiagram" not in result["mermaid"]

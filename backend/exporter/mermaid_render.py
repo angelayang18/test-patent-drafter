@@ -56,7 +56,7 @@ def _kroki_base_url() -> str:
 
 def _render_via_kroki(mermaid_source: str) -> bytes:
     """Render Mermaid to PNG using a Kroki-compatible service."""
-    url = f"{_kroki_base_url()}/mermaid/png"
+    url = f"{_kroki_base_url()}/mermaid/png?width=1600"
     response = httpx.post(
         url,
         content=mermaid_source.encode("utf-8"),
@@ -109,6 +109,10 @@ def _render_via_mmdc(mermaid_source: str) -> bytes:
                 "white",
                 "-t",
                 "neutral",
+                "--width",
+                "1600",
+                "--height",
+                "2000",
             ],
             check=True,
             capture_output=True,

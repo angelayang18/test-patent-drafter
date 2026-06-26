@@ -40,6 +40,9 @@ export default function GrantInput() {
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
 
   const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
+  const hasPastedText = inputSources.pastedText.trim().length > 0;
+  const hasUploadedFiles = uploadedFiles.length > 0;
+  const emptyPrimarySource = !hasUploadedFiles && !hasPastedText;
   const hasAnySource =
     inputSources.pastedText.trim().length > 0 ||
     uploadedFiles.length > 0 ||
@@ -117,6 +120,7 @@ export default function GrantInput() {
               )}
               <WorkflowNextButton
                 disabled={submitting || uploading || Boolean(websiteUrlError)}
+                className={emptyPrimarySource ? "opacity-50 cursor-not-allowed" : ""}
                 onClick={() => void handleContinue()}
               >
                 {submitting ? "Extracting…" : "Next: Review"}

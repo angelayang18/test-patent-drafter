@@ -573,6 +573,8 @@ def _validate_fig1_hierarchy(mermaid: str, figure_map: dict[str, str]) -> list[s
 
 def format_numeral_validation_errors(errors: list[str]) -> str:
     """Format validation errors for LLM retry prompts."""
+    from .prompts import FIG_2_AND_3_REFERENCE_NUMERAL_RULES
+
     if not errors:
         return ""
     bullet_lines = "\n".join(f"  - {err}" for err in errors)
@@ -582,8 +584,7 @@ def format_numeral_validation_errors(errors: list[str]) -> str:
         "Regenerate all figures correcting these issues. "
         "Use ONLY numerals and names from the detailed description. "
         "In FIG. 1, nest sub-components (203, 209, 211) inside their parent module subgraphs when shown. "
-        "In FIG. 2, use method/process step labels with decision diamonds — not a copy of FIG. 1's module list. "
-        "In FIG. 3, use a subset of key actors with loop/alt blocks — not every module from FIG. 1. "
+        f"{FIG_2_AND_3_REFERENCE_NUMERAL_RULES}"
         "Each figure MUST use different components or a different subset — do NOT repeat the same "
         "full list of components across all figures. "
         "Never duplicate the same component as two separate boxes in one figure. "

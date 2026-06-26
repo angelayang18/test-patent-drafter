@@ -2,10 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AttorneyFeedbackPanel } from "../components/AttorneyFeedbackPanel";
-import { AttorneyFeedbackSummaryPanel } from "../components/AttorneyFeedbackSummaryPanel";
+import { PatentNotesSidebar } from "../components/PatentNotesSidebar";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
-import { MidWorkflowUpload } from "../components/MidWorkflowUpload";
 import { SelectionRegeneratePopover } from "../components/SelectionRegeneratePopover";
 import { CopyToClipboardButton } from "../components/CopyToClipboardButton";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
@@ -14,6 +13,7 @@ import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavBut
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { defaultGrantDetails, defaultInvention } from "../types/patent";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
+import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { useTextareaSelectionRegenerate } from "../hooks/useTextareaSelectionRegenerate";
 import {
@@ -32,6 +32,7 @@ import {
   type PatentSectionId,
 } from "../types/patent";
 import { hasDraftSections, isWorkflowStepAccessible } from "../utils/draftStorage";
+import { formatAllSectionsCopy } from "../utils/formatAllSectionsCopy";
 import "../styles/patent-drafter.css";
 
 export default function Draft() {
@@ -74,7 +75,9 @@ export default function Draft() {
   const [regeneratingSelection, setRegeneratingSelection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [confirmingRegenerateAll, setConfirmingRegenerateAll] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
 
   const activeSectionRef = useRef(activeSection);
   const sectionsRef = useRef(sections);
@@ -304,11 +307,28 @@ export default function Draft() {
 
   const handleRegenerateAll = async () => {
     if (!reviewDetails || isBusy) return;
+    setConfirmingRegenerateAll(false);
     setRegeneratingAll(true);
     try {
       await startParallelDraft([...sectionIds]);
     } finally {
       setRegeneratingAll(false);
+    }
+  };
+
+  const handleCopyAllSections = async () => {
+    flushActiveSection(activeSection, draftText);
+    const mergedSections = { ...sections, [activeSection]: draftText };
+    const text = formatAllSectionsCopy(
+      sectionIds,
+      sectionLabels as Record<string, string>,
+      mergedSections,
+      activeSection,
+      draftText,
+    );
+    const ok = await copyAll(text);
+    if (!ok) {
+      setError("Could not copy to clipboard.");
     }
   };
 
@@ -461,8 +481,8 @@ export default function Draft() {
         />
       }
     >
-      <div className="flex flex-1 overflow-hidden min-h-0">
-        <aside className="w-64 bg-surface-container-lowest border-r border-outline-variant flex flex-col py-6 px-4 gap-2 z-40 shrink-0 overflow-y-auto custom-scrollbar">
+      <div className="flex flex-1 overflow-hidden min-h-0 relative">
+        <aside className="w-64 bg-surface-container-lowest border-r border-outline-variant flex flex-col py-6 px-4 z-40 shrink-0 min-h-0">
           <h3 className="px-2 mb-2 font-label-sm text-label-sm text-outline uppercase tracking-widest">
             Document Sections
           </h3>
@@ -471,20 +491,6 @@ export default function Draft() {
               ? "Dedicated agents draft each grant section in parallel using your extracted project details."
               : "Six dedicated agents draft sections in parallel using the US provisional filing template. Each agent only sees invention details—not other sections."}
           </p>
-          <button
-            type="button"
-            disabled={isBusy}
-            onClick={() => void handleRegenerateAll()}
-            className="mx-2 mb-2 px-3 py-2 text-left rounded-lg border border-secondary/40 text-secondary font-label-sm text-label-sm hover:bg-secondary/10 disabled:opacity-50 flex items-center gap-2"
-          >
-            <span
-              className={`material-symbols-outlined text-[18px] ${regeneratingAll ? "loading-spin" : ""}`}
-            >
-              autorenew
-            </span>
-            Regenerate all sections
-          </button>
-          <MidWorkflowUpload />
           {hasEmptySections && (
             <button
               type="button"
@@ -500,55 +506,122 @@ export default function Draft() {
               Run parallel agents on empty sections
             </button>
           )}
-          {sectionIds.map((id) => {
-            const active = id === activeSection;
-            const done = isDone(id) && !isSectionPending(id);
-            const generating = isSectionPending(id);
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => selectSection(id)}
-                className={`flex items-center justify-between p-3 rounded-lg transition-all group text-left w-full ${
-                  active
-                    ? "bg-secondary-container/20 border border-secondary-container/30"
-                    : "hover:bg-surface-container"
-                }`}
-              >
-                <span
-                  className={`font-label-md text-label-md ${
-                    active ? "text-primary font-bold" : "text-on-surface"
+          <div className="flex-1 overflow-y-auto flex flex-col gap-2 min-h-0 custom-scrollbar">
+            {sectionIds.map((id) => {
+              const active = id === activeSection;
+              const done = isDone(id) && !isSectionPending(id);
+              const generating = isSectionPending(id);
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => selectSection(id)}
+                  className={`flex items-center justify-between p-3 rounded-lg transition-all group text-left w-full ${
+                    active
+                      ? "bg-secondary-container/20 border border-secondary-container/30"
+                      : "hover:bg-surface-container"
                   }`}
                 >
-                  {sectionLabels[id as keyof typeof sectionLabels]}
-                </span>
-                {generating && (
-                  <span className="material-symbols-outlined loading-spin text-primary text-[18px]">
-                    progress_activity
-                  </span>
-                )}
-                {done && !generating && (
                   <span
-                    className="material-symbols-outlined text-green-600 text-[18px]"
-                    style={{ fontVariationSettings: "'FILL' 1" }}
+                    className={`font-label-md text-label-md ${
+                      active ? "text-primary font-bold" : "text-on-surface"
+                    }`}
                   >
-                    check_circle
+                    {sectionLabels[id as keyof typeof sectionLabels]}
                   </span>
-                )}
+                  {generating && (
+                    <span className="material-symbols-outlined loading-spin text-primary text-[18px]">
+                      progress_activity
+                    </span>
+                  )}
+                  {done && !generating && (
+                    <span
+                      className="material-symbols-outlined text-green-600 text-[18px]"
+                      style={{ fontVariationSettings: "'FILL' 1" }}
+                    >
+                      check_circle
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-auto pt-4 border-t border-outline-variant space-y-2 shrink-0">
+            {confirmingRegenerateAll ? (
+              <div className="p-3 rounded-lg border border-secondary/30 bg-secondary/5 space-y-3">
+                <p className="font-body-sm text-body-sm text-on-surface">
+                  Are you sure? This will regenerate all {sectionIds.length} sections.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleRegenerateAll()}
+                    disabled={isBusy}
+                    className="px-3 py-1.5 rounded-lg bg-secondary text-on-secondary font-label-sm text-label-sm disabled:opacity-50"
+                  >
+                    Yes, regenerate all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingRegenerateAll(false)}
+                    className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface font-label-sm text-label-sm"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => setConfirmingRegenerateAll(true)}
+                className="w-full px-3 py-2 text-left rounded-lg border border-secondary/40 text-secondary font-label-sm text-label-sm hover:bg-secondary/10 disabled:opacity-50 flex items-center gap-2"
+              >
+                <span
+                  className={`material-symbols-outlined text-[18px] ${regeneratingAll ? "loading-spin" : ""}`}
+                >
+                  autorenew
+                </span>
+                Regenerate all sections
               </button>
-            );
-          })}
-          <div className="mt-4 pt-4 border-t border-outline-variant">
-            {!isGrant && (
-              <AttorneyFeedbackSummaryPanel
-                attorneyFeedback={attorneyFeedback}
-                sectionLabels={SECTION_LABELS}
-              />
             )}
+            <button
+              type="button"
+              onClick={() => void handleCopyAllSections()}
+              className="w-full px-3 py-2 rounded-lg border border-outline-variant text-on-surface font-label-sm text-label-sm hover:bg-surface-container-lowest flex items-center justify-center gap-2"
+            >
+              <span className="material-symbols-outlined text-[18px]">
+                {copiedAll ? "check" : "content_copy"}
+              </span>
+              {copiedAll ? "Copied!" : "Copy all sections"}
+            </button>
           </div>
         </aside>
 
         <div className="flex-1 overflow-y-auto bg-[#FAFAFA] flex flex-col relative custom-scrollbar">
+          {/* Sticky action row — full-width, outside padded content so background is solid */}
+          <div className="sticky top-0 z-20 bg-[#FAFAFA] border-b border-outline-variant shadow-sm px-margin-desktop py-3 flex gap-3 flex-wrap shrink-0">
+            <button
+              type="button"
+              disabled={isGeneratingActive}
+              onClick={handleRegenerateSection}
+              className="flex items-center gap-2 px-5 py-2 border border-outline text-on-surface-variant rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-all active:scale-95 disabled:opacity-60"
+            >
+              <span
+                className={`material-symbols-outlined text-[20px] ${isGeneratingActive ? "loading-spin" : ""}`}
+              >
+                refresh
+              </span>
+              {isGeneratingActive ? "Generating..." : "Regenerate Section"}
+            </button>
+            <CopyToClipboardButton
+              text={draftText}
+              disabled={isGeneratingActive || !draftText.trim()}
+              onError={setError}
+              className="px-4 py-2 rounded-lg border border-outline-variant text-on-surface font-label-sm text-label-sm hover:bg-surface-container-lowest flex items-center gap-2 disabled:opacity-50"
+            />
+          </div>
+
           {error && (
             <div className="mx-auto max-w-[800px] w-full mt-4 px-margin-desktop p-4 rounded-lg bg-error-container/20 text-error text-sm">
               {error}
@@ -624,17 +697,7 @@ export default function Draft() {
               disabled={isBusy}
             />
 
-            <div className="relative group">
-              <div className="absolute -right-16 top-0 hidden lg:flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <CopyToClipboardButton
-                  text={draftText}
-                  disabled={isGeneratingActive}
-                  onError={setError}
-                  variant="icon"
-                  label="Copy to clipboard"
-                  className="p-2 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm hover:bg-secondary hover:text-on-primary transition-all active:scale-95 disabled:opacity-50"
-                />
-              </div>
+            <div className="relative">
               <div className="bg-surface-container-lowest canvas-shadow border border-outline-variant rounded-lg p-10 min-h-[400px] flex flex-col relative">
                 {isGeneratingActive && (
                   <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 rounded-lg bg-surface-container-lowest/90 backdrop-blur-[1px]">
@@ -669,26 +732,20 @@ export default function Draft() {
               </div>
             </div>
 
-            <div className="flex justify-between items-center px-2">
-              <button
-                type="button"
-                disabled={isGeneratingActive}
-                onClick={handleRegenerateSection}
-                className="flex items-center gap-2 px-5 py-2 border border-outline text-on-surface-variant rounded-lg font-label-md text-label-md hover:bg-surface-variant transition-all active:scale-95 disabled:opacity-60"
-              >
-                <span
-                  className={`material-symbols-outlined text-[20px] ${isGeneratingActive ? "loading-spin" : ""}`}
-                >
-                  refresh
-                </span>
-                {isGeneratingActive ? "Generating..." : "Regenerate Section"}
-              </button>
-              <div className="flex items-center gap-4 text-outline font-label-md text-label-md">
-                <span>{draftText.length.toLocaleString()} characters</span>
-              </div>
+            <div className="flex justify-end items-center px-2">
+              <span className="text-outline font-label-md text-label-md">
+                {draftText.length.toLocaleString()} characters
+              </span>
             </div>
           </div>
         </div>
+
+        {!isGrant && (
+          <PatentNotesSidebar
+            attorneyFeedback={attorneyFeedback}
+            sectionLabels={SECTION_LABELS}
+          />
+        )}
       </div>
 
       <DocumentPreviewModal

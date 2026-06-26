@@ -249,41 +249,63 @@ export default function Figures() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-3 mb-6">
-        <label className="flex flex-col gap-1">
-          <span className="font-label-sm text-label-sm text-on-surface-variant">
-            Number of figures
-          </span>
-          <select
-            value={numFigures}
-            onChange={(e) => setNumFigures(Number(e.target.value))}
+      <div className="mb-6">
+        <div className="flex flex-wrap items-stretch gap-4">
+          <div className="bg-white border border-outline-variant rounded-2xl px-6 py-4 shadow-sm flex flex-wrap items-center">
+            <label
+              htmlFor="num-figures-slider"
+              className="font-label-md text-label-md font-medium text-on-surface shrink-0"
+            >
+              Number of figures
+            </label>
+            <span
+              className="ml-2 bg-primary-fixed text-on-primary-fixed-variant font-bold rounded-md px-2 py-0.5 text-sm min-w-[1.75rem] text-center tabular-nums"
+              aria-hidden="true"
+            >
+              {numFigures}
+            </span>
+            <div
+              className="border-l border-outline-variant h-5 mx-3 shrink-0"
+              aria-hidden="true"
+            />
+            <div className="flex items-center gap-2">
+              <span className="font-label-sm text-label-sm text-on-surface-variant tabular-nums">
+                1
+              </span>
+              <input
+                id="num-figures-slider"
+                type="range"
+                min={1}
+                max={8}
+                step={1}
+                value={numFigures}
+                onChange={(e) => setNumFigures(Number(e.target.value))}
+                disabled={loading}
+                className="w-56 accent-primary"
+              />
+              <span className="font-label-sm text-label-sm text-on-surface-variant tabular-nums">
+                8
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleGenerate()}
             disabled={loading}
-            className="px-3 py-2.5 border border-outline-variant rounded-lg bg-surface-container-lowest font-body-sm text-body-sm min-w-[5rem]"
+            className="self-stretch flex items-center gap-2 px-6 bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95 disabled:opacity-60"
           >
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-          <span className="font-body-sm text-body-sm text-on-surface-variant max-w-xs">
-            Provisional applications have no required minimum — choose what best illustrates
-            your invention.
-          </span>
-        </label>
-        <button
-          type="button"
-          onClick={() => void handleGenerate()}
-          disabled={loading}
-          className="px-6 py-2.5 bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95 disabled:opacity-60 flex items-center gap-2"
-        >
-          <span className={`material-symbols-outlined text-sm ${loading ? "loading-spin" : ""}`}>
-            {loading ? "progress_activity" : "auto_awesome"}
-          </span>
-          {loading ? "Generating..." : "Generate Figures with AI"}
-        </button>
+            <span className={`material-symbols-outlined text-sm ${loading ? "loading-spin" : ""}`}>
+              {loading ? "progress_activity" : "auto_awesome"}
+            </span>
+            {loading ? "Generating..." : "Generate Figures with AI"}
+          </button>
+        </div>
+        <p className="font-body-sm text-body-sm text-on-surface-variant mt-2 max-w-xl">
+          Provisional applications have no required minimum — choose what best illustrates your
+          invention.
+        </p>
         {figures.length > 0 && current && (
-          <>
+          <div className="flex flex-wrap gap-3 mt-4">
             <button
               type="button"
               onClick={handleDownloadMermaid}
@@ -299,7 +321,7 @@ export default function Figures() {
             >
               {pngLoading ? "Rendering..." : "Download PNG"}
             </button>
-          </>
+          </div>
         )}
       </div>
 

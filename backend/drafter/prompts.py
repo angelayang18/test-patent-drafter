@@ -438,11 +438,18 @@ FIGURES_SYSTEM = (
     "Provisional applications have no required minimum number of figures — the applicant "
     "chooses how many drawings to include. "
     "Each figure MUST use the exact diagram type assigned to its figure number "
-    "(FIG. 1: graph LR, FIG. 2: flowchart TD, FIG. 3: sequenceDiagram, FIG. 4+: classDiagram). "
-    "Do NOT use graph LR or flowchart TD for figures 3 or higher. "
+    "(FIG. 1: graph TD, FIG. 2: flowchart TD, FIG. 3: flowchart TD, FIG. 4+: classDiagram). "
+    "FIG. 2 and FIG. 3 both use flowchart TD but MUST differ structurally "
+    "(method/process steps vs data/message flow). "
+    "Do NOT use graph LR or sequenceDiagram for any figure. "
+    "Do NOT use flowchart TD for figures 4 or higher. "
     "Do NOT produce two figures with the same visual structure. "
-    "Each figure MUST use a different Mermaid diagram type AND a different structural layout — "
+    "Each figure MUST use a different structural layout — "
     "never repeat the same vertical linear chain of components across figures. "
+    "All diagrams will be rendered on US letter paper (8.5×11 inches) with 1-inch margins "
+    "in portrait orientation. Prefer tall/vertical layouts over wide/horizontal ones. "
+    "Limit nodes per row to 4 in flowcharts. "
+    "Wider diagrams will be unreadable when printed on letter-size paper. "
     "Each component must display its reference numeral as plain Arabic digits (no brackets). "
     "In flowchart/graph diagrams, include the numeral in the plain-text label, "
     "e.g. A[\"Ingestion module 200\"]. "
@@ -463,13 +470,20 @@ MERMAID_NO_HTML_RULES = """
   e.g. A["Ingestion module 200"], not A["Ingestion module<br/>200"].
 """
 
+MERMAID_GRAPH_TD_SUBGRAPH_RULE = (
+    "For graph TD diagrams, every subgraph must contain at least 2 nodes. "
+    "A subgraph with only 1 node destroys the top-down layout and creates a horizontal chain."
+)
+
 DIAGRAM_TYPE_DIVERSITY_RULES = """
 DIAGRAM TYPE DIVERSITY (mandatory):
-- Each figure MUST use a DIFFERENT Mermaid diagram type. Do NOT use flowchart for more than one figure.
+- FIG. 2 and FIG. 3 both use flowchart TD but MUST look structurally different: FIG. 2 shows
+  method/process steps; FIG. 3 shows data/message flow between components with labeled arrows.
 - Each figure MUST use different components or a different subset — do NOT repeat the same full list
   of components across all figures. Each figure illuminates a different aspect of the invention.
-- Each figure must cover a DISTINCT aspect (architecture vs. method vs. interaction vs. data model) —
+- Each figure must cover a DISTINCT aspect (architecture vs. method vs. data flow vs. data model) —
   NOT the same high-level overview repeated in different diagram types or layouts.
+- Do NOT use sequenceDiagram — sequence diagrams are too wide for letter-size portrait paper.
 """
 
 FIGURE_COMPONENT_SUBSET_RULE = (
@@ -487,36 +501,82 @@ in a different figure. Use the component names exactly as they appear in the
 detailed description text.
 """
 
-FIG_1_STRUCTURE_RULES = """
-FIG. 1 — System Architecture (use graph LR or graph TD — NOT flowchart):
-- Use `graph LR` (left-to-right) or `graph TD` with subgraphs
-- Show components grouped into logical LAYERS or SUBSYSTEMS, not a single chain
-- Use subgraph blocks (e.g., `subgraph IngestionLayer ["Ingestion Layer"]`,
-  `subgraph StorageLayer ["Storage Layer"]`) to cluster related components
-- Show parallel paths and lateral connections between subsystems
-- NOT a top-to-bottom linear list of every module in processing order
-- Include reference numerals in plain-text node labels, e.g. A["Ingestion module 200"]
+FIG_2_AND_3_REFERENCE_NUMERAL_RULES = """
+REFERENCE NUMERALS IN FIG. 2 and FIG. 3:
+- If you put a reference numeral in a node box, the node label MUST use the exact
+  same component name as FIG. 1 (e.g., if 202 = "Document Structure Parsing Interface"
+  in FIG. 1, then ANY node labeled 202 in FIG. 2 must also say "Document Structure
+  Parsing Interface 202" — never a paraphrase or process-step description).
+- Put the process step action in the ARROW LABEL between nodes, not in the node box.
+  Example: A["Document Structure Parsing Interface 202"] -- "normalize and tokenize" --> B["LLM Structural Analysis Module 204"]
+- Alternatively, use NO reference numerals in FIG. 2 nodes at all — just descriptive
+  step names — since FIG. 2 is a method flowchart, not a component diagram.
+  This is the preferred approach when showing decision branches and process steps.
 """
 
-FIG_2_STRUCTURE_RULES = """
+FIG_1_STRUCTURE_RULES = """
+FIG. 1 — System Architecture (use graph TD):
+- Use `graph TD` with 2–3 subgraph blocks, each containing MULTIPLE nodes (2–4 nodes per subgraph)
+- DO NOT create a linear chain of single-node subgraphs — this renders horizontally regardless of direction
+- Group components into logical TIERS stacked top-to-bottom: e.g. "Input Tier" (2 nodes), "Processing Tier" (3 nodes), "Output Tier" (2 nodes)
+- Connections go BETWEEN tiers (a node in tier 1 connects to a node in tier 2), not subgraph-to-subgraph
+- This creates a genuinely portrait-oriented diagram that fits letter paper
+- Include reference numerals in plain-text node labels, e.g. A["Ingestion module 200"]
+
+CORRECT structure example:
+  graph TD
+    subgraph InputTier ["Input Tier"]
+      A[Component A 200]
+      B[Component B 202]
+    end
+    subgraph ProcessTier ["Processing Tier"]
+      C[Component C 204]
+      D[Component D 206]
+      E[Component E 208]
+    end
+    subgraph OutputTier ["Output Tier"]
+      F[Component F 210]
+      G[Component G 212]
+    end
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    E --> G
+
+WRONG structure (do NOT do this — renders as horizontal pipeline):
+  graph TD
+    subgraph Layer1
+      A[Node A]
+    end
+    subgraph Layer2
+      B[Node B]
+    end
+    A --> B
+"""
+
+FIG_2_STRUCTURE_RULES = f"""
 FIG. 2 — Method Flowchart (use flowchart TD):
 - Use `flowchart TD`
-- Must include at least one decision diamond (`{{...}}`) with branching paths (yes/no or condition-based)
+- Must include at least one decision diamond (`{{{{...}}}}`) with branching paths (yes/no or condition-based)
 - Show distinct START and END nodes
 - Steps should reflect the actual method/process steps, NOT the same component list as FIG. 1
 - Should depict WHAT THE SYSTEM DOES step-by-step, not what components exist
-- Use action-oriented step labels (e.g. "Receive document", "Extract structure", "Generate embedding")
-  with reference numerals where a step maps to a described module
+- Use action-oriented step descriptions on ARROW LABELS (e.g. "Receive document", "Extract structure")
+{FIG_2_AND_3_REFERENCE_NUMERAL_RULES}
 """
 
-FIG_3_STRUCTURE_RULES = """
-FIG. 3 — Data Flow / Interaction (use sequenceDiagram):
-- Use `sequenceDiagram`
-- Show messages passed between named actors (e.g., Client, Ingestion Module 200, Vector DB 209,
-  Retrieval Pipeline 210)
-- Actors should be a SUBSET of the key components — not all components from FIG. 1
-- Include at least 2 `loop` or `alt` blocks showing conditional or repeated interactions
-- Focus on runtime message/data exchange, not static architecture
+FIG_3_STRUCTURE_RULES = f"""
+FIG. 3 — Data Flow / Interaction (use flowchart TD):
+- Use `flowchart TD` to show data flowing between major components vertically
+- Use labeled arrows to show what data passes between components (e.g., `A -- "raw text" --> B`)
+- Include at least one decision branch or parallel path to distinguish it from FIG. 2
+- Maximum 6 nodes, laid out top-to-bottom
+- This figure should show the DATA/MESSAGE flow, while FIG. 2 shows the METHOD/PROCESS steps — they must look structurally different
+- Use a subset of key components — not all components from FIG. 1
+- Focus on runtime data/message exchange between components, not static architecture or step-by-step method logic
+{FIG_2_AND_3_REFERENCE_NUMERAL_RULES}
 """
 
 FIG_4_PLUS_STRUCTURE_RULES = """
@@ -529,12 +589,17 @@ FIG. 4+ — Data Model / State (use classDiagram or stateDiagram-v2):
 
 FIGURE_DIAGRAM_TYPE_REQUIREMENTS = """
 MANDATORY DIAGRAM TYPE PER FIGURE (each figure MUST use the exact type specified):
-1. FIG. 1 — `graph LR` with subgraphs grouping related components (system architecture overview; must use at least 2 subgraph blocks)
+1. FIG. 1 — `graph TD` with 2–3 tier subgraphs (2–4 nodes each); connections between tiers, not single-node subgraph chains (system architecture overview for letter-size portrait paper)
 2. FIG. 2 — `flowchart TD` with at least one decision diamond (`{Decision?}`) showing branching logic (method/process flow)
-3. FIG. 3 — `sequenceDiagram` with at least 3 named participants and `alt`/`loop` blocks (data flow / interaction)
+3. FIG. 3 — `flowchart TD` with labeled data-flow arrows, max 6 nodes top-to-bottom; must differ structurally from FIG. 2 (data/message flow, not method steps)
 4. FIG. 4 — `classDiagram` with at least 3 classes showing relationships (component/data model)
 
-Each figure MUST use the exact diagram type specified above. Do NOT use `graph LR` or `flowchart TD` for figures 3 or 4. Do NOT produce two figures with the same visual structure.
+All diagrams will be rendered on US letter paper (8.5×11 inches) with 1-inch margins in portrait orientation.
+Prefer tall/vertical layouts over wide/horizontal ones. Limit nodes per row to 4 in flowcharts.
+Do NOT use sequenceDiagram — sequence diagrams are too wide for letter-size portrait paper.
+
+Each figure MUST use the exact diagram type specified above. Do NOT use `graph LR` or `sequenceDiagram`.
+Do NOT use `flowchart TD` for figure 4. Do NOT produce two figures with the same visual structure.
 """
 
 FIGURE_STRUCTURE_RULES = f"""
@@ -598,6 +663,7 @@ REQUIREMENTS:
 
 REFERENCE NUMERAL RULES (mandatory — USPTO sample format):
 {REFERENCE_NUMERAL_CONSISTENCY_RULE}
+{FIG_2_AND_3_REFERENCE_NUMERAL_RULES}
 - Extract numerals and component names from the detailed description and use them exactly
 - Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
 - NEVER reuse a numeral for a different part (e.g. do NOT label "Layout preservation 200" if
@@ -608,15 +674,23 @@ REFERENCE NUMERAL RULES (mandatory — USPTO sample format):
 - Mermaid rules (all diagram types):
 {MERMAID_NO_HTML_RULES}
   - Each figure's mermaid must start with its diagram type on the first non-comment line
-  - Include reference numerals in every labeled component/participant/node/state/class
+  - FIG. 1 and FIG. 4+: include reference numerals in every labeled component/node/class using
+    exact component names from the detailed description
+  - FIG. 2 and FIG. 3: follow the FIG. 2/3 reference numeral rules above — never paraphrase a
+    FIG. 1 component name when using its numeral; put process/data descriptions on arrow labels
   - No classDef, no style directives, no colors, no subgraph styling
-  - Maximum 12 nodes/participants/entities per diagram
-  - Node labels MUST be plain text with component name and reference numeral together,
-    e.g. A["Ingestion module 200"]
+  - Maximum 12 nodes/participants/entities per diagram (FIG. 3: maximum 6 nodes)
+  - Do NOT use sequenceDiagram — too wide for letter-size portrait paper
+  - Limit nodes per row to 4 in flowcharts and graph diagrams
+  - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
+  - Node labels with numerals MUST use plain text with the exact FIG. 1 component name and numeral,
+    e.g. A["Document Structure Parsing Interface 202"]
   - Do NOT use direction statements inside subgraphs
   - When using subgraphs in Mermaid, always give them a quoted display title using bracket
     syntax, e.g. `subgraph ingestion [Ingestion Layer]`. Never use bare IDs like
     `subgraph sg203` — these render as ugly labels.
+- All diagrams will be rendered on US letter paper (8.5×11 inches) with 1-inch margins in portrait
+  orientation. Prefer tall/vertical layouts over wide/horizontal ones.
 
 - reference_numerals must use even numbers starting at 200 (200, 202, 204, ...) and match labels in mermaid
 - The same reference numeral must designate the same component whenever it appears across figures
@@ -630,7 +704,10 @@ Output ONLY the JSON object, no markdown fences."""
 def _figure_diagram_type_requirement(figure_number: int) -> str:
     """Return the mandatory Mermaid diagram type for a figure number."""
     if figure_number == 1:
-        return "`graph LR` with subgraphs grouping related components (system architecture overview)"
+        return (
+            "`graph TD` with 2–3 tier subgraphs (2–4 nodes each); connections between tiers, "
+            "not single-node subgraph chains (system architecture overview)"
+        )
     if figure_number == 2:
         return (
             "`flowchart TD` with at least one decision diamond (`{Decision?}`) "
@@ -638,8 +715,8 @@ def _figure_diagram_type_requirement(figure_number: int) -> str:
         )
     if figure_number == 3:
         return (
-            "`sequenceDiagram` with at least 3 named participants and "
-            "`alt`/`loop` blocks (data flow / interaction)"
+            "`flowchart TD` with labeled data-flow arrows, max 6 nodes top-to-bottom "
+            "(data/message flow — structurally distinct from FIG. 2 method steps)"
         )
     return (
         "`classDiagram` with at least 3 classes showing relationships "
@@ -684,7 +761,8 @@ Return a JSON object with exactly this key:
 
 MANDATORY DIAGRAM TYPE FOR FIG. {figure_number}:
 - FIG. {figure_number} MUST use {diagram_type}
-- Do NOT use `graph LR` or `flowchart TD` for figures 3 or 4+
+- Do NOT use `graph LR` or `sequenceDiagram` for any figure
+- Do NOT use `flowchart TD` for figures 4+
 - Do NOT produce the same visual structure as other figures in the set
 
 REQUIREMENTS:
@@ -699,14 +777,20 @@ REQUIREMENTS:
 - Mermaid rules:
 {MERMAID_NO_HTML_RULES}
   - The mermaid field must start with its diagram type on the first non-comment line
-  - Include reference numerals in every labeled component/participant/node/state/class
+  - FIG. 1 and FIG. 4+: include reference numerals in every labeled node using exact component names
+  - FIG. 2 and FIG. 3: follow the FIG. 2/3 reference numeral rules above — never paraphrase a
+    FIG. 1 component name when using its numeral; put process/data descriptions on arrow labels
   - No classDef, no style directives, no colors, no subgraph styling
-  - Maximum 12 nodes/participants/entities per diagram
-  - Node labels MUST be plain text with component name and reference numeral together,
-    e.g. A["Ingestion module 200"]
+  - Maximum 12 nodes/participants/entities per diagram (FIG. 3: maximum 6 nodes)
+  - Do NOT use sequenceDiagram — too wide for letter-size portrait paper
+  - Limit nodes per row to 4 in flowcharts and graph diagrams
+  - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
+  - Node labels with numerals MUST use plain text with the exact FIG. 1 component name and numeral
   - Do NOT use direction statements inside subgraphs
   - When using subgraphs in Mermaid, always give them a quoted display title using bracket
     syntax, e.g. `subgraph ingestion [Ingestion Layer]`
+- All diagrams will be rendered on US letter paper (8.5×11 inches) with 1-inch margins in portrait
+  orientation. Prefer tall/vertical layouts over wide/horizontal ones.
 
 Output ONLY the JSON object, no markdown fences."""
 
@@ -779,6 +863,7 @@ REQUIREMENTS:
 - Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
 - Keep the diagram black-and-white with no classDef, style directives, or colors
 - Maximum 12 nodes/participants per diagram
+- {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
 
 Output ONLY the JSON object, no markdown fences."""
 
