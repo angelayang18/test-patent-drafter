@@ -287,12 +287,12 @@ export function workflowHasProgress(workflow: WorkflowSnapshot): boolean {
 export function getResumePath(workflow: WorkflowSnapshot): string {
   if (workflow.workflowMode === "grant") {
     if (Object.values(workflow.sections).some((section) => section?.trim())) {
-      return "/draft";
+      return "/grant/draft";
     }
     if (workflow.grantDetails) {
-      return "/review";
+      return "/grant/review";
     }
-    return "/";
+    return "/grant/input";
   }
 
   if (workflow.figures.length > 0 || workflow.brief_description_of_drawings.trim()) {

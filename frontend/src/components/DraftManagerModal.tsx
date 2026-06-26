@@ -1,38 +1,58 @@
 import { useId, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useGrantWorkflow } from "../context/GrantWorkflowContext";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import {
   defaultDraftName,
   formatSavedAt,
   getResumePath,
+  readDraftFile,
   type SavedDraftRecord,
 } from "../utils/draftStorage";
+import { countAllSavedDrafts } from "../utils/draftCounts";
+import {
+  defaultGrantDraftName,
+  getGrantResumePath,
+  readGrantDraftFile,
+  type SavedGrantDraftRecord,
+} from "../utils/grantStorage";
 
 interface DraftManagerModalProps {
   open: boolean;
   onClose: () => void;
+  onDraftCountChange?: () => void;
 }
 
-export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
+function isGrantRoute(pathname: string): boolean {
+  return pathname.startsWith("/grant");
+}
+
+export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftManagerModalProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const uploadInputId = useId();
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const isGrant = isGrantRoute(location.pathname);
 
+  const patent = usePatentWorkflow();
+  const grant = useGrantWorkflow();
+
+  const activeContext = isGrant ? grant : patent;
   const {
-    invention,
     getWorkflowSnapshot,
-    getSavedDrafts,
     saveNamedDraft,
-    removeSavedDraft,
     exportDraftFile,
-    importDraftFile,
-    importWorkflow,
     saveToStorage,
     clearWorkflow,
-  } = usePatentWorkflow();
+  } = activeContext;
 
   const [draftName, setDraftName] = useState("");
-  const [savedDrafts, setSavedDrafts] = useState<SavedDraftRecord[]>(() => getSavedDrafts());
+  const [patentDrafts, setPatentDrafts] = useState<SavedDraftRecord[]>(() =>
+    patent.getSavedDrafts().filter((record) => record.workflow.workflowMode !== "grant"),
+  );
+  const [grantDrafts, setGrantDrafts] = useState<SavedGrantDraftRecord[]>(() =>
+    grant.getSavedDrafts(),
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -41,10 +61,16 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
   if (!open) return null;
 
   const snapshot = getWorkflowSnapshot();
-  const suggestedName = draftName.trim() || defaultDraftName(snapshot);
+  const suggestedName = isGrant
+    ? draftName.trim() || defaultGrantDraftName(snapshot as ReturnType<typeof grant.getWorkflowSnapshot>)
+    : draftName.trim() || defaultDraftName(snapshot as ReturnType<typeof patent.getWorkflowSnapshot>);
 
   const refreshDraftList = () => {
-    setSavedDrafts(getSavedDrafts());
+    setPatentDrafts(
+      patent.getSavedDrafts().filter((record) => record.workflow.workflowMode !== "grant"),
+    );
+    setGrantDrafts(grant.getSavedDrafts());
+    onDraftCountChange?.();
   };
 
   const handleSaveCurrent = () => {
@@ -67,23 +93,37 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
     try {
       saveToStorage();
       exportDraftFile(suggestedName);
-      setMessage(`Downloaded ${suggestedName}.patent-draft.json`);
+      const suffix = isGrant ? ".grant-draft.json" : ".patent-draft.json";
+      setMessage(`Downloaded ${suggestedName}${suffix}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not download draft.");
     }
   };
 
-  const handleLoadSaved = (record: SavedDraftRecord) => {
+  const handleLoadPatentDraft = (record: SavedDraftRecord) => {
     setError(null);
-    importWorkflow(record.workflow);
+    patent.importWorkflow(record.workflow);
     onClose();
     navigate(getResumePath(record.workflow));
   };
 
-  const handleDeleteSaved = (id: string) => {
-    removeSavedDraft(id);
+  const handleLoadGrantDraft = (record: SavedGrantDraftRecord) => {
+    setError(null);
+    grant.importWorkflow(record.workflow);
+    onClose();
+    navigate(getGrantResumePath(record.workflow));
+  };
+
+  const handleDeletePatentDraft = (id: string) => {
+    patent.removeSavedDraft(id);
     refreshDraftList();
-    setMessage("Removed saved draft.");
+    setMessage("Removed saved patent draft.");
+  };
+
+  const handleDeleteGrantDraft = (id: string) => {
+    grant.removeSavedDraft(id);
+    refreshDraftList();
+    setMessage("Removed saved grant draft.");
   };
 
   const handleUpload = async (file: File | undefined) => {
@@ -92,11 +132,42 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
     setError(null);
     setMessage(null);
     try {
-      const workflow = await importDraftFile(file);
+      let loadedAsGrant = false;
+
+      try {
+        const parsed = await readGrantDraftFile(file);
+        grant.importWorkflow(parsed.workflow);
+        loadedAsGrant = true;
+      } catch {
+        const parsed = await readDraftFile(file);
+        if (parsed.workflow.workflowMode === "grant") {
+          grant.importWorkflow({
+            grantDetails: parsed.workflow.grantDetails,
+            sections: parsed.workflow.sections,
+            uploadedFiles: parsed.workflow.uploadedFiles,
+            inputSources: parsed.workflow.inputSources,
+            cachedRemoteSources: parsed.workflow.cachedRemoteSources,
+            completedSteps: parsed.workflow.completedSteps?.filter(
+              (step): step is "input" | "review" | "draft" | "export" =>
+                step !== "figures",
+            ),
+            extractionSourceKey: parsed.workflow.extractionSourceKey,
+            autoDraftPending: parsed.workflow.autoDraftPending,
+          });
+          loadedAsGrant = true;
+        } else {
+          patent.importWorkflow(parsed.workflow);
+        }
+      }
+
       refreshDraftList();
       setMessage(`Loaded draft from ${file.name}`);
       onClose();
-      navigate(getResumePath(workflow));
+      if (loadedAsGrant) {
+        navigate(getGrantResumePath(grant.getWorkflowSnapshot()));
+      } else {
+        navigate(getResumePath(patent.getWorkflowSnapshot()));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load draft file.");
     } finally {
@@ -108,8 +179,11 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
   const handleConfirmClear = () => {
     onClose();
     clearWorkflow();
-    navigate("/", { replace: true });
+    navigate(isGrant ? "/grant/input" : "/", { replace: true });
   };
+
+  const hasCurrentWork = isGrant ? Boolean(grant.grantDetails) : Boolean(patent.invention);
+  const totalSaved = countAllSavedDrafts();
 
   return (
     <div
@@ -131,6 +205,9 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
             </h2>
             <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
               Save your work in this browser or upload a draft file to continue later.
+              {totalSaved > 0 && (
+                <span className="block mt-1">{totalSaved} saved draft{totalSaved === 1 ? "" : "s"} in this browser.</span>
+              )}
             </p>
           </div>
           <button
@@ -165,7 +242,7 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
               type="text"
               value={draftName}
               onChange={(e) => setDraftName(e.target.value)}
-              placeholder={defaultDraftName(snapshot)}
+              placeholder={suggestedName}
               className="w-full bg-white border border-outline-variant rounded-lg p-3 font-body-sm text-body-sm focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none"
             />
             <div className="flex flex-wrap gap-2">
@@ -185,9 +262,8 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
               </button>
             </div>
             <p className="font-body-sm text-body-sm text-on-surface-variant">
-              Your current work also auto-saves in this browser as you edit. Download a{" "}
-              <code className="text-xs">.patent-draft.json</code> file to move drafts between
-              devices or back up your progress.
+              Your current work also auto-saves in this browser as you edit. Download a draft file
+              to move drafts between devices or back up your progress.
             </p>
           </section>
 
@@ -197,7 +273,7 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
               ref={uploadInputRef}
               id={uploadInputId}
               type="file"
-              accept=".json,.patent-draft.json,application/json"
+              accept=".json,.patent-draft.json,.grant-draft.json,application/json"
               className="hidden"
               onChange={(e) => void handleUpload(e.target.files?.[0])}
             />
@@ -208,21 +284,19 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
               className="w-full px-4 py-3 rounded-lg border-2 border-dashed border-outline-variant hover:border-secondary hover:bg-secondary/5 font-label-md text-label-md text-on-surface-variant transition-all disabled:opacity-60 flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined">upload_file</span>
-              {busy ? "Loading draft…" : "Choose .patent-draft.json file"}
+              {busy ? "Loading draft…" : "Choose draft file (.patent-draft.json or .grant-draft.json)"}
             </button>
           </section>
 
           <section className="space-y-3">
-            <h3 className="font-label-md text-label-md text-on-surface">
-              Saved in this browser
-            </h3>
-            {savedDrafts.length === 0 ? (
+            <h3 className="font-label-md text-label-md text-on-surface">Patent drafts</h3>
+            {patentDrafts.length === 0 ? (
               <p className="font-body-sm text-body-sm text-on-surface-variant">
-                No named drafts yet. Save your current work to pick up where you left off.
+                No saved patent drafts yet.
               </p>
             ) : (
               <ul className="space-y-2">
-                {savedDrafts.map((record) => (
+                {patentDrafts.map((record) => (
                   <li
                     key={record.id}
                     className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors"
@@ -237,7 +311,7 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => handleLoadSaved(record)}
+                      onClick={() => handleLoadPatentDraft(record)}
                       className="px-3 py-1.5 rounded-lg bg-secondary/10 text-secondary font-label-sm text-label-sm hover:bg-secondary/20 shrink-0"
                     >
                       Open
@@ -245,7 +319,7 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
                     <button
                       type="button"
                       aria-label={`Delete ${record.name}`}
-                      onClick={() => handleDeleteSaved(record.id)}
+                      onClick={() => handleDeletePatentDraft(record.id)}
                       className="p-2 text-error hover:bg-error-container rounded-full shrink-0"
                     >
                       <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -256,7 +330,49 @@ export function DraftManagerModal({ open, onClose }: DraftManagerModalProps) {
             )}
           </section>
 
-          {invention && (
+          <section className="space-y-3">
+            <h3 className="font-label-md text-label-md text-on-surface">Grant drafts</h3>
+            {grantDrafts.length === 0 ? (
+              <p className="font-body-sm text-body-sm text-on-surface-variant">
+                No saved grant drafts yet.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {grantDrafts.map((record) => (
+                  <li
+                    key={record.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-body-md text-body-md font-medium truncate">
+                        {record.name}
+                      </p>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        {formatSavedAt(record.savedAt)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleLoadGrantDraft(record)}
+                      className="px-3 py-1.5 rounded-lg bg-secondary/10 text-secondary font-label-sm text-label-sm hover:bg-secondary/20 shrink-0"
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${record.name}`}
+                      onClick={() => handleDeleteGrantDraft(record.id)}
+                      className="p-2 text-error hover:bg-error-container rounded-full shrink-0"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {hasCurrentWork && (
             <section className="pt-2 border-t border-outline-variant space-y-3">
               {confirmingClear ? (
                 <div className="p-4 rounded-lg border border-error/30 bg-error-container/10 space-y-3">

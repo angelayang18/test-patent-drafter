@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
-import { useFileUpload } from "../hooks/useFileUpload";
+import { usePatentFileUpload } from "../hooks/usePatentFileUpload";
 import { fileIcon } from "../utils/format";
 
 export function MidWorkflowUpload() {
@@ -9,7 +9,7 @@ export function MidWorkflowUpload() {
   const dropzoneRef = useRef<HTMLDivElement>(null);
 
   const { uploadedFiles, removeUploadedFile, saveToStorage } = usePatentWorkflow();
-  const { processFiles, uploadQueue, error: uploadError, uploading } = useFileUpload();
+  const { processFiles, uploadQueue, error: uploadError, uploading } = usePatentFileUpload();
 
   const [expanded, setExpanded] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);

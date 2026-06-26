@@ -1,30 +1,27 @@
 import { useState, type ReactNode } from "react";
-import { StepNav, type WorkflowStep } from "./StepNav";
+import { GrantStepNav, type GrantWorkflowStep } from "./GrantStepNav";
 import { AppHeader } from "./AppHeader";
 import { DraftManagerModal } from "./DraftManagerModal";
-import { PatentSubmissionGuidePanel } from "./PatentSubmissionGuidePanel";
-import { usePatentWorkflow } from "../context/PatentWorkflowContext";
+import { useGrantWorkflow } from "../context/GrantWorkflowContext";
 import { countAllSavedDrafts } from "../utils/draftCounts";
 
-interface AppShellProps {
-  step: WorkflowStep;
+interface GrantAppShellProps {
+  step: GrantWorkflowStep;
   children: ReactNode;
   footer?: ReactNode;
   mainClassName?: string;
-  /** fixed = viewport-locked (draft/review); document = page scrolls (export) */
   layout?: "fixed" | "document";
 }
 
-export function AppShell({
+export function GrantAppShell({
   step,
   children,
   footer,
   mainClassName = "",
   layout = "fixed",
-}: AppShellProps) {
-  const { saveToStorage } = usePatentWorkflow();
+}: GrantAppShellProps) {
+  const { saveToStorage } = useGrantWorkflow();
   const [draftManagerOpen, setDraftManagerOpen] = useState(false);
-  const [filingGuideOpen, setFilingGuideOpen] = useState(false);
   const [draftCount, setDraftCount] = useState(countAllSavedDrafts);
   const isDocument = layout === "document";
 
@@ -41,21 +38,9 @@ export function AppShell({
       }`}
     >
       <AppHeader
-        stepNav={<StepNav current={step} />}
+        stepNav={<GrantStepNav current={step} />}
         draftCount={draftCount}
         onOpenDrafts={openDraftManager}
-        filingGuideButton={
-          <button
-            type="button"
-            onClick={() => setFilingGuideOpen(true)}
-            className="bg-primary-container/20 hover:bg-primary-container/40 text-on-primary p-2 sm:px-4 sm:py-2 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center gap-2"
-            aria-label="Open patent submission guide"
-            title="Patent submission guide"
-          >
-            <span className="material-symbols-outlined text-[20px]">info</span>
-            <span className="hidden sm:inline">Filing guide</span>
-          </button>
-        }
       />
 
       <main
@@ -74,10 +59,6 @@ export function AppShell({
         open={draftManagerOpen}
         onClose={() => setDraftManagerOpen(false)}
         onDraftCountChange={() => setDraftCount(countAllSavedDrafts())}
-      />
-      <PatentSubmissionGuidePanel
-        open={filingGuideOpen}
-        onClose={() => setFilingGuideOpen(false)}
       />
     </div>
   );

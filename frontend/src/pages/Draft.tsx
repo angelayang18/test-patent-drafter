@@ -7,6 +7,7 @@ import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { MidWorkflowUpload } from "../components/MidWorkflowUpload";
 import { SelectionRegeneratePopover } from "../components/SelectionRegeneratePopover";
+import { CopyToClipboardButton } from "../components/CopyToClipboardButton";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
 import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
@@ -388,14 +389,6 @@ export default function Draft() {
     })();
   };
 
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(draftText);
-    } catch {
-      setError("Could not copy to clipboard.");
-    }
-  };
-
   const previewSections = useMemo(() => {
     const merged = { ...sections };
     const activePending = pendingSectionIds.includes(activeSection);
@@ -633,15 +626,14 @@ export default function Draft() {
 
             <div className="relative group">
               <div className="absolute -right-16 top-0 hidden lg:flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                <button
-                  type="button"
-                  onClick={() => void handleCopy()}
+                <CopyToClipboardButton
+                  text={draftText}
                   disabled={isGeneratingActive}
+                  onError={setError}
+                  variant="icon"
+                  label="Copy to clipboard"
                   className="p-2 bg-surface-container-lowest border border-outline-variant rounded-lg shadow-sm hover:bg-secondary hover:text-on-primary transition-all active:scale-95 disabled:opacity-50"
-                  title="Copy Content"
-                >
-                  <span className="material-symbols-outlined">content_copy</span>
-                </button>
+                />
               </div>
               <div className="bg-surface-container-lowest canvas-shadow border border-outline-variant rounded-lg p-10 min-h-[400px] flex flex-col relative">
                 {isGeneratingActive && (

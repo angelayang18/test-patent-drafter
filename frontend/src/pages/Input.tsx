@@ -7,9 +7,8 @@ import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowNextButton } from "../components/WorkflowNavButtons";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
 import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
-import { useFileUpload } from "../hooks/useFileUpload";
-import { ApiError, extractionNotesFromSources, extractGrant, extractInvention } from "../services/api";
-import type { WorkflowMode } from "../types/patent";
+import { usePatentFileUpload } from "../hooks/usePatentFileUpload";
+import { ApiError, extractionNotesFromSources, extractInvention } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
 import { computeExtractionSourceKey } from "../utils/extractionSourceKey";
@@ -36,17 +35,13 @@ export default function InputPage() {
   const dropzoneRef = useRef<HTMLDivElement>(null);
 
   const {
-    workflowMode,
-    setWorkflowMode,
     uploadedFiles,
     inputSources,
     invention,
-    grantDetails,
     removeUploadedFile,
     setInputSources,
     gatherSourceText,
     setInvention,
-    setGrantDetails,
     setExtractionSourceKey,
     getWorkflowSnapshot,
     saveToStorage,
@@ -57,7 +52,7 @@ export default function InputPage() {
   const hasSavedProgress =
     !workflowResetting && workflowHasProgress(getWorkflowSnapshot());
 
-  const { processFiles, uploadQueue, error: uploadError, uploading } = useFileUpload();
+  const { processFiles, uploadQueue, error: uploadError, uploading } = usePatentFileUpload();
 
   const [showToken, setShowToken] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -123,8 +118,7 @@ export default function InputPage() {
     }
   };
 
-  const isGrant = workflowMode === "grant";
-  const hasExtractedDetails = isGrant ? Boolean(grantDetails) : Boolean(invention);
+  const hasExtractedDetails = Boolean(invention);
 
   const handleContinue = async () => {
     setHasAttemptedSubmit(true);
@@ -166,19 +160,10 @@ export default function InputPage() {
         return;
       }
 
-      setExtractPhase(
-        isGrant
-          ? "Extracting grant application details (parallel AI analysis)…"
-          : "Extracting invention details (parallel AI analysis)…",
-      );
+      setExtractPhase("Extracting invention details (parallel AI analysis)…");
       const notes = extractionNotesFromSources(inputSources);
-      if (isGrant) {
-        const details = await extractGrant(combined, notes);
-        setGrantDetails(details);
-      } else {
-        const details = await extractInvention(combined, notes);
-        setInvention(details);
-      }
+      const details = await extractInvention(combined, notes);
+      setInvention(details);
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/review");
@@ -187,13 +172,7 @@ export default function InputPage() {
         setConfluenceError(err.message);
         return;
       }
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : isGrant
-            ? "Failed to extract grant application details."
-            : "Failed to extract invention details.",
-      );
+      setError(err instanceof ApiError ? err.message : "Failed to extract invention details.");
     } finally {
       setSubmitting(false);
       setExtractPhase(null);
@@ -251,13 +230,9 @@ export default function InputPage() {
         <div className="mb-6 p-4 rounded-lg bg-secondary-container/15 border border-secondary/30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <p className="font-title-md text-title-md text-on-surface">
-              {isGrant
-                ? grantDetails?.project_title?.trim()
-                  ? `Continue “${grantDetails.project_title}”?`
-                  : "Continue your saved grant draft?"
-                : invention?.invention_title?.trim()
-                  ? `Continue “${invention.invention_title}”?`
-                  : "Continue your saved draft?"}
+              {invention?.invention_title?.trim()
+                ? `Continue “${invention.invention_title}”?`
+                : "Continue your saved draft?"}
             </p>
             <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
               Your progress is saved in this browser. Use <strong>Drafts</strong> in the header to
@@ -275,38 +250,6 @@ export default function InputPage() {
       )}
 
       <div className="flex flex-col gap-10">
-        <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
-          <div className="mb-6">
-            <h2 className="font-headline-md text-headline-md text-primary mb-3">Workflow mode</h2>
-            <div className="inline-flex rounded-lg border border-outline-variant p-1 bg-surface-container-low">
-              {(
-                [
-                  { id: "patent" as WorkflowMode, label: "Patent Draft" },
-                  { id: "grant" as WorkflowMode, label: "Grant Application" },
-                ] as const
-              ).map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => setWorkflowMode(option.id)}
-                  className={`px-5 py-2.5 rounded-md font-label-md text-label-md transition-all ${
-                    workflowMode === option.id
-                      ? "bg-secondary text-on-secondary shadow-sm"
-                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-lowest"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <p className="font-body-sm text-body-sm text-on-surface-variant mt-3">
-              {isGrant
-                ? "Extract grant details and draft application sections for funding proposals."
-                : "Extract invention details and draft a US provisional patent application."}
-            </p>
-          </div>
-        </section>
-
         <section className="bg-surface-container-lowest p-8 rounded-xl border border-outline-variant shadow-sm bento-card">
           <div className="flex items-start gap-3 mb-6">
             <div className="p-2 bg-primary/10 rounded-lg shrink-0">

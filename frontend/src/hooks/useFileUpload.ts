@@ -1,10 +1,11 @@
 import { useCallback, useMemo, useState } from "react";
-import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { ApiError, uploadDocuments } from "../services/api";
+import type { UploadedSourceFile } from "../context/grantContext";
 import { isAcceptedFile, type UploadQueueItem } from "../types/upload";
 
-export function useFileUpload() {
-  const { addUploadedFilesAndPersist } = usePatentWorkflow();
+export function useFileUpload(
+  addUploadedFilesAndPersist: (files: UploadedSourceFile[]) => void,
+) {
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
