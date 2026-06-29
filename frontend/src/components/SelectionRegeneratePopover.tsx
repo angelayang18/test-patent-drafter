@@ -70,7 +70,7 @@ export function SelectionRegeneratePopover({
       <div
         ref={cardRef}
         aria-hidden
-        className="fixed opacity-0 pointer-events-none -z-50 w-[280px] p-3 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-lg"
+        className="fixed opacity-0 pointer-events-none -z-50 w-[360px] p-3 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-lg"
       />
     );
   }
@@ -87,7 +87,7 @@ export function SelectionRegeneratePopover({
       ref={cardRef}
       role="dialog"
       aria-label="Rewrite selection"
-      className="fixed z-[100] w-[280px] p-3 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-lg flex flex-col gap-2"
+      className="fixed z-[100] w-[360px] p-3 rounded-lg border border-outline-variant bg-surface-container-lowest shadow-lg flex flex-col gap-2"
       style={{ top: position.top, left: position.left }}
     >
       <input
@@ -95,7 +95,7 @@ export function SelectionRegeneratePopover({
         type="text"
         value={instruction}
         disabled={loading}
-        placeholder="Optional instruction, e.g. 'make it more concise'"
+        placeholder="Add instruction (optional)"
         onChange={(event) => setInstruction(event.target.value)}
         onKeyDown={handleInputKeyDown}
         className="w-full px-3 py-1.5 rounded-md border border-outline-variant bg-white text-on-surface font-body-sm text-body-sm focus:ring-2 focus:ring-secondary focus:border-secondary outline-none disabled:opacity-60"
