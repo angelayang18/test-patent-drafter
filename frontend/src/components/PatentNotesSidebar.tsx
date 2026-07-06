@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AttorneyFeedbackSummaryPanel } from "./AttorneyFeedbackSummaryPanel";
+import { NotesSidebarCoachmark } from "./NotesSidebarCoachmark";
 import type { PatentSectionId } from "../types/patent";
+import { hasSeenNotesSidebarHint, markNotesSidebarHintSeen } from "../utils/uiHints";
 
 interface PatentNotesSidebarProps {
   attorneyFeedback: Record<PatentSectionId, string>;
@@ -11,7 +13,23 @@ export function PatentNotesSidebar({
   attorneyFeedback,
   sectionLabels,
 }: PatentNotesSidebarProps) {
+  const toggleRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
+  const [showHint, setShowHint] = useState(() => !hasSeenNotesSidebarHint());
+
+  const dismissHint = useCallback(() => {
+    markNotesSidebarHintSeen();
+    setShowHint(false);
+  }, []);
+
+  const handleToggle = () => {
+    setOpen((wasOpen) => {
+      if (!wasOpen && showHint) {
+        dismissHint();
+      }
+      return !wasOpen;
+    });
+  };
 
   return (
     <div className="absolute inset-y-0 right-0 z-30">
@@ -41,11 +59,14 @@ export function PatentNotesSidebar({
       </aside>
 
       <button
+        ref={toggleRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={handleToggle}
         aria-expanded={open}
         aria-label={open ? "Collapse notes panel" : "Expand notes panel"}
-        className="absolute inset-y-0 right-0 flex w-9 items-center justify-center border-l border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors"
+        className={`absolute inset-y-0 right-0 flex w-9 items-center justify-center border-l border-outline-variant bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors ${
+          showHint ? "notes-tab-pulse" : ""
+        }`}
       >
         <span
           className="font-label-sm text-label-sm tracking-widest uppercase whitespace-nowrap"
@@ -54,6 +75,10 @@ export function PatentNotesSidebar({
           Notes
         </span>
       </button>
+
+      {showHint && (
+        <NotesSidebarCoachmark anchorRef={toggleRef} onDismiss={dismissHint} />
+      )}
     </div>
   );
 }

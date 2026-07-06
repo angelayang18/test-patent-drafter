@@ -36,7 +36,7 @@ export function AppHeader({
             Patent Drafter
           </Link>
           <Link
-            to="/grant/input"
+            to="/grant"
             className={`px-4 py-2 rounded-md font-label-md text-label-md transition-all whitespace-nowrap ${
               activeWorkflow === "grant"
                 ? "bg-secondary text-on-secondary shadow-sm"

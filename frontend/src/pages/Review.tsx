@@ -577,6 +577,7 @@ export default function Review() {
         const { combined } = await gatherSourceText();
         if (!combined.trim()) {
           setError("No source material available. Go back to Input and add sources.");
+          dismissSelectionPopover();
           return;
         }
 

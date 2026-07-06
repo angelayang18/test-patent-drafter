@@ -6,6 +6,7 @@ import Draft from "./pages/Draft";
 import Figures from "./pages/Figures";
 import Review from "./pages/Review";
 import Export from "./pages/Export";
+import GrantLanding from "./pages/grant/GrantLanding";
 import GrantInput from "./pages/grant/GrantInput";
 import GrantReview from "./pages/grant/GrantReview";
 import GrantDraft from "./pages/grant/GrantDraft";
@@ -23,7 +24,7 @@ export default function App() {
             <Route path="/figures" element={<Figures />} />
             <Route path="/export" element={<Export />} />
 
-            <Route path="/grant" element={<Navigate to="/grant/input" replace />} />
+            <Route path="/grant" element={<GrantLanding />} />
             <Route path="/grant/input" element={<GrantInput />} />
             <Route path="/grant/review" element={<GrantReview />} />
             <Route path="/grant/draft" element={<GrantDraft />} />

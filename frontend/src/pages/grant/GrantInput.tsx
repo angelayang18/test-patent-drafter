@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { HudComplianceChecklistPanel } from "../../components/HudComplianceChecklistPanel";
 import UploadPanel, { getWebsiteUrlError } from "../../components/UploadPanel";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
@@ -181,6 +182,7 @@ export default function GrantInput() {
           onClearConfluenceError={() => setConfluenceError(null)}
           confluenceLoading={submitting && Boolean(extractPhase?.toLowerCase().includes("confluence"))}
         />
+        <HudComplianceChecklistPanel />
       </div>
     </GrantAppShell>
   );

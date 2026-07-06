@@ -11,6 +11,7 @@ interface GrantAppShellProps {
   footer?: ReactNode;
   mainClassName?: string;
   layout?: "fixed" | "document";
+  showStepNav?: boolean;
 }
 
 export function GrantAppShell({
@@ -19,6 +20,7 @@ export function GrantAppShell({
   footer,
   mainClassName = "",
   layout = "fixed",
+  showStepNav = true,
 }: GrantAppShellProps) {
   const { saveToStorage } = useGrantWorkflow();
   const [draftManagerOpen, setDraftManagerOpen] = useState(false);
@@ -38,7 +40,7 @@ export function GrantAppShell({
       }`}
     >
       <AppHeader
-        stepNav={<GrantStepNav current={step} />}
+        stepNav={showStepNav ? <GrantStepNav current={step} /> : null}
         draftCount={draftCount}
         onOpenDrafts={openDraftManager}
       />
