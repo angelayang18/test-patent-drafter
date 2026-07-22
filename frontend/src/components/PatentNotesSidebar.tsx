@@ -1,21 +1,32 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AttorneyFeedbackSummaryPanel } from "./AttorneyFeedbackSummaryPanel";
 import { NotesSidebarCoachmark } from "./NotesSidebarCoachmark";
 import type { PatentSectionId } from "../types/patent";
 import { hasSeenNotesSidebarHint, markNotesSidebarHintSeen } from "../utils/uiHints";
 
+export const NOTES_SIDEBAR_TAB_WIDTH_PX = 36;
+export const NOTES_SIDEBAR_PANEL_WIDTH_PX = 280;
+export const NOTES_SIDEBAR_OPEN_OFFSET_PX =
+  NOTES_SIDEBAR_TAB_WIDTH_PX + NOTES_SIDEBAR_PANEL_WIDTH_PX;
+
 interface PatentNotesSidebarProps {
   attorneyFeedback: Record<PatentSectionId, string>;
   sectionLabels: Record<PatentSectionId, string>;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function PatentNotesSidebar({
   attorneyFeedback,
   sectionLabels,
+  onOpenChange,
 }: PatentNotesSidebarProps) {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [showHint, setShowHint] = useState(() => !hasSeenNotesSidebarHint());
+
+  useEffect(() => {
+    onOpenChange?.(open);
+  }, [open, onOpenChange]);
 
   const dismissHint = useCallback(() => {
     markNotesSidebarHintSeen();

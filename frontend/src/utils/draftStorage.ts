@@ -1,8 +1,17 @@
 import type { FilingInfo, PatentFigure, PatentSectionId, WorkflowMode } from "../types/patent";
-import { EMPTY_FILING_INFO, emptyApprovedExemplars, emptyAttorneyFeedback } from "../types/patent";
+import {
+  EMPTY_FILING_INFO,
+  emptyApprovedExemplars,
+  emptyAttorneyFeedback,
+  GRANT_SECTION_IDS,
+  GRANT_SECTION_LABELS,
+  PATENT_SECTION_IDS,
+  SECTION_LABELS,
+} from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import type { GrantDetails, InventionDetails } from "../types/patent";
+import { hasGrantDraftSections, readActiveGrantWorkflow } from "./grantStorage";
 import { sanitizePatentProse } from "./documentPreview";
 
 export type WorkflowStep = "input" | "review" | "draft" | "figures" | "export";
@@ -376,4 +385,190 @@ export function formatSavedAt(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+const PREVIEW_MAX_CHARS = 120;
+
+const IMPORT_MARKERS: Record<
+  WorkflowMode,
+  { start: string; end: string; kindLabel: string }
+> = {
+  grant: {
+    start: "--- Imported Grant Application Draft ---",
+    end: "--- End Imported Draft ---",
+    kindLabel: "Grant Application Draft",
+  },
+  patent: {
+    start: "--- Imported Patent Draft ---",
+    end: "--- End Imported Draft ---",
+    kindLabel: "Patent Draft",
+  },
+};
+
+export interface OtherWorkflowDraftSectionPreview {
+  id: string;
+  label: string;
+  preview: string;
+}
+
+export interface OtherWorkflowDraftSummary {
+  sourceMode: WorkflowMode;
+  title: string;
+  displayLabel: string;
+  sections: OtherWorkflowDraftSectionPreview[];
+  serializedText: string;
+}
+
+function truncatePreview(text: string, maxChars = PREVIEW_MAX_CHARS): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxChars) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxChars).trimEnd()}…`;
+}
+
+function buildSectionPreviews(
+  sections: Record<string, string>,
+  orderedIds: readonly string[],
+  labels: Record<string, string>,
+): OtherWorkflowDraftSectionPreview[] {
+  const previews: OtherWorkflowDraftSectionPreview[] = [];
+  for (const id of orderedIds) {
+    const content = sections[id]?.trim() ?? "";
+    if (!content) continue;
+    previews.push({
+      id,
+      label: labels[id] ?? id,
+      preview: truncatePreview(content),
+    });
+  }
+  return previews;
+}
+
+function serializeSectionsBlock(
+  sections: Record<string, string>,
+  orderedIds: readonly string[],
+  labels: Record<string, string>,
+): string {
+  const parts: string[] = [];
+  for (const id of orderedIds) {
+    const content = sections[id]?.trim() ?? "";
+    if (!content) continue;
+    const label = labels[id] ?? id;
+    parts.push(`## ${label}\n\n${content}`);
+  }
+  return parts.join("\n\n");
+}
+
+/** Wrap serialized draft sections in stable markers for toggle inject/remove. */
+export function wrapImportedDraftBlock(sourceMode: WorkflowMode, body: string): string {
+  const markers = IMPORT_MARKERS[sourceMode];
+  return `${markers.start}\n${body.trim()}\n${markers.end}`;
+}
+
+/** Remove a previously injected opposite-workflow draft block from pasted text. */
+export function stripImportedDraftBlock(
+  pastedText: string,
+  sourceMode: WorkflowMode,
+): string {
+  const markers = IMPORT_MARKERS[sourceMode];
+  const startIdx = pastedText.indexOf(markers.start);
+  if (startIdx === -1) {
+    return pastedText;
+  }
+  const endIdx = pastedText.indexOf(markers.end, startIdx);
+  if (endIdx === -1) {
+    return pastedText;
+  }
+  const before = pastedText.slice(0, startIdx);
+  const after = pastedText.slice(endIdx + markers.end.length);
+  return `${before}${after}`.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/**
+ * Read the opposite workflow's active localStorage snapshot and return a summary
+ * suitable for seeding the current Input page as pasted source text.
+ */
+export function getOtherWorkflowDraftSummary(
+  currentMode: WorkflowMode,
+): OtherWorkflowDraftSummary | null {
+  if (currentMode === "patent") {
+    const grant = readActiveGrantWorkflow();
+    if (!hasGrantDraftSections(grant.sections)) {
+      return null;
+    }
+    const sectionPreviews = buildSectionPreviews(
+      grant.sections,
+      GRANT_SECTION_IDS,
+      GRANT_SECTION_LABELS,
+    );
+    if (sectionPreviews.length === 0) {
+      return null;
+    }
+    const title =
+      grant.grantDetails?.project_title?.trim() || "Untitled grant application";
+    const body = serializeSectionsBlock(
+      grant.sections,
+      GRANT_SECTION_IDS,
+      GRANT_SECTION_LABELS,
+    );
+    return {
+      sourceMode: "grant",
+      title,
+      displayLabel: `${IMPORT_MARKERS.grant.kindLabel} — ${title}`,
+      sections: sectionPreviews,
+      serializedText: wrapImportedDraftBlock("grant", body),
+    };
+  }
+
+  const patent = readActiveWorkflow();
+  if (patent.workflowMode === "grant" || !hasDraftSections(patent.sections)) {
+    return null;
+  }
+  const sectionPreviews = buildSectionPreviews(
+    patent.sections,
+    PATENT_SECTION_IDS,
+    SECTION_LABELS,
+  );
+  if (sectionPreviews.length === 0) {
+    return null;
+  }
+  const title =
+    patent.invention?.invention_title?.trim() || "Untitled patent draft";
+  const body = serializeSectionsBlock(
+    patent.sections,
+    PATENT_SECTION_IDS,
+    SECTION_LABELS,
+  );
+  return {
+    sourceMode: "patent",
+    title,
+    displayLabel: `${IMPORT_MARKERS.patent.kindLabel} — ${title}`,
+    sections: sectionPreviews,
+    serializedText: wrapImportedDraftBlock("patent", body),
+  };
+}
+
+/** Whether pasted text already contains an injected block for the given source mode. */
+export function pastedTextHasImportedDraft(
+  pastedText: string,
+  sourceMode: WorkflowMode,
+): boolean {
+  const markers = IMPORT_MARKERS[sourceMode];
+  return (
+    pastedText.includes(markers.start) && pastedText.includes(markers.end)
+  );
+}
+
+/** Append (or replace existing) imported draft block into pasted text. */
+export function injectImportedDraftBlock(
+  pastedText: string,
+  sourceMode: WorkflowMode,
+  serializedText: string,
+): string {
+  const without = stripImportedDraftBlock(pastedText, sourceMode);
+  if (!without.trim()) {
+    return serializedText;
+  }
+  return `${without.trim()}\n\n${serializedText}`;
 }

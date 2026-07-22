@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { HudComplianceChecklistPanel } from "../../components/HudComplianceChecklistPanel";
+import { ImportOtherWorkflowDraftCard } from "../../components/ImportOtherWorkflowDraftCard";
 import UploadPanel, { getWebsiteUrlError } from "../../components/UploadPanel";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
@@ -13,6 +14,7 @@ import {
   extractionNotesFromSources,
   extractGrant,
 } from "../../services/api";
+import { getOtherWorkflowDraftSummary } from "../../utils/draftStorage";
 import { computeExtractionSourceKey } from "../../utils/extractionSourceKey";
 import { getGrantResumePath, grantWorkflowHasProgress } from "../../utils/grantStorage";
 import { SourceGatherError } from "../../utils/gatherSourceText";
@@ -39,6 +41,8 @@ export default function GrantInput() {
   const [error, setError] = useState<string | null>(null);
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [importCardDismissed, setImportCardDismissed] = useState(false);
+  const otherWorkflowDraft = useMemo(() => getOtherWorkflowDraftSummary("grant"), []);
 
   const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
   const hasPastedText = inputSources.pastedText.trim().length > 0;
@@ -167,6 +171,14 @@ export default function GrantInput() {
       )}
 
       <div className="flex flex-col gap-10">
+        {otherWorkflowDraft && !importCardDismissed && (
+          <ImportOtherWorkflowDraftCard
+            summary={otherWorkflowDraft}
+            pastedText={inputSources.pastedText}
+            onPastedTextChange={(value) => setInputSources({ pastedText: value })}
+            onDismiss={() => setImportCardDismissed(true)}
+          />
+        )}
         <UploadPanel
           inputSources={inputSources}
           onInputSourcesChange={setInputSources}

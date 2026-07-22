@@ -16,7 +16,7 @@ function scaleSvgToContainer(container: HTMLElement): void {
   svgEl.style.maxWidth = "100%";
   svgEl.style.maxHeight = "100%";
   svgEl.style.height = "auto";
-  svgEl.style.width = "auto";
+  svgEl.style.width = "100%";
 }
 
 export default function MermaidPreview({ source, className = "" }: MermaidPreviewProps) {
@@ -71,7 +71,7 @@ export default function MermaidPreview({ source, className = "" }: MermaidPrevie
       )}
       <div
         ref={containerRef}
-        className="patent-mermaid-preview flex-1 overflow-auto bg-white border border-outline-variant rounded-lg p-4 min-h-[200px] flex items-center justify-center"
+        className="patent-mermaid-preview flex-1 w-full max-w-full overflow-x-auto bg-white border border-outline-variant rounded-lg p-4 min-h-[200px] flex items-center justify-center [&>svg]:w-full [&>svg]:h-auto"
       />
     </div>
   );

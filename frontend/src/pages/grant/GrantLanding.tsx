@@ -54,10 +54,10 @@ export default function GrantLanding() {
               </span>
               <h2 className="font-title-lg text-title-lg text-primary mb-2">Patent Draft</h2>
               <p className="font-body-sm text-body-sm text-on-surface-variant">
-                US provisional patent with figures and USPTO export
+                5 steps: Input → Review → Draft → Figures → Export
               </p>
               <span className="inline-flex items-center gap-1 mt-4 font-label-md text-label-md text-primary group-hover:underline">
-                Go to patent workflow
+                Start patent draft
                 <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
               </span>
             </Link>

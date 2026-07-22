@@ -19,7 +19,7 @@ type DownloadState = "idle" | "preparing" | "done" | "error";
 
 export default function GrantExport() {
   const navigate = useNavigate();
-  const { grantDetails, sections, getWorkflowSnapshot } = useGrantWorkflow();
+  const { grantDetails, sections, getWorkflowSnapshot, clearWorkflow } = useGrantWorkflow();
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -141,6 +141,20 @@ export default function GrantExport() {
               </div>
             </div>
           </section>
+        </div>
+
+        <div className="pb-8">
+          <button
+            type="button"
+            onClick={() => {
+              clearWorkflow();
+              navigate("/grant", { replace: true });
+            }}
+            className="font-label-md text-label-md text-secondary hover:text-primary transition-colors flex items-center gap-2 underline underline-offset-4"
+          >
+            <span className="material-symbols-outlined text-sm">add</span>
+            Start a New Grant Application
+          </button>
         </div>
       </div>
     </GrantAppShell>

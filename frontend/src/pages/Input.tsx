@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
+import { ImportOtherWorkflowDraftCard } from "../components/ImportOtherWorkflowDraftCard";
 import { UploadProgressPanel } from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowNextButton } from "../components/WorkflowNavButtons";
@@ -11,7 +12,11 @@ import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWor
 import { usePatentFileUpload } from "../hooks/usePatentFileUpload";
 import { ApiError, extractionNotesFromSources, extractInvention } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
-import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
+import {
+  getOtherWorkflowDraftSummary,
+  getResumePath,
+  workflowHasProgress,
+} from "../utils/draftStorage";
 import { computeExtractionSourceKey } from "../utils/extractionSourceKey";
 import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
@@ -62,6 +67,8 @@ export default function InputPage() {
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [importCardDismissed, setImportCardDismissed] = useState(false);
+  const otherWorkflowDraft = useMemo(() => getOtherWorkflowDraftSummary("patent"), []);
 
   const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
   const hasPastedText = inputSources.pastedText.trim().length > 0;
@@ -253,6 +260,15 @@ export default function InputPage() {
       )}
 
       <div className="flex flex-col gap-10">
+        {otherWorkflowDraft && !importCardDismissed && (
+          <ImportOtherWorkflowDraftCard
+            summary={otherWorkflowDraft}
+            pastedText={inputSources.pastedText}
+            onPastedTextChange={(value) => setInputSources({ pastedText: value })}
+            onDismiss={() => setImportCardDismissed(true)}
+          />
+        )}
+
         <RelevanceGuidancePanel
           relevantContentNotes={inputSources.relevantContentNotes}
           irrelevantContentNotes={inputSources.irrelevantContentNotes}
