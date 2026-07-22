@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 
 export interface SelectionRegeneratePopoverProps {
   anchorRect: DOMRect | null;
@@ -14,9 +14,17 @@ export function SelectionRegeneratePopover({
   onDismiss,
 }: SelectionRegeneratePopoverProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const cardHeightRef = useRef(88);
   const inputRef = useRef<HTMLInputElement>(null);
   const [instruction, setInstruction] = useState("");
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    // Skip the aria-hidden placeholder so its ~24px height never overwrites the ref.
+    if (!card || card.getAttribute("aria-hidden") !== null) return;
+    cardHeightRef.current = card.offsetHeight;
+  });
 
   useEffect(() => {
     if (!anchorRect) {
@@ -26,7 +34,7 @@ export function SelectionRegeneratePopover({
     }
 
     const card = cardRef.current;
-    const cardHeight = card?.offsetHeight ?? 88;
+    const cardHeight = cardHeightRef.current;
     const cardWidth = card?.offsetWidth ?? 280;
     const margin = 8;
 
