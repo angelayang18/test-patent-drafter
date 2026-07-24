@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { GenerationProgress } from "../components/GenerationProgress";
-import { ImportOtherWorkflowDraftCard } from "../components/ImportOtherWorkflowDraftCard";
+import { ImportSavedDraftsCard } from "../components/ImportSavedDraftsCard";
 import { UploadProgressPanel } from "../components/UploadProgressPanel";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { WorkflowNextButton } from "../components/WorkflowNavButtons";
@@ -13,7 +13,6 @@ import { usePatentFileUpload } from "../hooks/usePatentFileUpload";
 import { ApiError, extractionNotesFromSources, extractInvention } from "../services/api";
 import { fileIcon, formatFileSize } from "../utils/format";
 import {
-  getOtherWorkflowDraftSummary,
   getResumePath,
   workflowHasProgress,
 } from "../utils/draftStorage";
@@ -68,12 +67,13 @@ export default function InputPage() {
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [importCardDismissed, setImportCardDismissed] = useState(false);
-  const otherWorkflowDraft = useMemo(() => getOtherWorkflowDraftSummary("patent"), []);
+  const loadedFromDraftId = getWorkflowSnapshot().loadedFromDraftId;
 
-  const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
+  const websiteUrlErrors = inputSources.websiteUrls.map((url) => getWebsiteUrlError(url));
+  const websiteUrlError = websiteUrlErrors.find((err) => err !== null) ?? null;
   const hasPastedText = inputSources.pastedText.trim().length > 0;
   const hasUploadedFiles = uploadedFiles.length > 0;
-  const hasWebsiteUrl = inputSources.websiteUrl.trim().length > 0;
+  const hasWebsiteUrl = inputSources.websiteUrls.some((url) => url.trim().length > 0);
   const confluenceConfigured = Boolean(
     inputSources.confluenceUrl.trim() &&
       inputSources.confluenceSpaceKey.trim() &&
@@ -181,6 +181,10 @@ export default function InputPage() {
         setConfluenceError(err.message);
         return;
       }
+      if (err instanceof SourceGatherError) {
+        setError(err.message);
+        return;
+      }
       setError(err instanceof ApiError ? err.message : "Failed to extract invention details.");
     } finally {
       setSubmitting(false);
@@ -260,21 +264,14 @@ export default function InputPage() {
       )}
 
       <div className="flex flex-col gap-10">
-        {otherWorkflowDraft && !importCardDismissed && (
-          <ImportOtherWorkflowDraftCard
-            summary={otherWorkflowDraft}
+        {!importCardDismissed && (
+          <ImportSavedDraftsCard
+            excludeDraftId={loadedFromDraftId}
             pastedText={inputSources.pastedText}
             onPastedTextChange={(value) => setInputSources({ pastedText: value })}
             onDismiss={() => setImportCardDismissed(true)}
           />
         )}
-
-        <RelevanceGuidancePanel
-          relevantContentNotes={inputSources.relevantContentNotes}
-          irrelevantContentNotes={inputSources.irrelevantContentNotes}
-          onRelevantChange={(value) => setInputSources({ relevantContentNotes: value })}
-          onIrrelevantChange={(value) => setInputSources({ irrelevantContentNotes: value })}
-        />
 
         <div>
           <h2 className="font-headline-md text-headline-md text-primary">Add source material</h2>
@@ -566,45 +563,107 @@ export default function InputPage() {
                 <div className="p-2 bg-secondary/10 rounded-lg">
                   <span className="material-symbols-outlined text-secondary">public</span>
                 </div>
-                <h3 className="font-title-lg text-title-lg">Website URL</h3>
+                <h3 className="font-title-lg text-title-lg">Website URLs</h3>
               </div>
               <div>
-                <label
-                  htmlFor="website-url"
-                  className="block font-label-sm text-label-sm text-on-surface-variant mb-1"
-                >
-                  Scraping URL
-                </label>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mb-2">
-                  Public product or documentation page whose text will be scraped for context.
+                <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
+                  Public product or documentation pages whose text will be scraped for context.
                 </p>
-                <input
-                  id="website-url"
-                  className={`w-full bg-white border rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm ${
-                    websiteUrlError
-                      ? "border-error/50 focus:ring-error/20 focus:border-error"
-                      : "border-outline-variant"
-                  }`}
-                  placeholder="https://example.com/product-page"
-                  type="url"
-                  value={inputSources.websiteUrl}
-                  onChange={(e) => setInputSources({ websiteUrl: e.target.value })}
-                  aria-invalid={websiteUrlError ? true : undefined}
-                  aria-describedby={websiteUrlError ? "website-url-error" : undefined}
-                />
-                {websiteUrlError && (
-                  <p
-                    id="website-url-error"
-                    role="alert"
-                    className="mt-2 font-body-sm text-body-sm text-error rounded-lg bg-error-container/20 border border-error/30 px-3 py-2"
-                  >
-                    {websiteUrlError}
-                  </p>
-                )}
+                <div className="space-y-3">
+                  {(inputSources.websiteUrls.length > 0
+                    ? inputSources.websiteUrls
+                    : [""]
+                  ).map((url, index) => {
+                    const rowError = websiteUrlErrors[index] ?? getWebsiteUrlError(url);
+                    const inputId = `website-url-${index}`;
+                    const errorId = `website-url-error-${index}`;
+                    return (
+                      <div key={inputId} className="space-y-2">
+                        <div className="flex items-center gap-3">
+                          <input
+                            id={inputId}
+                            className={`min-w-0 flex-1 bg-white border rounded-lg p-3 focus:ring-2 focus:ring-secondary/20 focus:border-secondary outline-none transition-all font-body-sm text-body-sm ${
+                              rowError
+                                ? "border-error/50 focus:ring-error/20 focus:border-error"
+                                : "border-outline-variant"
+                            }`}
+                            placeholder="https://example.com/product-page"
+                            type="url"
+                            value={url}
+                            onChange={(e) => {
+                              const next = [...inputSources.websiteUrls];
+                              if (next.length === 0) {
+                                next.push(e.target.value);
+                              } else {
+                                next[index] = e.target.value;
+                              }
+                              setInputSources({ websiteUrls: next });
+                            }}
+                            aria-invalid={rowError ? true : undefined}
+                            aria-describedby={rowError ? errorId : undefined}
+                          />
+                          <button
+                            type="button"
+                            className="shrink-0 p-2 rounded-lg text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors"
+                            aria-label={`Remove website URL ${index + 1}`}
+                            onClick={() => {
+                              const current =
+                                inputSources.websiteUrls.length > 0
+                                  ? inputSources.websiteUrls
+                                  : [""];
+                              if (current.length <= 1) {
+                                setInputSources({ websiteUrls: [""] });
+                                return;
+                              }
+                              setInputSources({
+                                websiteUrls: current.filter((_, i) => i !== index),
+                              });
+                            }}
+                          >
+                            <span className="material-symbols-outlined text-[20px]">close</span>
+                          </button>
+                        </div>
+                        {rowError && (
+                          <p
+                            id={errorId}
+                            role="alert"
+                            className="font-body-sm text-body-sm text-error rounded-lg bg-error-container/20 border border-error/30 px-3 py-2"
+                          >
+                            {rowError}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  className="mt-4 inline-flex items-center gap-2 font-label-md text-label-md text-secondary hover:text-secondary/80 transition-colors"
+                  onClick={() =>
+                    setInputSources({
+                      websiteUrls: [
+                        ...(inputSources.websiteUrls.length > 0
+                          ? inputSources.websiteUrls
+                          : [""]),
+                        "",
+                      ],
+                    })
+                  }
+                >
+                  <span className="material-symbols-outlined text-[18px]">add</span>
+                  Add website
+                </button>
               </div>
             </section>
           </div>
         </div>
+
+        <RelevanceGuidancePanel
+          relevantContentNotes={inputSources.relevantContentNotes}
+          irrelevantContentNotes={inputSources.irrelevantContentNotes}
+          onRelevantChange={(value) => setInputSources({ relevantContentNotes: value })}
+          onIrrelevantChange={(value) => setInputSources({ irrelevantContentNotes: value })}
+        />
       </div>
       <SourceFilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
     </AppShell>

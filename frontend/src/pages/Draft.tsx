@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AttorneyFeedbackPanel } from "../components/AttorneyFeedbackPanel";
-import { PatentNotesSidebar, NOTES_SIDEBAR_OPEN_OFFSET_PX } from "../components/PatentNotesSidebar";
+import { PatentNotesSidebar } from "../components/PatentNotesSidebar";
 import { DocumentPreviewModal } from "../components/DocumentPreviewModal";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { SelectionRegeneratePopover } from "../components/SelectionRegeneratePopover";
@@ -75,7 +75,6 @@ export default function Draft() {
   const [regeneratingSelection, setRegeneratingSelection] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [notesPanelOpen, setNotesPanelOpen] = useState(false);
   const [confirmingRegenerateAll, setConfirmingRegenerateAll] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
   const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
@@ -599,12 +598,7 @@ export default function Draft() {
           </div>
         </aside>
 
-        <div
-          className="flex-1 overflow-y-auto bg-[#FAFAFA] flex flex-col relative custom-scrollbar transition-[margin-right] duration-300 ease-in-out"
-          style={{
-            marginRight: !isGrant && notesPanelOpen ? NOTES_SIDEBAR_OPEN_OFFSET_PX : 0,
-          }}
-        >
+        <div className="flex-1 min-w-0 overflow-y-auto bg-[#FAFAFA] flex flex-col relative custom-scrollbar">
           {/* Sticky action row — full-width, outside padded content so background is solid */}
           <div className="sticky top-0 z-20 bg-[#FAFAFA] border-b border-outline-variant shadow-sm px-margin-desktop py-3 flex gap-3 flex-wrap shrink-0">
             <button
@@ -750,7 +744,6 @@ export default function Draft() {
           <PatentNotesSidebar
             attorneyFeedback={attorneyFeedback}
             sectionLabels={SECTION_LABELS}
-            onOpenChange={setNotesPanelOpen}
           />
         )}
       </div>

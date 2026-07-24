@@ -55,7 +55,7 @@ export default function UploadPanel({
   const uploadQueue = externalUploadQueue ?? internalUpload.uploadQueue;
   const uploading = externalUploading ?? internalUpload.uploading;
 
-  const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
+  const websiteUrlErrors = inputSources.websiteUrls.map((url) => getWebsiteUrlError(url));
   const confluenceConfigured = Boolean(
     inputSources.confluenceUrl.trim() &&
       inputSources.confluenceSpaceKey.trim() &&
@@ -309,20 +309,79 @@ export default function UploadPanel({
               <div className="p-2 bg-secondary/10 rounded-lg">
                 <span className="material-symbols-outlined text-secondary">public</span>
               </div>
-              <h3 className="font-title-lg text-title-lg">Website URL</h3>
+              <h3 className="font-title-lg text-title-lg">Website URLs</h3>
             </div>
-            <input
-              className={`w-full bg-white border rounded-lg p-3 font-body-sm text-body-sm ${
-                websiteUrlError ? "border-error/50" : "border-outline-variant"
-              }`}
-              placeholder="https://example.com/product-page"
-              type="url"
-              value={inputSources.websiteUrl}
-              onChange={(e) => onInputSourcesChange({ websiteUrl: e.target.value })}
-            />
-            {websiteUrlError && (
-              <p className="mt-2 font-body-sm text-body-sm text-error">{websiteUrlError}</p>
-            )}
+            <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
+              Public product or documentation pages whose text will be scraped for context.
+            </p>
+            <div className="space-y-3">
+              {(inputSources.websiteUrls.length > 0 ? inputSources.websiteUrls : [""]).map(
+                (url, index) => {
+                  const rowError = websiteUrlErrors[index] ?? getWebsiteUrlError(url);
+                  return (
+                    <div key={`website-url-${index}`} className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <input
+                          className={`min-w-0 flex-1 bg-white border rounded-lg p-3 font-body-sm text-body-sm ${
+                            rowError ? "border-error/50" : "border-outline-variant"
+                          }`}
+                          placeholder="https://example.com/product-page"
+                          type="url"
+                          value={url}
+                          onChange={(e) => {
+                            const next = [...inputSources.websiteUrls];
+                            if (next.length === 0) {
+                              next.push(e.target.value);
+                            } else {
+                              next[index] = e.target.value;
+                            }
+                            onInputSourcesChange({ websiteUrls: next });
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="shrink-0 p-2 rounded-lg text-on-surface-variant hover:bg-error/10 hover:text-error transition-colors"
+                          aria-label={`Remove website URL ${index + 1}`}
+                          onClick={() => {
+                            const current =
+                              inputSources.websiteUrls.length > 0
+                                ? inputSources.websiteUrls
+                                : [""];
+                            if (current.length <= 1) {
+                              onInputSourcesChange({ websiteUrls: [""] });
+                              return;
+                            }
+                            onInputSourcesChange({
+                              websiteUrls: current.filter((_, i) => i !== index),
+                            });
+                          }}
+                        >
+                          <span className="material-symbols-outlined text-[20px]">close</span>
+                        </button>
+                      </div>
+                      {rowError && (
+                        <p className="font-body-sm text-body-sm text-error">{rowError}</p>
+                      )}
+                    </div>
+                  );
+                },
+              )}
+            </div>
+            <button
+              type="button"
+              className="mt-4 inline-flex items-center gap-2 font-label-md text-label-md text-secondary hover:text-secondary/80 transition-colors"
+              onClick={() =>
+                onInputSourcesChange({
+                  websiteUrls: [
+                    ...(inputSources.websiteUrls.length > 0 ? inputSources.websiteUrls : [""]),
+                    "",
+                  ],
+                })
+              }
+            >
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              Add website
+            </button>
           </section>
         </div>
       </div>

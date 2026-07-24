@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { HudComplianceChecklistPanel } from "../../components/HudComplianceChecklistPanel";
-import { ImportOtherWorkflowDraftCard } from "../../components/ImportOtherWorkflowDraftCard";
+import { ImportSavedDraftsCard } from "../../components/ImportSavedDraftsCard";
 import UploadPanel, { getWebsiteUrlError } from "../../components/UploadPanel";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
@@ -14,7 +14,6 @@ import {
   extractionNotesFromSources,
   extractGrant,
 } from "../../services/api";
-import { getOtherWorkflowDraftSummary } from "../../utils/draftStorage";
 import { computeExtractionSourceKey } from "../../utils/extractionSourceKey";
 import { getGrantResumePath, grantWorkflowHasProgress } from "../../utils/grantStorage";
 import { SourceGatherError } from "../../utils/gatherSourceText";
@@ -42,16 +41,18 @@ export default function GrantInput() {
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [importCardDismissed, setImportCardDismissed] = useState(false);
-  const otherWorkflowDraft = useMemo(() => getOtherWorkflowDraftSummary("grant"), []);
+  const loadedFromDraftId = getWorkflowSnapshot().loadedFromDraftId;
 
-  const websiteUrlError = getWebsiteUrlError(inputSources.websiteUrl);
+  const websiteUrlError =
+    inputSources.websiteUrls.map((url) => getWebsiteUrlError(url)).find((err) => err !== null) ??
+    null;
   const hasPastedText = inputSources.pastedText.trim().length > 0;
   const hasUploadedFiles = uploadedFiles.length > 0;
   const emptyPrimarySource = !hasUploadedFiles && !hasPastedText;
   const hasAnySource =
     inputSources.pastedText.trim().length > 0 ||
     uploadedFiles.length > 0 ||
-    inputSources.websiteUrl.trim().length > 0 ||
+    inputSources.websiteUrls.some((url) => url.trim().length > 0) ||
     (inputSources.confluenceUrl.trim() &&
       inputSources.confluenceSpaceKey.trim() &&
       inputSources.confluenceToken.trim());
@@ -98,6 +99,10 @@ export default function GrantInput() {
     } catch (err) {
       if (err instanceof SourceGatherError && err.source === "confluence") {
         setConfluenceError(err.message);
+        return;
+      }
+      if (err instanceof SourceGatherError) {
+        setError(err.message);
         return;
       }
       setError(err instanceof ApiError ? err.message : "Failed to extract grant details.");
@@ -171,9 +176,9 @@ export default function GrantInput() {
       )}
 
       <div className="flex flex-col gap-10">
-        {otherWorkflowDraft && !importCardDismissed && (
-          <ImportOtherWorkflowDraftCard
-            summary={otherWorkflowDraft}
+        {!importCardDismissed && (
+          <ImportSavedDraftsCard
+            excludeDraftId={loadedFromDraftId}
             pastedText={inputSources.pastedText}
             onPastedTextChange={(value) => setInputSources({ pastedText: value })}
             onDismiss={() => setImportCardDismissed(true)}

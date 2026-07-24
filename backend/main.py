@@ -21,6 +21,7 @@ from drafter.figures import generate_patent_figures, regenerate_patent_figure
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
 from drafter.selection_regenerate import regenerate_selection
 from drafter.sections import draft_all_sections_parallel, draft_section
+from drafter.titles import suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
 from learning.storage import get_storage
@@ -130,6 +131,14 @@ class ExtractGrantFieldRequest(BaseModel):
     combined_text: str
     field: str
     current: Optional[GrantDetails] = None
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class ExtractTitlesRequest(BaseModel):
+    combined_text: str
+    document_kind: str
+    current: Optional[str] = None
     relevant_notes: str = ""
     irrelevant_notes: str = ""
 
@@ -399,6 +408,33 @@ def extract_field(body: ExtractFieldRequest) -> dict:
         raise HTTPException(
             status_code=502,
             detail=f"Failed to extract field '{body.field}': {exc}",
+        ) from exc
+
+
+@app.post("/extract/titles")
+def extract_titles(body: ExtractTitlesRequest) -> dict:
+    """Suggest candidate invention or grant project titles from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+
+    try:
+        titles = suggest_titles(
+            body.combined_text,
+            body.document_kind,
+            current=body.current,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+        return {"titles": titles}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Title suggestion failed for %s", body.document_kind)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to suggest titles: {exc}",
         ) from exc
 
 

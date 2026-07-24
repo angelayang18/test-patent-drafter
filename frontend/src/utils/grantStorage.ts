@@ -1,6 +1,7 @@
 import type { GrantDetails } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/grantContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
+import { notifyDraftsChanged } from "./draftLibraryEvents";
 
 export type GrantWorkflowStep = "input" | "review" | "draft" | "export";
 
@@ -24,6 +25,11 @@ export interface GrantWorkflowSnapshot {
   completedSteps?: GrantWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
+  /**
+   * Library draft id this active session was opened from (Drafts modal).
+   * Session-only metadata — stripped when saving into the draft library.
+   */
+  loadedFromDraftId?: string;
 }
 
 const emptyInputSources: InputSources = {
@@ -32,9 +38,76 @@ const emptyInputSources: InputSources = {
   confluenceUrl: "",
   confluenceSpaceKey: "",
   confluenceToken: "",
-  websiteUrl: "",
+  websiteUrls: [""],
   pastedText: "",
 };
+
+type LegacyInputSources = Partial<InputSources> & { websiteUrl?: string };
+
+function normalizeInputSources(raw: LegacyInputSources | undefined): InputSources {
+  const { websiteUrl, websiteUrls, ...rest } = raw ?? {};
+  let urls = Array.isArray(websiteUrls) ? websiteUrls.map(String) : undefined;
+  if (!urls) {
+    const legacy = typeof websiteUrl === "string" ? websiteUrl.trim() : "";
+    urls = legacy ? [legacy] : [""];
+  }
+  if (urls.length === 0) {
+    urls = [""];
+  }
+  return { ...emptyInputSources, ...rest, websiteUrls: urls };
+}
+
+function normalizeCachedRemoteSources(
+  raw: CachedRemoteSources | Record<string, unknown> | null | undefined,
+): CachedRemoteSources {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const result: CachedRemoteSources = {};
+  const website = (raw as CachedRemoteSources).website as
+    | { url: string; content: string }
+    | { url: string; content: string }[]
+    | undefined;
+  if (Array.isArray(website)) {
+    result.website = website.filter(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        typeof entry.url === "string" &&
+        typeof entry.content === "string",
+    );
+  } else if (
+    website &&
+    typeof website === "object" &&
+    typeof website.url === "string" &&
+    typeof website.content === "string"
+  ) {
+    result.website = [website];
+  }
+  const confluence = (raw as CachedRemoteSources).confluence;
+  if (
+    confluence &&
+    typeof confluence === "object" &&
+    typeof confluence.url === "string" &&
+    typeof confluence.spaceKey === "string" &&
+    typeof confluence.content === "string"
+  ) {
+    result.confluence = confluence;
+  }
+  return result;
+}
+
+function inputSourcesHaveProgress(inputSources: InputSources): boolean {
+  return Object.values(inputSources).some((value) => {
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    if (Array.isArray(value)) {
+      return value.some((item) => typeof item === "string" && item.trim().length > 0);
+    }
+    return false;
+  });
+}
 
 export function normalizeGrantWorkflow(
   raw: Partial<GrantWorkflowSnapshot> | null | undefined,
@@ -43,11 +116,15 @@ export function normalizeGrantWorkflow(
     grantDetails: raw?.grantDetails ?? null,
     sections: raw?.sections ?? {},
     uploadedFiles: raw?.uploadedFiles ?? [],
-    inputSources: { ...emptyInputSources, ...raw?.inputSources },
-    cachedRemoteSources: raw?.cachedRemoteSources ?? {},
+    inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
+    cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
+    loadedFromDraftId:
+      typeof raw?.loadedFromDraftId === "string" && raw.loadedFromDraftId.trim()
+        ? raw.loadedFromDraftId.trim()
+        : undefined,
   };
 }
 
@@ -121,7 +198,7 @@ export function clearActiveGrantWorkflow(): void {
 export function grantWorkflowHasProgress(workflow: GrantWorkflowSnapshot): boolean {
   if (workflow.grantDetails) return true;
   if (workflow.uploadedFiles.length > 0) return true;
-  if (Object.values(workflow.inputSources).some((value) => value.trim())) return true;
+  if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
   return false;
 }
@@ -184,22 +261,25 @@ export function saveGrantDraftToLibrary(
   workflow: GrantWorkflowSnapshot,
 ): SavedGrantDraftRecord {
   const trimmedName = name.trim() || defaultGrantDraftName(workflow);
+  const { loadedFromDraftId: _omit, ...rest } = workflow;
   const record: SavedGrantDraftRecord = {
     id: crypto.randomUUID(),
     name: trimmedName,
     savedAt: new Date().toISOString(),
-    workflow: normalizeGrantWorkflow(workflow),
+    workflow: normalizeGrantWorkflow(rest),
   };
 
   const existing = listSavedGrantDrafts();
   const next = [record, ...existing].slice(0, MAX_SAVED_GRANT_DRAFTS);
   writeGrantJson(GRANT_DRAFT_LIBRARY_KEY, next);
+  notifyDraftsChanged();
   return record;
 }
 
 export function deleteSavedGrantDraft(id: string): void {
   const next = listSavedGrantDrafts().filter((draft) => draft.id !== id);
   writeGrantJson(GRANT_DRAFT_LIBRARY_KEY, next);
+  notifyDraftsChanged();
 }
 
 export function buildGrantDraftFileExport(

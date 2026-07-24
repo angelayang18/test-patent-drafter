@@ -16,7 +16,7 @@ export interface InputSources {
   confluenceUrl: string;
   confluenceSpaceKey: string;
   confluenceToken: string;
-  websiteUrl: string;
+  websiteUrls: string[];
   pastedText: string;
 }
 

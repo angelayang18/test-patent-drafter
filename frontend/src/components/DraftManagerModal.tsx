@@ -102,14 +102,20 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
 
   const handleLoadPatentDraft = (record: SavedDraftRecord) => {
     setError(null);
-    patent.importWorkflow(record.workflow);
+    patent.importWorkflow({
+      ...record.workflow,
+      loadedFromDraftId: record.id,
+    });
     onClose();
     navigate(getResumePath(record.workflow));
   };
 
   const handleLoadGrantDraft = (record: SavedGrantDraftRecord) => {
     setError(null);
-    grant.importWorkflow(record.workflow);
+    grant.importWorkflow({
+      ...record.workflow,
+      loadedFromDraftId: record.id,
+    });
     onClose();
     navigate(getGrantResumePath(record.workflow));
   };

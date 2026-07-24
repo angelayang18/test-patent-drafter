@@ -2,7 +2,7 @@ import type { InputSources } from "../context/PatentWorkflowContext";
 import { ApiError, connectConfluence, scrapeUrl } from "../services/api";
 
 export interface CachedRemoteSources {
-  website?: { url: string; content: string };
+  website?: { url: string; content: string }[];
   confluence?: { url: string; spaceKey: string; content: string };
 }
 
@@ -48,11 +48,14 @@ function formatConfluenceError(err: unknown): string {
   return "Could not connect to Confluence — check your URL and credentials.";
 }
 
-function formatWebsiteError(err: unknown): string {
+function formatWebsiteError(err: unknown, url: string): string {
   if (err instanceof ApiError) {
-    return err.message.trim() || "Could not scrape the website URL.";
+    const detail = err.message.trim();
+    if (detail) {
+      return `Could not scrape ${url} — ${detail}`;
+    }
   }
-  return "Could not scrape the website URL.";
+  return `Could not scrape ${url}.`;
 }
 
 function formatWebsiteBlock(url: string, content: string): string {
@@ -73,9 +76,18 @@ function confluenceCacheKey(inputSources: InputSources): string | null {
   return `${url}|${space}`;
 }
 
+function isValidWebsiteUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Build combined source text for extraction.
- * Fetches website and Confluence in parallel when needed; reuses cached text when URLs match.
+ * Fetches website URLs and Confluence in parallel when needed; reuses cached text per URL when unchanged.
  */
 export async function gatherCombinedSourceText(
   params: GatherSourceTextParams,
@@ -86,13 +98,27 @@ export async function gatherCombinedSourceText(
   if (local) parts.push(local);
 
   const nextCache: CachedRemoteSources = { ...cached };
-  const websiteUrl = inputSources.websiteUrl.trim();
+  const websiteUrls = (inputSources.websiteUrls ?? [])
+    .map((url) => url.trim())
+    .filter((url) => url.length > 0 && isValidWebsiteUrl(url));
   const confluenceKey = confluenceCacheKey(inputSources);
 
   const tasks: Promise<void>[] = [];
+  const cachedByUrl = new Map(
+    (Array.isArray(cached.website) ? cached.website : []).map((entry) => [
+      entry.url,
+      entry.content,
+    ]),
+  );
+  const websiteEntries: ({ url: string; content: string } | null)[] = websiteUrls.map(
+    () => null,
+  );
 
-  const needsWebsite =
-    Boolean(websiteUrl) && !(cached.website?.url === websiteUrl && cached.website.content);
+  const urlsNeedingScrape = websiteUrls.filter((url) => {
+    const cachedContent = cachedByUrl.get(url);
+    return !(typeof cachedContent === "string" && cachedContent.length > 0);
+  });
+  const needsWebsite = urlsNeedingScrape.length > 0;
   const needsConfluence = Boolean(confluenceKey) && !(
     cached.confluence?.url === inputSources.confluenceUrl.trim() &&
     cached.confluence?.spaceKey === inputSources.confluenceSpaceKey.trim() &&
@@ -104,30 +130,37 @@ export async function gatherCombinedSourceText(
   } else if (needsConfluence) {
     onProgress?.("Connecting to Confluence…");
   } else if (needsWebsite) {
-    onProgress?.("Scraping website…");
+    onProgress?.(
+      urlsNeedingScrape.length > 1 ? "Scraping websites…" : "Scraping website…",
+    );
   }
 
-  if (websiteUrl) {
-    if (cached.website?.url === websiteUrl) {
-      parts.push(formatWebsiteBlock(cached.website.url, cached.website.content));
-    } else {
+  if (websiteUrls.length > 0) {
+    websiteUrls.forEach((websiteUrl, index) => {
+      const cachedContent = cachedByUrl.get(websiteUrl);
+      if (typeof cachedContent === "string") {
+        websiteEntries[index] = { url: websiteUrl, content: cachedContent };
+        return;
+      }
+
       tasks.push(
         (async () => {
           if (!needsConfluence) {
-            onProgress?.("Scraping website…");
+            onProgress?.(
+              urlsNeedingScrape.length > 1 ? "Scraping websites…" : "Scraping website…",
+            );
           }
           try {
             const scraped = await scrapeUrl(websiteUrl);
             const url = scraped.url ?? websiteUrl;
             const content = scraped.content;
-            nextCache.website = { url, content };
-            parts.push(formatWebsiteBlock(url, content));
+            websiteEntries[index] = { url, content };
           } catch (err) {
-            throw new SourceGatherError("website", formatWebsiteError(err));
+            throw new SourceGatherError("website", formatWebsiteError(err, websiteUrl));
           }
         })(),
       );
-    }
+    });
   } else {
     delete nextCache.website;
   }
@@ -167,6 +200,16 @@ export async function gatherCombinedSourceText(
   }
 
   await Promise.all(tasks);
+
+  if (websiteUrls.length > 0) {
+    const resolved = websiteEntries.filter(
+      (entry): entry is { url: string; content: string } => entry !== null,
+    );
+    nextCache.website = resolved;
+    for (const entry of resolved) {
+      parts.push(formatWebsiteBlock(entry.url, entry.content));
+    }
+  }
 
   return {
     combined: parts.join("\n\n"),

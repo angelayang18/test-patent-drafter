@@ -24,6 +24,7 @@ import {
   extractInvention,
   extractInventionField,
   regenerateSelection,
+  suggestTitles,
   type ExtractableGrantField,
   type ExtractableInventionField,
 } from "../services/api";
@@ -182,18 +183,86 @@ function RegenerateButton({
   );
 }
 
+function SuggestTitlesButton({
+  onClick,
+  loading,
+  disabled,
+}: {
+  onClick: () => void;
+  loading: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={loading || disabled}
+      onClick={onClick}
+      className="flex items-center gap-2 text-secondary font-label-sm text-label-sm hover:underline disabled:opacity-50"
+    >
+      <span className={`material-symbols-outlined text-[16px] ${loading ? "loading-spin" : ""}`}>
+        title
+      </span>
+      {loading ? "Suggesting..." : "Suggest titles"}
+    </button>
+  );
+}
+
+function TitleSuggestionsList({
+  suggestions,
+  onSelect,
+  enforceMaxLength = false,
+  maxLength = TITLE_MAX_LENGTH,
+}: {
+  suggestions: string[];
+  onSelect: (title: string) => void;
+  enforceMaxLength?: boolean;
+  maxLength?: number;
+}) {
+  return (
+    <fieldset className="mt-2 space-y-2">
+      <legend className="font-label-sm text-label-sm text-on-surface-variant mb-1">
+        Suggested titles — select one
+      </legend>
+      <ul className="space-y-2">
+        {suggestions.map((title, index) => {
+          const tooLong = enforceMaxLength && title.length > maxLength;
+          const display = tooLong ? `${title.slice(0, maxLength)}…` : title;
+          return (
+            <li key={`${index}-${title.slice(0, 32)}`}>
+              <button
+                type="button"
+                onClick={() => onSelect(title)}
+                className="w-full text-left px-3 py-2 rounded-lg border border-outline-variant bg-surface-container-low hover:border-secondary hover:bg-secondary/5 transition-colors"
+              >
+                <span className="font-body-md text-body-md text-on-surface">{display}</span>
+                {tooLong && (
+                  <span className="block mt-1 font-body-sm text-body-sm text-error">
+                    Exceeds {maxLength} characters — will be truncated on select ({title.length} chars)
+                  </span>
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </fieldset>
+  );
+}
+
 function AiField({
   label,
   hint,
   children,
   onRegenerate,
   regenerating,
+  extraActions,
 }: {
   label: string;
   hint?: string;
   children: ReactNode;
   onRegenerate: () => void;
   regenerating: boolean;
+  extraActions?: ReactNode;
 }) {
   return (
     <div className="space-y-3">
@@ -209,7 +278,8 @@ function AiField({
         )}
       </div>
       {children}
-      <div className="flex justify-end">
+      <div className="flex justify-end items-center gap-4">
+        {extraActions}
         <RegenerateButton onClick={onRegenerate} loading={regenerating} />
       </div>
     </div>
@@ -258,6 +328,8 @@ export default function Review() {
     new Set(),
   );
   const [regeneratingSelection, setRegeneratingSelection] = useState(false);
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+  const [suggestingTitles, setSuggestingTitles] = useState(false);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
@@ -276,7 +348,7 @@ export default function Review() {
 
   const reviewFields = isGrant ? GRANT_REVIEW_FIELDS : REVIEW_FIELDS;
 
-  const isBusy = regeneratingFields.size > 0 || regeneratingSelection;
+  const isBusy = regeneratingFields.size > 0 || regeneratingSelection || suggestingTitles;
   const {
     selection: textareaSelection,
     dismiss: dismissSelectionPopover,
@@ -407,7 +479,7 @@ export default function Review() {
         rememberExtractionSources(cache);
         saveToStorage();
       } catch (err) {
-        if (err instanceof SourceGatherError && err.source === "confluence") {
+        if (err instanceof SourceGatherError) {
           setError(err.message);
           return;
         }
@@ -510,6 +582,9 @@ export default function Review() {
         const next = { ...formRef.current, ...patch };
         formRef.current = next;
         pushForm(next);
+        if (field === "invention_title" || field === "project_title") {
+          setTitleSuggestions([]);
+        }
         if (isGrant) {
           setGrantDetails(next as GrantDetails);
         } else {
@@ -525,6 +600,39 @@ export default function Review() {
           next.delete(field);
           return next;
         });
+      }
+    })();
+  };
+
+  const handleSuggestTitles = () => {
+    if (suggestingTitles || regeneratingFields.size > 0 || regeneratingSelection) {
+      return;
+    }
+
+    setError(null);
+    setSuggestingTitles(true);
+
+    void (async () => {
+      try {
+        const { combined } = await gatherSourceText();
+        if (!combined.trim()) {
+          setError("No source material available. Go back to Input and add sources.");
+          return;
+        }
+        const currentTitle = isGrant
+          ? ((formRef.current as GrantDetails).project_title ?? "")
+          : ((formRef.current as InventionDetails).invention_title ?? "");
+        const titles = await suggestTitles(
+          combined,
+          isGrant ? "grant" : "patent",
+          currentTitle,
+          extractionNotes,
+        );
+        setTitleSuggestions(titles);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Title suggestion failed.");
+      } finally {
+        setSuggestingTitles(false);
       }
     })();
   };
@@ -623,6 +731,15 @@ export default function Review() {
     }
   };
 
+  const selectTitleSuggestion = (title: string) => {
+    const applied =
+      !isGrant && title.length > TITLE_MAX_LENGTH
+        ? title.slice(0, TITLE_MAX_LENGTH)
+        : title;
+    updateField(isGrant ? "project_title" : "invention_title", applied);
+    setTitleSuggestions([]);
+  };
+
   const fieldDisabled = (fieldKey: string) =>
     regeneratingFields.has(fieldKey) || regeneratingSelection;
 
@@ -648,13 +765,13 @@ export default function Review() {
   }, [form, isGrant]);
 
   const confluenceSource = cachedRemoteSources.confluence;
-  const websiteSource = cachedRemoteSources.website;
+  const websiteSources = cachedRemoteSources.website ?? [];
   const pastedText = inputSources.pastedText.trim();
   const relevantNotes = inputSources.relevantContentNotes.trim();
   const irrelevantNotes = inputSources.irrelevantContentNotes.trim();
   const hasRelevanceGuidance = relevantNotes.length > 0 || irrelevantNotes.length > 0;
   const hasConfluence = Boolean(confluenceSource?.content?.trim());
-  const hasWebsite = Boolean(websiteSource?.content?.trim());
+  const hasWebsite = websiteSources.some((entry) => entry.content.trim().length > 0);
   const hasPasted = pastedText.length > 0;
   const hasUploaded = uploadedFiles.length > 0;
   const hasAnySource = hasUploaded || hasConfluence || hasWebsite || hasPasted;
@@ -706,7 +823,10 @@ export default function Review() {
             maxLength={TITLE_MAX_LENGTH}
             disabled={fieldDisabled(field.key)}
             {...selectionHandlers(field.key)}
-            onChange={(e) => updateField("invention_title", e.target.value)}
+            onChange={(e) => {
+              setTitleSuggestions([]);
+              updateField("invention_title", e.target.value);
+            }}
           />
           <div className="flex flex-col items-end gap-1">
             <p
@@ -720,20 +840,42 @@ export default function Review() {
               </p>
             )}
           </div>
+          {titleSuggestions.length > 0 && (
+            <TitleSuggestionsList
+              suggestions={titleSuggestions}
+              enforceMaxLength
+              maxLength={TITLE_MAX_LENGTH}
+              onSelect={selectTitleSuggestion}
+            />
+          )}
         </>
       );
     }
 
     const value = (form as unknown as Record<string, unknown>)[field.key];
     if (field.multiline) {
+      const isProjectTitle = isGrant && field.key === "project_title";
       return (
-        <AutoResizeTextarea
-          className={textareaClassName}
-          value={typeof value === "string" ? value : ""}
-          disabled={fieldDisabled(field.key)}
-          {...selectionHandlers(field.key)}
-          onChange={(e) => updateField(field.key, e.target.value)}
-        />
+        <>
+          <AutoResizeTextarea
+            className={textareaClassName}
+            value={typeof value === "string" ? value : ""}
+            disabled={fieldDisabled(field.key)}
+            {...selectionHandlers(field.key)}
+            onChange={(e) => {
+              if (isProjectTitle) {
+                setTitleSuggestions([]);
+              }
+              updateField(field.key, e.target.value);
+            }}
+          />
+          {isProjectTitle && titleSuggestions.length > 0 && (
+            <TitleSuggestionsList
+              suggestions={titleSuggestions}
+              onSelect={selectTitleSuggestion}
+            />
+          )}
+        </>
       );
     }
 
@@ -892,8 +1034,13 @@ export default function Review() {
                     </div>
                   )}
 
-                  {hasWebsite && websiteSource && (
-                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
+                  {websiteSources
+                    .filter((entry) => entry.content.trim().length > 0)
+                    .map((websiteSource) => (
+                    <div
+                      key={websiteSource.url}
+                      className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4"
+                    >
                       <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
                         <span className="material-symbols-outlined">language</span>
                       </div>
@@ -920,7 +1067,7 @@ export default function Review() {
                         <span className="material-symbols-outlined text-[20px]">visibility</span>
                       </button>
                     </div>
-                  )}
+                  ))}
 
                   {hasPasted && (
                     <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
@@ -1026,17 +1173,30 @@ export default function Review() {
                   improve if you fill in the remaining fields.
                 </div>
               )}
-              {reviewFields.map((field) => (
-                <AiField
-                  key={field.key}
-                  label={field.label}
-                  hint={field.hint}
-                  onRegenerate={() => handleRegenerateField(field.key)}
-                  regenerating={regeneratingFields.has(field.key)}
-                >
-                  {renderFieldValue(field)}
-                </AiField>
-              ))}
+              {reviewFields.map((field) => {
+                const isTitleField =
+                  field.key === "invention_title" || field.key === "project_title";
+                return (
+                  <AiField
+                    key={field.key}
+                    label={field.label}
+                    hint={field.hint}
+                    onRegenerate={() => handleRegenerateField(field.key)}
+                    regenerating={regeneratingFields.has(field.key)}
+                    extraActions={
+                      isTitleField ? (
+                        <SuggestTitlesButton
+                          onClick={handleSuggestTitles}
+                          loading={suggestingTitles}
+                          disabled={isBusy}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {renderFieldValue(field)}
+                  </AiField>
+                );
+              })}
             </div>
           </>
         }

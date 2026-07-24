@@ -229,6 +229,26 @@ export async function extractGrantField(
   });
 }
 
+export async function suggestTitles(
+  combinedText: string,
+  documentKind: "patent" | "grant",
+  current?: string,
+  notes?: ExtractionNotes,
+): Promise<string[]> {
+  const data = await requestJson<{ titles: string[] }>("/extract/titles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      document_kind: documentKind,
+      current: current?.trim() ? current.trim() : null,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+  return data.titles;
+}
+
 export async function regenerateSelection(
   combinedText: string,
   fullFieldText: string,

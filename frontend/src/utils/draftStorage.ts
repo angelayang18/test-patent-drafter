@@ -11,8 +11,15 @@ import {
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import type { GrantDetails, InventionDetails } from "../types/patent";
-import { hasGrantDraftSections, readActiveGrantWorkflow } from "./grantStorage";
+import {
+  hasGrantDraftSections,
+  listSavedGrantDrafts,
+  type SavedGrantDraftRecord,
+} from "./grantStorage";
+import { notifyDraftsChanged } from "./draftLibraryEvents";
 import { sanitizePatentProse } from "./documentPreview";
+
+export { DRAFTS_CHANGED_EVENT, notifyDraftsChanged } from "./draftLibraryEvents";
 
 export type WorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
@@ -67,6 +74,11 @@ export interface WorkflowSnapshot {
   extractionSourceKey?: string | null;
   /** Set when leaving Review via "Next: Draft"; consumed once on the Draft page. */
   autoDraftPending?: boolean;
+  /**
+   * Library draft id this active session was opened from (Drafts modal).
+   * Session-only metadata — stripped when saving into the draft library.
+   */
+  loadedFromDraftId?: string;
 }
 
 export interface SavedDraftRecord {
@@ -90,9 +102,76 @@ const emptyInputSources: InputSources = {
   confluenceUrl: "",
   confluenceSpaceKey: "",
   confluenceToken: "",
-  websiteUrl: "",
+  websiteUrls: [""],
   pastedText: "",
 };
+
+type LegacyInputSources = Partial<InputSources> & { websiteUrl?: string };
+
+function normalizeInputSources(raw: LegacyInputSources | undefined): InputSources {
+  const { websiteUrl, websiteUrls, ...rest } = raw ?? {};
+  let urls = Array.isArray(websiteUrls) ? websiteUrls.map(String) : undefined;
+  if (!urls) {
+    const legacy = typeof websiteUrl === "string" ? websiteUrl.trim() : "";
+    urls = legacy ? [legacy] : [""];
+  }
+  if (urls.length === 0) {
+    urls = [""];
+  }
+  return { ...emptyInputSources, ...rest, websiteUrls: urls };
+}
+
+function normalizeCachedRemoteSources(
+  raw: CachedRemoteSources | Record<string, unknown> | null | undefined,
+): CachedRemoteSources {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const result: CachedRemoteSources = {};
+  const website = (raw as CachedRemoteSources).website as
+    | { url: string; content: string }
+    | { url: string; content: string }[]
+    | undefined;
+  if (Array.isArray(website)) {
+    result.website = website.filter(
+      (entry) =>
+        entry &&
+        typeof entry === "object" &&
+        typeof entry.url === "string" &&
+        typeof entry.content === "string",
+    );
+  } else if (
+    website &&
+    typeof website === "object" &&
+    typeof website.url === "string" &&
+    typeof website.content === "string"
+  ) {
+    result.website = [website];
+  }
+  const confluence = (raw as CachedRemoteSources).confluence;
+  if (
+    confluence &&
+    typeof confluence === "object" &&
+    typeof confluence.url === "string" &&
+    typeof confluence.spaceKey === "string" &&
+    typeof confluence.content === "string"
+  ) {
+    result.confluence = confluence;
+  }
+  return result;
+}
+
+function inputSourcesHaveProgress(inputSources: InputSources): boolean {
+  return Object.values(inputSources).some((value) => {
+    if (typeof value === "string") {
+      return value.trim().length > 0;
+    }
+    if (Array.isArray(value)) {
+      return value.some((item) => typeof item === "string" && item.trim().length > 0);
+    }
+    return false;
+  });
+}
 
 function sanitizeSections(sections: Record<string, string> | undefined): Record<string, string> {
   if (!sections) {
@@ -117,8 +196,8 @@ export function normalizeWorkflow(
     brief_description_of_drawings: raw?.brief_description_of_drawings ?? "",
     filingInfo: { ...EMPTY_FILING_INFO, ...raw?.filingInfo },
     uploadedFiles: raw?.uploadedFiles ?? [],
-    inputSources: { ...emptyInputSources, ...raw?.inputSources },
-    cachedRemoteSources: raw?.cachedRemoteSources ?? {},
+    inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
+    cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
     attorneyFeedback: { ...emptyAttorneyFeedback(), ...raw?.attorneyFeedback },
     attorneyFeedbackGlobal: raw?.attorneyFeedbackGlobal ?? "",
     approvedExemplars: { ...emptyApprovedExemplars(), ...raw?.approvedExemplars },
@@ -127,6 +206,10 @@ export function normalizeWorkflow(
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
+    loadedFromDraftId:
+      typeof raw?.loadedFromDraftId === "string" && raw.loadedFromDraftId.trim()
+        ? raw.loadedFromDraftId.trim()
+        : undefined,
   };
 }
 
@@ -253,22 +336,25 @@ export function saveDraftToLibrary(
   workflow: WorkflowSnapshot,
 ): SavedDraftRecord {
   const trimmedName = name.trim() || defaultDraftName(workflow);
+  const { loadedFromDraftId: _omit, ...rest } = workflow;
   const record: SavedDraftRecord = {
     id: crypto.randomUUID(),
     name: trimmedName,
     savedAt: new Date().toISOString(),
-    workflow: normalizeWorkflow(workflow),
+    workflow: normalizeWorkflow(rest),
   };
 
   const existing = listSavedDrafts();
   const next = [record, ...existing].slice(0, MAX_SAVED_DRAFTS);
   writeJson(DRAFT_LIBRARY_KEY, next);
+  notifyDraftsChanged();
   return record;
 }
 
 export function deleteSavedDraft(id: string): void {
   const next = listSavedDrafts().filter((draft) => draft.id !== id);
   writeJson(DRAFT_LIBRARY_KEY, next);
+  notifyDraftsChanged();
 }
 
 export function defaultDraftName(workflow: WorkflowSnapshot): string {
@@ -285,7 +371,7 @@ export function defaultDraftName(workflow: WorkflowSnapshot): string {
 export function workflowHasProgress(workflow: WorkflowSnapshot): boolean {
   if (workflow.invention || workflow.grantDetails) return true;
   if (workflow.uploadedFiles.length > 0) return true;
-  if (Object.values(workflow.inputSources).some((value) => value.trim())) return true;
+  if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
   if (workflow.figures.length > 0) return true;
   if (workflow.brief_description_of_drawings.trim()) return true;
@@ -389,20 +475,9 @@ export function formatSavedAt(iso: string): string {
 
 const PREVIEW_MAX_CHARS = 120;
 
-const IMPORT_MARKERS: Record<
-  WorkflowMode,
-  { start: string; end: string; kindLabel: string }
-> = {
-  grant: {
-    start: "--- Imported Grant Application Draft ---",
-    end: "--- End Imported Draft ---",
-    kindLabel: "Grant Application Draft",
-  },
-  patent: {
-    start: "--- Imported Patent Draft ---",
-    end: "--- End Imported Draft ---",
-    kindLabel: "Patent Draft",
-  },
+const KIND_LABELS: Record<WorkflowMode, string> = {
+  grant: "Grant Application Draft",
+  patent: "Patent Draft",
 };
 
 export interface OtherWorkflowDraftSectionPreview {
@@ -411,10 +486,12 @@ export interface OtherWorkflowDraftSectionPreview {
   preview: string;
 }
 
-export interface OtherWorkflowDraftSummary {
-  sourceMode: WorkflowMode;
+export interface SavedDraftImportSummary {
+  id: string;
   title: string;
   displayLabel: string;
+  workflowMode: WorkflowMode;
+  savedAt: string;
   sections: OtherWorkflowDraftSectionPreview[];
   serializedText: string;
 }
@@ -460,18 +537,63 @@ function serializeSectionsBlock(
   return parts.join("\n\n");
 }
 
-/** Wrap serialized draft sections in stable markers for toggle inject/remove. */
-export function wrapImportedDraftBlock(sourceMode: WorkflowMode, body: string): string {
-  const markers = IMPORT_MARKERS[sourceMode];
+/** Stable per-draft-id markers so multiple same-mode drafts can coexist in pastedText. */
+function importedDraftMarkers(draftId: string): { start: string; end: string } {
+  return {
+    start: `--- Imported Draft [id=${draftId}] ---`,
+    end: `--- End Imported Draft [id=${draftId}] ---`,
+  };
+}
+
+/**
+ * Build an importable summary from mode + sections (shared by patent and grant records).
+ */
+function buildImportSummaryFromSections(params: {
+  id: string;
+  savedAt: string;
+  workflowMode: WorkflowMode;
+  title: string;
+  sections: Record<string, string>;
+  orderedIds: readonly string[];
+  labels: Record<string, string>;
+}): SavedDraftImportSummary | null {
+  const sectionPreviews = buildSectionPreviews(
+    params.sections,
+    params.orderedIds,
+    params.labels,
+  );
+  if (sectionPreviews.length === 0) {
+    return null;
+  }
+  const kindLabel = KIND_LABELS[params.workflowMode];
+  const body = serializeSectionsBlock(
+    params.sections,
+    params.orderedIds,
+    params.labels,
+  );
+  return {
+    id: params.id,
+    title: params.title,
+    displayLabel: `${kindLabel} — ${params.title}`,
+    workflowMode: params.workflowMode,
+    savedAt: params.savedAt,
+    sections: sectionPreviews,
+    serializedText: wrapImportedDraftBlock(params.id, body),
+  };
+}
+
+/** Wrap serialized draft sections in per-draft-id markers for toggle inject/remove. */
+export function wrapImportedDraftBlock(draftId: string, body: string): string {
+  const markers = importedDraftMarkers(draftId);
   return `${markers.start}\n${body.trim()}\n${markers.end}`;
 }
 
-/** Remove a previously injected opposite-workflow draft block from pasted text. */
+/** Remove a previously injected draft block (keyed by draft id) from pasted text. */
 export function stripImportedDraftBlock(
   pastedText: string,
-  sourceMode: WorkflowMode,
+  draftId: string,
 ): string {
-  const markers = IMPORT_MARKERS[sourceMode];
+  const markers = importedDraftMarkers(draftId);
   const startIdx = pastedText.indexOf(markers.start);
   if (startIdx === -1) {
     return pastedText;
@@ -486,87 +608,109 @@ export function stripImportedDraftBlock(
 }
 
 /**
- * Read the opposite workflow's active localStorage snapshot and return a summary
- * suitable for seeding the current Input page as pasted source text.
+ * Build an importable summary for a patent-library SavedDraftRecord.
+ * Returns null when the record has no non-empty draft sections.
  */
-export function getOtherWorkflowDraftSummary(
-  currentMode: WorkflowMode,
-): OtherWorkflowDraftSummary | null {
-  if (currentMode === "patent") {
-    const grant = readActiveGrantWorkflow();
-    if (!hasGrantDraftSections(grant.sections)) {
-      return null;
-    }
-    const sectionPreviews = buildSectionPreviews(
-      grant.sections,
-      GRANT_SECTION_IDS,
-      GRANT_SECTION_LABELS,
-    );
-    if (sectionPreviews.length === 0) {
+export function getSavedDraftImportSummary(
+  record: SavedDraftRecord,
+): SavedDraftImportSummary | null {
+  const mode = record.workflow.workflowMode === "grant" ? "grant" : "patent";
+  if (mode === "grant") {
+    if (!hasGrantDraftSections(record.workflow.sections)) {
       return null;
     }
     const title =
-      grant.grantDetails?.project_title?.trim() || "Untitled grant application";
-    const body = serializeSectionsBlock(
-      grant.sections,
-      GRANT_SECTION_IDS,
-      GRANT_SECTION_LABELS,
-    );
-    return {
-      sourceMode: "grant",
+      record.workflow.grantDetails?.project_title?.trim() ||
+      record.name.trim() ||
+      "Untitled grant application";
+    return buildImportSummaryFromSections({
+      id: record.id,
+      savedAt: record.savedAt,
+      workflowMode: "grant",
       title,
-      displayLabel: `${IMPORT_MARKERS.grant.kindLabel} — ${title}`,
-      sections: sectionPreviews,
-      serializedText: wrapImportedDraftBlock("grant", body),
-    };
+      sections: record.workflow.sections,
+      orderedIds: GRANT_SECTION_IDS,
+      labels: GRANT_SECTION_LABELS,
+    });
   }
 
-  const patent = readActiveWorkflow();
-  if (patent.workflowMode === "grant" || !hasDraftSections(patent.sections)) {
-    return null;
-  }
-  const sectionPreviews = buildSectionPreviews(
-    patent.sections,
-    PATENT_SECTION_IDS,
-    SECTION_LABELS,
-  );
-  if (sectionPreviews.length === 0) {
+  if (!hasDraftSections(record.workflow.sections)) {
     return null;
   }
   const title =
-    patent.invention?.invention_title?.trim() || "Untitled patent draft";
-  const body = serializeSectionsBlock(
-    patent.sections,
-    PATENT_SECTION_IDS,
-    SECTION_LABELS,
-  );
-  return {
-    sourceMode: "patent",
+    record.workflow.invention?.invention_title?.trim() ||
+    record.name.trim() ||
+    "Untitled patent draft";
+  return buildImportSummaryFromSections({
+    id: record.id,
+    savedAt: record.savedAt,
+    workflowMode: "patent",
     title,
-    displayLabel: `${IMPORT_MARKERS.patent.kindLabel} — ${title}`,
-    sections: sectionPreviews,
-    serializedText: wrapImportedDraftBlock("patent", body),
-  };
+    sections: record.workflow.sections,
+    orderedIds: PATENT_SECTION_IDS,
+    labels: SECTION_LABELS,
+  });
 }
 
-/** Whether pasted text already contains an injected block for the given source mode. */
+/**
+ * Build an importable summary for a grant-library SavedGrantDraftRecord.
+ * Returns null when the record has no non-empty draft sections.
+ */
+export function getSavedGrantDraftImportSummary(
+  record: SavedGrantDraftRecord,
+): SavedDraftImportSummary | null {
+  if (!hasGrantDraftSections(record.workflow.sections)) {
+    return null;
+  }
+  const title =
+    record.workflow.grantDetails?.project_title?.trim() ||
+    record.name.trim() ||
+    "Untitled grant application";
+  return buildImportSummaryFromSections({
+    id: record.id,
+    savedAt: record.savedAt,
+    workflowMode: "grant",
+    title,
+    sections: record.workflow.sections,
+    orderedIds: GRANT_SECTION_IDS,
+    labels: GRANT_SECTION_LABELS,
+  });
+}
+
+/**
+ * All saved drafts (patent + grant libraries) that have content suitable for
+ * seeding Input pastedText as imported sources.
+ */
+export function listImportableSavedDraftSummaries(): SavedDraftImportSummary[] {
+  const patentSummaries = listSavedDrafts()
+    .map(getSavedDraftImportSummary)
+    .filter((s): s is SavedDraftImportSummary => s !== null);
+  const grantSummaries = listSavedGrantDrafts()
+    .map(getSavedGrantDraftImportSummary)
+    .filter((s): s is SavedDraftImportSummary => s !== null);
+  return [...patentSummaries, ...grantSummaries].sort(
+    (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
+  );
+}
+
+/** Whether pasted text already contains an injected block for the given draft id. */
 export function pastedTextHasImportedDraft(
   pastedText: string,
-  sourceMode: WorkflowMode,
+  draftId: string,
 ): boolean {
-  const markers = IMPORT_MARKERS[sourceMode];
+  const markers = importedDraftMarkers(draftId);
   return (
     pastedText.includes(markers.start) && pastedText.includes(markers.end)
   );
 }
 
-/** Append (or replace existing) imported draft block into pasted text. */
+/** Append (or replace existing) imported draft block for a specific draft id. */
 export function injectImportedDraftBlock(
   pastedText: string,
-  sourceMode: WorkflowMode,
+  draftId: string,
   serializedText: string,
 ): string {
-  const without = stripImportedDraftBlock(pastedText, sourceMode);
+  const without = stripImportedDraftBlock(pastedText, draftId);
   if (!without.trim()) {
     return serializedText;
   }

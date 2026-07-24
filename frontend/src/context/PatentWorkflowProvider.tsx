@@ -98,11 +98,16 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const [autoDraftPending, setAutoDraftPendingState] = useState(
     initial.autoDraftPending ?? false,
   );
+  const [loadedFromDraftId, setLoadedFromDraftIdState] = useState<string | undefined>(
+    initial.loadedFromDraftId,
+  );
   const [workflowResetting, setWorkflowResetting] = useState(false);
 
   const storageWriteGenerationRef = useRef(0);
   const pendingStorageWriteRef = useRef<number | null>(null);
   const buildSnapshotRef = useRef<() => WorkflowSnapshot>(() => createEmptyWorkflowSnapshot());
+  const extractionSourceKeyRef = useRef(extractionSourceKey);
+  extractionSourceKeyRef.current = extractionSourceKey;
 
   const cancelPendingStorageWrite = useCallback(() => {
     const pending = pendingStorageWriteRef.current;
@@ -181,6 +186,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setCompletedStepsState(next.completedSteps ?? []);
       setExtractionSourceKeyState(next.extractionSourceKey ?? null);
       setAutoDraftPendingState(next.autoDraftPending ?? false);
+      setLoadedFromDraftIdState(next.loadedFromDraftId);
     },
     [],
   );
@@ -205,6 +211,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
+      loadedFromDraftId,
     }),
     [
       workflowMode,
@@ -225,6 +232,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
+      loadedFromDraftId,
     ],
   );
 
@@ -258,7 +266,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const saveNamedDraft = useCallback(
     (name: string) => {
       const record = saveDraftToLibrary(name, buildSnapshot());
-      writeStoragePayload();
+      // Retarget identity to the newly saved library entry.
+      setLoadedFromDraftIdState(record.id);
+      writeStoragePayload({ loadedFromDraftId: record.id });
       return record;
     },
     [buildSnapshot, writeStoragePayload],
@@ -444,7 +454,18 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setExtractionSourceKey = useCallback(
     (key: string | null) => {
+      const diverged = extractionSourceKeyRef.current !== key;
       setExtractionSourceKeyState(key);
+      if (diverged) {
+        // Re-extracting from different sources means this session has diverged
+        // from the library draft it was opened from.
+        setLoadedFromDraftIdState(undefined);
+        writeStoragePayload({
+          extractionSourceKey: key,
+          loadedFromDraftId: undefined,
+        });
+        return;
+      }
       writeStoragePayload({ extractionSourceKey: key });
     },
     [writeStoragePayload],
