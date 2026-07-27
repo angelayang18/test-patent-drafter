@@ -5,6 +5,9 @@ import type {
   PatentDraft,
   PatentFigure,
   RegenerateFigureResult,
+  SectionCitation,
+  SOWDetails,
+  ADADetails,
 } from "../types/patent";
 
 const API_BASE_URL =
@@ -13,10 +16,13 @@ const API_BASE_URL =
 export type {
   InventionDetails,
   GrantDetails,
+  SOWDetails,
+  ADADetails,
   PatentDraft,
   PatentFigure,
   FiguresResult,
   RegenerateFigureResult,
+  SectionCitation,
 };
 
 export interface SourceContent {
@@ -229,6 +235,78 @@ export async function extractGrantField(
   });
 }
 
+export async function extractSow(
+  combinedText: string,
+  notes?: ExtractionNotes,
+): Promise<SOWDetails> {
+  return requestJson<SOWDetails>("/extract/sow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+}
+
+export type ExtractableSowField = keyof SOWDetails;
+
+export async function extractSowField(
+  combinedText: string,
+  field: ExtractableSowField,
+  current?: SOWDetails,
+  notes?: ExtractionNotes,
+): Promise<Partial<SOWDetails>> {
+  return requestJson<Partial<SOWDetails>>("/extract/sow/field", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      field,
+      current: current ?? null,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+}
+
+export async function extractAda(
+  combinedText: string,
+  notes?: ExtractionNotes,
+): Promise<ADADetails> {
+  return requestJson<ADADetails>("/extract/ada", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+}
+
+export type ExtractableAdaField = keyof ADADetails;
+
+export async function extractAdaField(
+  combinedText: string,
+  field: ExtractableAdaField,
+  current?: ADADetails,
+  notes?: ExtractionNotes,
+): Promise<Partial<ADADetails>> {
+  return requestJson<Partial<ADADetails>>("/extract/ada/field", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      field,
+      current: current ?? null,
+      relevant_notes: notes?.relevantNotes?.trim() ?? "",
+      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+    }),
+  });
+}
+
 export async function suggestTitles(
   combinedText: string,
   documentKind: "patent" | "grant",
@@ -267,17 +345,28 @@ export async function regenerateSelection(
   }).then((d) => d.result);
 }
 
+export type CustomSectionsPayload = Record<
+  string,
+  { name: string; description: string }
+>;
+
 export interface DraftSectionOptions {
   priorDraft?: string;
   attorneyFeedback?: string;
+  combinedText?: string;
+  customSections?: CustomSectionsPayload;
 }
 
 export async function draftSection(
   invention: InventionDetails,
   section: string,
   options?: DraftSectionOptions,
-): Promise<string> {
-  const data = await requestJson<{ section: string; content: string }>("/draft", {
+): Promise<{ content: string; citations: SectionCitation[] }> {
+  const data = await requestJson<{
+    section: string;
+    content: string;
+    citations?: SectionCitation[];
+  }>("/draft", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -285,10 +374,12 @@ export async function draftSection(
       section,
       prior_draft: options?.priorDraft?.trim() ?? "",
       attorney_feedback: options?.attorneyFeedback?.trim() ?? "",
+      combined_text: options?.combinedText ?? "",
+      custom_sections: options?.customSections ?? {},
     }),
   });
 
-  return data.content;
+  return { content: data.content, citations: data.citations ?? [] };
 }
 
 /** Draft multiple sections in parallel (one backend agent per section). */
@@ -296,52 +387,178 @@ export async function draftAllSections(
   invention: InventionDetails,
   sections?: string[],
   attorneyFeedback?: Record<string, string>,
-): Promise<Record<string, string>> {
-  const data = await requestJson<{ sections: Record<string, string> }>("/draft/all", {
+  combinedText?: string,
+  customSections?: CustomSectionsPayload,
+): Promise<{
+  sections: Record<string, string>;
+  citations: Record<string, SectionCitation[]>;
+}> {
+  const data = await requestJson<{
+    sections: Record<string, string>;
+    citations?: Record<string, SectionCitation[]>;
+  }>("/draft/all", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...invention,
       ...(sections?.length ? { sections } : {}),
       attorney_feedback: attorneyFeedback ?? {},
+      combined_text: combinedText ?? "",
+      custom_sections: customSections ?? {},
     }),
   });
 
-  return data.sections;
+  return { sections: data.sections, citations: data.citations ?? {} };
 }
 
 export async function draftGrantSection(
   grant: GrantDetails,
   section: string,
   options?: DraftSectionOptions,
-): Promise<string> {
-  const data = await requestJson<{ section: string; content: string }>("/draft/grant", {
+): Promise<{ content: string; citations: SectionCitation[] }> {
+  const data = await requestJson<{
+    section: string;
+    content: string;
+    citations?: SectionCitation[];
+  }>("/draft/grant", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...grant,
       section,
       prior_draft: options?.priorDraft?.trim() ?? "",
+      combined_text: options?.combinedText ?? "",
+      custom_sections: options?.customSections ?? {},
     }),
   });
 
-  return data.content;
+  return { content: data.content, citations: data.citations ?? [] };
 }
 
 export async function draftAllGrantSections(
   grant: GrantDetails,
   sections?: string[],
-): Promise<Record<string, string>> {
-  const data = await requestJson<{ sections: Record<string, string> }>("/draft/grant/all", {
+  combinedText?: string,
+  customSections?: CustomSectionsPayload,
+): Promise<{
+  sections: Record<string, string>;
+  citations: Record<string, SectionCitation[]>;
+}> {
+  const data = await requestJson<{
+    sections: Record<string, string>;
+    citations?: Record<string, SectionCitation[]>;
+  }>("/draft/grant/all", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...grant,
       ...(sections?.length ? { sections } : {}),
+      combined_text: combinedText ?? "",
+      custom_sections: customSections ?? {},
     }),
   });
 
-  return data.sections;
+  return { sections: data.sections, citations: data.citations ?? {} };
+}
+
+export async function draftSowSection(
+  sow: SOWDetails,
+  section: string,
+  options?: DraftSectionOptions,
+): Promise<{ content: string; citations: SectionCitation[] }> {
+  const data = await requestJson<{
+    section: string;
+    content: string;
+    citations?: SectionCitation[];
+  }>("/draft/sow", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...sow,
+      section,
+      prior_draft: options?.priorDraft?.trim() ?? "",
+      combined_text: options?.combinedText ?? "",
+      custom_sections: options?.customSections ?? {},
+    }),
+  });
+
+  return { content: data.content, citations: data.citations ?? [] };
+}
+
+export async function draftAllSowSections(
+  sow: SOWDetails,
+  sections?: string[],
+  combinedText?: string,
+  customSections?: CustomSectionsPayload,
+): Promise<{
+  sections: Record<string, string>;
+  citations: Record<string, SectionCitation[]>;
+}> {
+  const data = await requestJson<{
+    sections: Record<string, string>;
+    citations?: Record<string, SectionCitation[]>;
+  }>("/draft/sow/all", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...sow,
+      ...(sections?.length ? { sections } : {}),
+      combined_text: combinedText ?? "",
+      custom_sections: customSections ?? {},
+    }),
+  });
+
+  return { sections: data.sections, citations: data.citations ?? {} };
+}
+
+export async function draftAdaSection(
+  ada: ADADetails,
+  section: string,
+  options?: DraftSectionOptions,
+): Promise<{ content: string; citations: SectionCitation[] }> {
+  const data = await requestJson<{
+    section: string;
+    content: string;
+    citations?: SectionCitation[];
+  }>("/draft/ada", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...ada,
+      section,
+      prior_draft: options?.priorDraft?.trim() ?? "",
+      combined_text: options?.combinedText ?? "",
+      custom_sections: options?.customSections ?? {},
+    }),
+  });
+
+  return { content: data.content, citations: data.citations ?? [] };
+}
+
+export async function draftAllAdaSections(
+  ada: ADADetails,
+  sections?: string[],
+  combinedText?: string,
+  customSections?: CustomSectionsPayload,
+): Promise<{
+  sections: Record<string, string>;
+  citations: Record<string, SectionCitation[]>;
+}> {
+  const data = await requestJson<{
+    sections: Record<string, string>;
+    citations?: Record<string, SectionCitation[]>;
+  }>("/draft/ada/all", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...ada,
+      ...(sections?.length ? { sections } : {}),
+      combined_text: combinedText ?? "",
+      custom_sections: customSections ?? {},
+    }),
+  });
+
+  return { sections: data.sections, citations: data.citations ?? {} };
 }
 
 export interface LearningSubmitPayload extends InventionDetails {
@@ -464,6 +681,7 @@ function exportPayloadBody(draft: PatentDraft): string {
     ...(draft.figure_pngs && Object.keys(draft.figure_pngs).length > 0
       ? { figure_pngs: draft.figure_pngs }
       : {}),
+    section_labels: draft.section_labels ?? {},
   });
 }
 
@@ -517,6 +735,7 @@ export async function exportPdf(draft: PatentDraft): Promise<Blob> {
 export async function exportGrantDocx(
   sections: Record<string, string>,
   projectTitle?: string,
+  sectionLabels?: Record<string, string>,
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/grant/docx`, {
     method: "POST",
@@ -524,6 +743,7 @@ export async function exportGrantDocx(
     body: JSON.stringify({
       sections,
       project_title: projectTitle ?? "",
+      section_labels: sectionLabels ?? {},
     }),
   });
 
@@ -538,6 +758,7 @@ export async function exportGrantDocx(
 export async function exportGrantPdf(
   sections: Record<string, string>,
   projectTitle?: string,
+  sectionLabels?: Record<string, string>,
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/grant/pdf`, {
     method: "POST",
@@ -545,6 +766,99 @@ export async function exportGrantPdf(
     body: JSON.stringify({
       sections,
       project_title: projectTitle ?? "",
+      section_labels: sectionLabels ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportSowDocx(
+  sections: Record<string, string>,
+  engagementTitle?: string,
+  sectionLabels?: Record<string, string>,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/sow/docx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      engagement_title: engagementTitle ?? "",
+      section_labels: sectionLabels ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportSowPdf(
+  sections: Record<string, string>,
+  engagementTitle?: string,
+  sectionLabels?: Record<string, string>,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/sow/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      engagement_title: engagementTitle ?? "",
+      section_labels: sectionLabels ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportAdaDocx(
+  sections: Record<string, string>,
+  studyTitle?: string,
+  sectionLabels?: Record<string, string>,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/ada/docx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      study_title: studyTitle ?? "",
+      section_labels: sectionLabels ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportAdaPdf(
+  sections: Record<string, string>,
+  studyTitle?: string,
+  sectionLabels?: Record<string, string>,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/ada/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      study_title: studyTitle ?? "",
+      section_labels: sectionLabels ?? {},
     }),
   });
 

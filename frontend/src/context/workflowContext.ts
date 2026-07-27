@@ -6,10 +6,12 @@ import type {
   InventionDetails,
   PatentFigure,
   PatentSectionId,
+  SectionCitation,
   WorkflowMode,
 } from "../types/patent";
 import type { CachedRemoteSources, GatheredSourceText, GatherSourceTextOptions } from "../utils/gatherSourceText";
 import type { SavedDraftRecord, WorkflowSnapshot, WorkflowStep } from "../utils/draftStorage";
+import type { SectionSettingsMap } from "../utils/sectionSettings";
 
 export interface UploadedSourceFile {
   id: string;
@@ -41,6 +43,8 @@ export interface PatentWorkflowContextValue {
   cachedRemoteSources: CachedRemoteSources;
   attorneyFeedback: Record<PatentSectionId, string>;
   attorneyFeedbackGlobal: string;
+  sectionCitations: Record<string, SectionCitation[]>;
+  sectionSettings: SectionSettingsMap;
   approvedExemplars: Record<PatentSectionId, boolean>;
   aiInitialSections: Record<string, string>;
   includeInLearningCorpus: boolean;
@@ -57,6 +61,8 @@ export interface PatentWorkflowContextValue {
   captureAiInitialSections: (drafted: Record<string, string>) => void;
   setAttorneyFeedback: (sectionId: PatentSectionId, comment: string) => void;
   setAttorneyFeedbackGlobal: (comment: string) => void;
+  setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;
+  setSectionSettings: (settings: SectionSettingsMap) => void;
   setApprovedExemplar: (sectionId: PatentSectionId, approved: boolean) => void;
   setIncludeInLearningCorpus: (include: boolean) => void;
   setFiguresResult: (result: FiguresResult) => void;

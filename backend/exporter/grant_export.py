@@ -72,10 +72,23 @@ def _ordered_sections(sections: dict[str, str]) -> list[tuple[str, str]]:
     return ordered
 
 
+def _resolve_grant_label(
+    key: str,
+    section_labels: dict[str, str] | None = None,
+) -> str:
+    """Resolve a grant section heading with optional custom label override."""
+    labels = section_labels or {}
+    override = str(labels.get(key) or "").strip()
+    if override:
+        return override
+    return GRANT_SECTION_LABELS.get(key, key.replace("_", " ").title())
+
+
 def export_grant_docx(
     sections: dict[str, str],
     *,
     project_title: str = "",
+    section_labels: dict[str, str] | None = None,
 ) -> BytesIO:
     """Build a grant application DOCX with numbered section headings."""
     doc = Document()
@@ -85,7 +98,7 @@ def export_grant_docx(
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     for index, (key, content) in enumerate(_ordered_sections(sections), start=1):
-        label = GRANT_SECTION_LABELS.get(key, key.replace("_", " ").title())
+        label = _resolve_grant_label(key, section_labels)
         section_heading = doc.add_paragraph()
         run = section_heading.add_run(f"{index}. {label}")
         run.bold = True
@@ -108,6 +121,7 @@ def export_grant_pdf(
     sections: dict[str, str],
     *,
     project_title: str = "",
+    section_labels: dict[str, str] | None = None,
 ) -> BytesIO:
     """Build a grant application PDF with numbered section headings."""
     pdf = _GrantPdf()
@@ -123,7 +137,7 @@ def export_grant_pdf(
         pdf.ln(8)
 
     for index, (key, content) in enumerate(_ordered_sections(sections), start=1):
-        label = GRANT_SECTION_LABELS.get(key, key.replace("_", " ").title())
+        label = _resolve_grant_label(key, section_labels)
         pdf.set_font("Helvetica", style="B", size=FONT_SIZE_HEADING)
         pdf.multi_cell(
             0,

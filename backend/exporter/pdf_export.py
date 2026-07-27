@@ -183,6 +183,7 @@ def export_patent_pdf(
     invention_title: str = "",
     filing_info: dict[str, Any] | None = None,
     client_figure_pngs: dict[int, bytes] | None = None,
+    section_labels: dict[str, str] | None = None,
 ) -> BytesIO:
     """Build a multi-section patent draft PDF and return it as a BytesIO buffer."""
     sections = prepare_sections_for_export(sections)
@@ -223,7 +224,7 @@ def export_patent_pdf(
         pdf.cell(
             0,
             10,
-            _sanitize_text(section_heading(key)),
+            _sanitize_text(section_heading(key, section_labels)),
             new_x=XPos.LMARGIN,
             new_y=YPos.NEXT,
         )

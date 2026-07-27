@@ -1,7 +1,9 @@
 import { useId, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useAdaWorkflow } from "../context/AdaWorkflowContext";
 import { useGrantWorkflow } from "../context/GrantWorkflowContext";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
+import { useSowWorkflow } from "../context/SowWorkflowContext";
 import {
   defaultDraftName,
   formatSavedAt,
@@ -11,11 +13,23 @@ import {
 } from "../utils/draftStorage";
 import { countAllSavedDrafts } from "../utils/draftCounts";
 import {
+  defaultAdaDraftName,
+  getAdaResumePath,
+  readAdaDraftFile,
+  type SavedAdaDraftRecord,
+} from "../utils/adaStorage";
+import {
   defaultGrantDraftName,
   getGrantResumePath,
   readGrantDraftFile,
   type SavedGrantDraftRecord,
 } from "../utils/grantStorage";
+import {
+  defaultSowDraftName,
+  getSowResumePath,
+  readSowDraftFile,
+  type SavedSowDraftRecord,
+} from "../utils/sowStorage";
 
 interface DraftManagerModalProps {
   open: boolean;
@@ -23,8 +37,13 @@ interface DraftManagerModalProps {
   onDraftCountChange?: () => void;
 }
 
-function isGrantRoute(pathname: string): boolean {
-  return pathname.startsWith("/grant");
+type ActiveDraftMode = "patent" | "grant" | "sow" | "ada";
+
+function getActiveDraftMode(pathname: string): ActiveDraftMode {
+  if (pathname.startsWith("/grant")) return "grant";
+  if (pathname.startsWith("/sow")) return "sow";
+  if (pathname.startsWith("/ada")) return "ada";
+  return "patent";
 }
 
 export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftManagerModalProps) {
@@ -32,12 +51,15 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
   const location = useLocation();
   const uploadInputId = useId();
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const isGrant = isGrantRoute(location.pathname);
+  const mode = getActiveDraftMode(location.pathname);
 
   const patent = usePatentWorkflow();
   const grant = useGrantWorkflow();
+  const sow = useSowWorkflow();
+  const ada = useAdaWorkflow();
 
-  const activeContext = isGrant ? grant : patent;
+  const activeContext =
+    mode === "grant" ? grant : mode === "sow" ? sow : mode === "ada" ? ada : patent;
   const {
     getWorkflowSnapshot,
     saveNamedDraft,
@@ -53,6 +75,8 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
   const [grantDrafts, setGrantDrafts] = useState<SavedGrantDraftRecord[]>(() =>
     grant.getSavedDrafts(),
   );
+  const [sowDrafts, setSowDrafts] = useState<SavedSowDraftRecord[]>(() => sow.getSavedDrafts());
+  const [adaDrafts, setAdaDrafts] = useState<SavedAdaDraftRecord[]>(() => ada.getSavedDrafts());
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -61,15 +85,26 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
   if (!open) return null;
 
   const snapshot = getWorkflowSnapshot();
-  const suggestedName = isGrant
-    ? draftName.trim() || defaultGrantDraftName(snapshot as ReturnType<typeof grant.getWorkflowSnapshot>)
-    : draftName.trim() || defaultDraftName(snapshot as ReturnType<typeof patent.getWorkflowSnapshot>);
+  const suggestedName =
+    mode === "grant"
+      ? draftName.trim() ||
+        defaultGrantDraftName(snapshot as ReturnType<typeof grant.getWorkflowSnapshot>)
+      : mode === "sow"
+        ? draftName.trim() ||
+          defaultSowDraftName(snapshot as ReturnType<typeof sow.getWorkflowSnapshot>)
+        : mode === "ada"
+          ? draftName.trim() ||
+            defaultAdaDraftName(snapshot as ReturnType<typeof ada.getWorkflowSnapshot>)
+          : draftName.trim() ||
+            defaultDraftName(snapshot as ReturnType<typeof patent.getWorkflowSnapshot>);
 
   const refreshDraftList = () => {
     setPatentDrafts(
       patent.getSavedDrafts().filter((record) => record.workflow.workflowMode !== "grant"),
     );
     setGrantDrafts(grant.getSavedDrafts());
+    setSowDrafts(sow.getSavedDrafts());
+    setAdaDrafts(ada.getSavedDrafts());
     onDraftCountChange?.();
   };
 
@@ -93,7 +128,14 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
     try {
       saveToStorage();
       exportDraftFile(suggestedName);
-      const suffix = isGrant ? ".grant-draft.json" : ".patent-draft.json";
+      const suffix =
+        mode === "grant"
+          ? ".grant-draft.json"
+          : mode === "sow"
+            ? ".sow-draft.json"
+            : mode === "ada"
+              ? ".ada-draft.json"
+              : ".patent-draft.json";
       setMessage(`Downloaded ${suggestedName}${suffix}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not download draft.");
@@ -120,6 +162,26 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
     navigate(getGrantResumePath(record.workflow));
   };
 
+  const handleLoadSowDraft = (record: SavedSowDraftRecord) => {
+    setError(null);
+    sow.importWorkflow({
+      ...record.workflow,
+      loadedFromDraftId: record.id,
+    });
+    onClose();
+    navigate(getSowResumePath(record.workflow));
+  };
+
+  const handleLoadAdaDraft = (record: SavedAdaDraftRecord) => {
+    setError(null);
+    ada.importWorkflow({
+      ...record.workflow,
+      loadedFromDraftId: record.id,
+    });
+    onClose();
+    navigate(getAdaResumePath(record.workflow));
+  };
+
   const handleDeletePatentDraft = (id: string) => {
     patent.removeSavedDraft(id);
     refreshDraftList();
@@ -132,44 +194,73 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
     setMessage("Removed saved grant draft.");
   };
 
+  const handleDeleteSowDraft = (id: string) => {
+    sow.removeSavedDraft(id);
+    refreshDraftList();
+    setMessage("Removed saved SOW draft.");
+  };
+
+  const handleDeleteAdaDraft = (id: string) => {
+    ada.removeSavedDraft(id);
+    refreshDraftList();
+    setMessage("Removed saved ADA draft.");
+  };
+
   const handleUpload = async (file: File | undefined) => {
     if (!file) return;
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
-      let loadedAsGrant = false;
+      let destination: ActiveDraftMode = "patent";
 
       try {
-        const parsed = await readGrantDraftFile(file);
-        grant.importWorkflow(parsed.workflow);
-        loadedAsGrant = true;
+        const parsed = await readAdaDraftFile(file);
+        ada.importWorkflow(parsed.workflow);
+        destination = "ada";
       } catch {
-        const parsed = await readDraftFile(file);
-        if (parsed.workflow.workflowMode === "grant") {
-          grant.importWorkflow({
-            grantDetails: parsed.workflow.grantDetails,
-            sections: parsed.workflow.sections,
-            uploadedFiles: parsed.workflow.uploadedFiles,
-            inputSources: parsed.workflow.inputSources,
-            cachedRemoteSources: parsed.workflow.cachedRemoteSources,
-            completedSteps: parsed.workflow.completedSteps?.filter(
-              (step): step is "input" | "review" | "draft" | "export" =>
-                step !== "figures",
-            ),
-            extractionSourceKey: parsed.workflow.extractionSourceKey,
-            autoDraftPending: parsed.workflow.autoDraftPending,
-          });
-          loadedAsGrant = true;
-        } else {
-          patent.importWorkflow(parsed.workflow);
+        try {
+          const parsed = await readSowDraftFile(file);
+          sow.importWorkflow(parsed.workflow);
+          destination = "sow";
+        } catch {
+          try {
+            const parsed = await readGrantDraftFile(file);
+            grant.importWorkflow(parsed.workflow);
+            destination = "grant";
+          } catch {
+            const parsed = await readDraftFile(file);
+            if (parsed.workflow.workflowMode === "grant") {
+              grant.importWorkflow({
+                grantDetails: parsed.workflow.grantDetails,
+                sections: parsed.workflow.sections,
+                uploadedFiles: parsed.workflow.uploadedFiles,
+                inputSources: parsed.workflow.inputSources,
+                cachedRemoteSources: parsed.workflow.cachedRemoteSources,
+                completedSteps: parsed.workflow.completedSteps?.filter(
+                  (step): step is "input" | "review" | "draft" | "export" =>
+                    step !== "figures",
+                ),
+                extractionSourceKey: parsed.workflow.extractionSourceKey,
+                autoDraftPending: parsed.workflow.autoDraftPending,
+              });
+              destination = "grant";
+            } else {
+              patent.importWorkflow(parsed.workflow);
+              destination = "patent";
+            }
+          }
         }
       }
 
       refreshDraftList();
       setMessage(`Loaded draft from ${file.name}`);
       onClose();
-      if (loadedAsGrant) {
+      if (destination === "ada") {
+        navigate(getAdaResumePath(ada.getWorkflowSnapshot()));
+      } else if (destination === "sow") {
+        navigate(getSowResumePath(sow.getWorkflowSnapshot()));
+      } else if (destination === "grant") {
         navigate(getGrantResumePath(grant.getWorkflowSnapshot()));
       } else {
         navigate(getResumePath(patent.getWorkflowSnapshot()));
@@ -185,10 +276,26 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
   const handleConfirmClear = () => {
     onClose();
     clearWorkflow();
-    navigate(isGrant ? "/grant/input" : "/", { replace: true });
+    navigate(
+      mode === "grant"
+        ? "/grant/input"
+        : mode === "sow"
+          ? "/sow/input"
+          : mode === "ada"
+            ? "/ada/input"
+            : "/",
+      { replace: true },
+    );
   };
 
-  const hasCurrentWork = isGrant ? Boolean(grant.grantDetails) : Boolean(patent.invention);
+  const hasCurrentWork =
+    mode === "grant"
+      ? Boolean(grant.grantDetails)
+      : mode === "sow"
+        ? Boolean(sow.sowDetails)
+        : mode === "ada"
+          ? Boolean(ada.adaDetails)
+          : Boolean(patent.invention);
   const totalSaved = countAllSavedDrafts();
 
   return (
@@ -279,7 +386,7 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
               ref={uploadInputRef}
               id={uploadInputId}
               type="file"
-              accept=".json,.patent-draft.json,.grant-draft.json,application/json"
+              accept=".json,.patent-draft.json,.grant-draft.json,.sow-draft.json,.ada-draft.json,application/json"
               className="hidden"
               onChange={(e) => void handleUpload(e.target.files?.[0])}
             />
@@ -290,7 +397,9 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
               className="w-full px-4 py-3 rounded-lg border-2 border-dashed border-outline-variant hover:border-secondary hover:bg-secondary/5 font-label-md text-label-md text-on-surface-variant transition-all disabled:opacity-60 flex items-center justify-center gap-2"
             >
               <span className="material-symbols-outlined">upload_file</span>
-              {busy ? "Loading draft…" : "Choose draft file (.patent-draft.json or .grant-draft.json)"}
+              {busy
+                ? "Loading draft…"
+                : "Choose draft file (.patent-draft.json, .grant-draft.json, .sow-draft.json, or .ada-draft.json)"}
             </button>
           </section>
 
@@ -368,6 +477,90 @@ export function DraftManagerModal({ open, onClose, onDraftCountChange }: DraftMa
                       type="button"
                       aria-label={`Delete ${record.name}`}
                       onClick={() => handleDeleteGrantDraft(record.id)}
+                      className="p-2 text-error hover:bg-error-container rounded-full shrink-0"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="font-label-md text-label-md text-on-surface">SOW drafts</h3>
+            {sowDrafts.length === 0 ? (
+              <p className="font-body-sm text-body-sm text-on-surface-variant">
+                No saved SOW drafts yet.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {sowDrafts.map((record) => (
+                  <li
+                    key={record.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-body-md text-body-md font-medium truncate">
+                        {record.name}
+                      </p>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        {formatSavedAt(record.savedAt)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleLoadSowDraft(record)}
+                      className="px-3 py-1.5 rounded-lg bg-secondary/10 text-secondary font-label-sm text-label-sm hover:bg-secondary/20 shrink-0"
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${record.name}`}
+                      onClick={() => handleDeleteSowDraft(record.id)}
+                      className="p-2 text-error hover:bg-error-container rounded-full shrink-0"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">delete</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h3 className="font-label-md text-label-md text-on-surface">ADA drafts</h3>
+            {adaDrafts.length === 0 ? (
+              <p className="font-body-sm text-body-sm text-on-surface-variant">
+                No saved ADA drafts yet.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {adaDrafts.map((record) => (
+                  <li
+                    key={record.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface hover:bg-surface-container-low transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="font-body-md text-body-md font-medium truncate">
+                        {record.name}
+                      </p>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        {formatSavedAt(record.savedAt)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleLoadAdaDraft(record)}
+                      className="px-3 py-1.5 rounded-lg bg-secondary/10 text-secondary font-label-sm text-label-sm hover:bg-secondary/20 shrink-0"
+                    >
+                      Open
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${record.name}`}
+                      onClick={() => handleDeleteAdaDraft(record.id)}
                       className="p-2 text-error hover:bg-error-container rounded-full shrink-0"
                     >
                       <span className="material-symbols-outlined text-[18px]">delete</span>

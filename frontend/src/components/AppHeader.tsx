@@ -1,19 +1,11 @@
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
-import { DocumentTypePicker } from "./DocumentTypePicker";
 
 interface AppHeaderProps {
   stepNav: ReactNode;
   draftCount: number;
   onOpenDrafts: () => void;
   filingGuideButton?: ReactNode;
-}
-
-function resolveActiveDocumentTypeId(pathname: string): string {
-  if (pathname.startsWith("/grant")) return "GRANT_APPLICATION";
-  if (pathname.startsWith("/sow")) return "SOW_CONTRACT";
-  if (pathname.startsWith("/ada")) return "ADA_BIOANALYTICAL_REPORT";
-  return "PATENT_PROVISIONAL";
 }
 
 export function AppHeader({
@@ -23,16 +15,22 @@ export function AppHeader({
   filingGuideButton,
 }: AppHeaderProps) {
   const location = useLocation();
-  const activeDocumentTypeId = resolveActiveDocumentTypeId(location.pathname);
+  const showFilingGuide = location.pathname.startsWith("/patent");
 
   return (
     <header className="bg-primary flex justify-between items-center w-full px-margin-desktop h-16 border-b border-outline-variant shadow-sm sticky top-0 z-50">
       <div className="flex items-center gap-6 min-w-0">
-        <DocumentTypePicker activeDocumentTypeId={activeDocumentTypeId} />
+        <Link
+          to="/"
+          className="flex items-center gap-2 text-on-primary hover:opacity-90 transition-opacity shrink-0"
+        >
+          <span className="material-symbols-outlined text-[22px]">description</span>
+          <span className="font-label-md text-label-md hidden sm:inline">Report Drafter</span>
+        </Link>
         {stepNav}
       </div>
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-        {activeDocumentTypeId === "PATENT_PROVISIONAL" && filingGuideButton}
+        {showFilingGuide && filingGuideButton}
         <button
           type="button"
           onClick={onOpenDrafts}

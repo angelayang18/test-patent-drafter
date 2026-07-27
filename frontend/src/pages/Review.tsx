@@ -379,7 +379,7 @@ export default function Review() {
       return;
     }
     if (!reviewData) {
-      navigate("/", { replace: true });
+      navigate("/patent", { replace: true });
     }
   }, [reviewData, navigate, workflowResetting]);
 
@@ -888,7 +888,7 @@ export default function Review() {
       mainClassName="flex flex-col min-h-0 flex-1 overflow-hidden"
       footer={
         <WorkflowFooter
-          left={<WorkflowBackLink to="/" />}
+          left={<WorkflowBackLink to="/patent" />}
           right={
             <>
               <SavedIndicator visible={savedVisible} />
@@ -899,7 +899,7 @@ export default function Review() {
                 onRedo={redo}
               />
               <WorkflowNextLink
-                to="/draft"
+                to="/patent/draft"
                 disabled={allCoreFieldsEmpty || titleTooLong}
                 onClick={() => {
                   markStepComplete("review");

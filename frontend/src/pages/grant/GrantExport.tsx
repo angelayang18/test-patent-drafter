@@ -13,13 +13,25 @@ import {
 } from "../../services/api";
 import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS } from "../../types/patent";
 import { isGrantStepAccessible } from "../../utils/grantStorage";
+import {
+  buildSectionLabelsPayload,
+  effectiveSectionIds,
+  resolveSectionLabel,
+  resolveSectionOrder,
+} from "../../utils/sectionSettings";
 import "../../styles/patent-drafter.css";
 
 type DownloadState = "idle" | "preparing" | "done" | "error";
 
 export default function GrantExport() {
   const navigate = useNavigate();
-  const { grantDetails, sections, getWorkflowSnapshot, clearWorkflow } = useGrantWorkflow();
+  const {
+    grantDetails,
+    sections,
+    sectionSettings,
+    getWorkflowSnapshot,
+    clearWorkflow,
+  } = useGrantWorkflow();
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -30,9 +42,22 @@ export default function GrantExport() {
     }
   }, [getWorkflowSnapshot, navigate]);
 
+  const includedIds = useMemo(
+    () =>
+      resolveSectionOrder(
+        effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings),
+        sectionSettings,
+      ),
+    [sectionSettings],
+  );
   const emptySections = useMemo(
-    () => GRANT_SECTION_IDS.filter((id) => !sections[id]?.trim()),
-    [sections],
+    () => includedIds.filter((id) => !sections[id]?.trim()),
+    [sections, includedIds],
+  );
+  const sectionLabelsPayload = useMemo(
+    () =>
+      buildSectionLabelsPayload(Object.keys(sections), sectionSettings, GRANT_SECTION_LABELS),
+    [sections, sectionSettings],
   );
   const isComplete = emptySections.length === 0;
   const exporting = docxState === "preparing" || pdfState === "preparing";
@@ -44,7 +69,7 @@ export default function GrantExport() {
     setError(null);
     setDocxState("preparing");
     try {
-      const blob = await exportGrantDocx(sections, projectTitle);
+      const blob = await exportGrantDocx(sections, projectTitle, sectionLabelsPayload);
       downloadBlob(blob, "grant-application.docx");
       setDocxState("idle");
     } catch (err) {
@@ -59,7 +84,7 @@ export default function GrantExport() {
     setError(null);
     setPdfState("preparing");
     try {
-      const blob = await exportGrantPdf(sections, projectTitle);
+      const blob = await exportGrantPdf(sections, projectTitle, sectionLabelsPayload);
       downloadBlob(blob, "grant-application.pdf");
       setPdfState("idle");
     } catch (err) {
@@ -99,7 +124,16 @@ export default function GrantExport() {
               <>
                 <h1 className="font-headline-lg text-headline-lg text-primary mb-2">Draft Incomplete</h1>
                 <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
-                  Missing: {emptySections.map((id) => GRANT_SECTION_LABELS[id]).join(", ")}
+                  Missing:{" "}
+                  {emptySections
+                    .map((id) =>
+                      resolveSectionLabel(
+                        id,
+                        sectionSettings,
+                        GRANT_SECTION_LABELS[id as keyof typeof GRANT_SECTION_LABELS] ?? id,
+                      ),
+                    )
+                    .join(", ")}
                 </p>
                 <Link
                   to="/grant/draft"

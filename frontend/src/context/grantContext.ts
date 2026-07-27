@@ -1,7 +1,8 @@
 import { createContext, useContext } from "react";
-import type { GrantDetails } from "../types/patent";
+import type { GrantDetails, SectionCitation } from "../types/patent";
 import type { CachedRemoteSources, GatheredSourceText, GatherSourceTextOptions } from "../utils/gatherSourceText";
 import type { GrantWorkflowSnapshot, GrantWorkflowStep, SavedGrantDraftRecord } from "../utils/grantStorage";
+import type { SectionSettingsMap } from "../utils/sectionSettings";
 
 export interface UploadedSourceFile {
   id: string;
@@ -23,6 +24,8 @@ export interface InputSources {
 export interface GrantWorkflowContextValue {
   grantDetails: GrantDetails | null;
   sections: Record<string, string>;
+  sectionCitations: Record<string, SectionCitation[]>;
+  sectionSettings: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources: CachedRemoteSources;
@@ -33,6 +36,8 @@ export interface GrantWorkflowContextValue {
   setGrantDetails: (details: GrantDetails) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
+  setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;
+  setSectionSettings: (settings: SectionSettingsMap) => void;
   setUploadedFiles: (files: UploadedSourceFile[]) => void;
   addUploadedFilesAndPersist: (files: UploadedSourceFile[]) => void;
   removeUploadedFile: (id: string) => void;

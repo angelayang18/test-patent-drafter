@@ -27,6 +27,12 @@ import { PROVISIONAL_FILING_DISCLAIMER } from "../constants/patentSubmissionGuid
 import { isWorkflowStepAccessible } from "../utils/draftStorage";
 import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS, PATENT_SECTION_IDS, SECTION_LABELS } from "../types/patent";
 import type { FilingInfo } from "../types/patent";
+import {
+  buildSectionLabelsPayload,
+  effectiveSectionIds,
+  resolveSectionLabel,
+  resolveSectionOrder,
+} from "../utils/sectionSettings";
 import "../styles/patent-drafter.css";
 
 type DownloadState = "idle" | "preparing" | "done" | "error";
@@ -90,10 +96,15 @@ export default function Export() {
     setFilingInfo,
     clearWorkflow,
     getWorkflowSnapshot,
+    sectionSettings,
   } = usePatentWorkflow();
   const isGrant = workflowMode === "grant";
-  const sectionIds = isGrant ? GRANT_SECTION_IDS : PATENT_SECTION_IDS;
-  const sectionLabels = isGrant ? GRANT_SECTION_LABELS : SECTION_LABELS;
+  const fixedIds = isGrant ? GRANT_SECTION_IDS : PATENT_SECTION_IDS;
+  const sectionIds = resolveSectionOrder(
+    effectiveSectionIds(fixedIds, sectionSettings),
+    sectionSettings,
+  );
+  const defaultLabels = isGrant ? GRANT_SECTION_LABELS : SECTION_LABELS;
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [prerenderingFigures, setPrerenderingFigures] = useState(false);
@@ -105,7 +116,7 @@ export default function Export() {
 
   useEffect(() => {
     if (!isWorkflowStepAccessible("export", getWorkflowSnapshot())) {
-      navigate(isGrant ? "/draft" : "/figures", { replace: true });
+      navigate(isGrant ? "/draft" : "/patent/figures", { replace: true });
     }
   }, [getWorkflowSnapshot, navigate, isGrant]);
 
@@ -157,6 +168,16 @@ export default function Export() {
     [sections, briefDescriptionOfDrawings, isGrant],
   );
 
+  const sectionLabelsPayload = useMemo(
+    () =>
+      buildSectionLabelsPayload(
+        Object.keys(exportSections),
+        sectionSettings,
+        defaultLabels as Record<string, string>,
+      ),
+    [exportSections, sectionSettings, defaultLabels],
+  );
+
   useEffect(() => {
     if (isGrant) {
       setQaReport([]);
@@ -189,7 +210,7 @@ export default function Export() {
     pdfState === "preparing" ||
     (!isGrant && prerenderingFigures);
   const exportDisabled = exporting || !isDraftComplete;
-  const backPath = isGrant ? "/draft" : "/figures";
+  const backPath = isGrant ? "/draft" : "/patent/figures";
   const exportDisabledTitle = !isDraftComplete
     ? "Complete your draft first"
     : exporting
@@ -208,6 +229,7 @@ export default function Export() {
     invention_title: invention?.invention_title ?? "",
     filing_info: filingInfo,
     figure_pngs: figurePngCache,
+    section_labels: sectionLabelsPayload,
   });
 
   const updateFilingInfo = (patch: Partial<FilingInfo>) => {
@@ -258,7 +280,11 @@ export default function Export() {
     setDocxState("preparing");
     try {
       if (isGrant) {
-        const blob = await exportGrantDocx(exportSections, grantDetails?.project_title ?? "");
+        const blob = await exportGrantDocx(
+          exportSections,
+          grantDetails?.project_title ?? "",
+          sectionLabelsPayload,
+        );
         downloadBlob(blob, "grant-application.docx");
       } else {
         const figurePngs = await ensureFigurePngsReady();
@@ -286,7 +312,11 @@ export default function Export() {
     setPdfState("preparing");
     try {
       if (isGrant) {
-        const blob = await exportGrantPdf(exportSections, grantDetails?.project_title ?? "");
+        const blob = await exportGrantPdf(
+          exportSections,
+          grantDetails?.project_title ?? "",
+          sectionLabelsPayload,
+        );
         downloadBlob(blob, "grant-application.pdf");
       } else {
         const figurePngs = await ensureFigurePngsReady();
@@ -364,11 +394,19 @@ export default function Export() {
                 {emptyDraftSections.length > 0 && (
                   <p className="font-body-sm text-body-sm text-on-surface-variant max-w-xl mx-auto mb-6">
                     Missing:{" "}
-                    {emptyDraftSections.map((id) => sectionLabels[id as keyof typeof sectionLabels]).join(", ")}
+                    {emptyDraftSections
+                      .map((id) =>
+                        resolveSectionLabel(
+                          id,
+                          sectionSettings,
+                          (defaultLabels as Record<string, string>)[id] ?? id,
+                        ),
+                      )
+                      .join(", ")}
                   </p>
                 )}
                 <Link
-                  to="/draft"
+                  to="/patent/draft"
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline text-on-surface font-label-md text-label-md hover:bg-surface transition-all active:scale-95"
                 >
                   <span className="material-symbols-outlined text-[18px]">edit_document</span>
@@ -635,7 +673,7 @@ export default function Export() {
             type="button"
             onClick={() => {
               clearWorkflow();
-              navigate("/", { replace: true });
+              navigate("/patent", { replace: true });
             }}
             className="font-label-md text-label-md text-secondary hover:text-primary transition-colors flex items-center gap-2 underline underline-offset-4"
           >

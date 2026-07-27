@@ -44,3 +44,15 @@ def test_ordered_section_keys_skips_empty_sections():
 
 def test_section_heading_fallback():
     assert section_heading("custom_section") == "CUSTOM SECTION"
+
+
+def test_section_heading_prefers_section_labels():
+    assert (
+        section_heading(
+            "best_mode",
+            {"best_mode": "Best Mode Contemplated by the Inventors"},
+        )
+        == "Best Mode Contemplated by the Inventors"
+    )
+    assert section_heading("field", {"field": "CUSTOM FIELD LABEL"}) == "CUSTOM FIELD LABEL"
+    assert section_heading("field", {}) == "FIELD"

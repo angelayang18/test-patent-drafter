@@ -6,9 +6,12 @@ import { DocumentPreviewModal } from "../../components/DocumentPreviewModal";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
 import { SelectionRegeneratePopover } from "../../components/SelectionRegeneratePopover";
+import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
+import { SectionManagerModal } from "../../components/SectionManagerModal";
 import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
+import { getDocumentTypeConfig } from "../../constants/documentTypes";
 import { useGrantWorkflow } from "../../context/GrantWorkflowContext";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useTextareaSelectionRegenerate } from "../../hooks/useTextareaSelectionRegenerate";
@@ -25,6 +28,12 @@ import {
 } from "../../types/patent";
 import { formatAllSectionsCopy } from "../../utils/formatAllSectionsCopy";
 import { hasGrantDraftSections } from "../../utils/grantStorage";
+import {
+  buildCustomSectionsPayload,
+  effectiveSectionIds,
+  resolveSectionLabel,
+  resolveSectionOrder,
+} from "../../utils/sectionSettings";
 import "../../styles/patent-drafter.css";
 
 export default function GrantDraft() {
@@ -32,15 +41,48 @@ export default function GrantDraft() {
   const {
     grantDetails,
     sections,
+    sectionCitations,
+    sectionSettings,
     setSection,
     setSections,
+    setSectionCitations,
+    setSectionSettings,
     saveToStorage,
     markStepComplete,
     autoDraftPending,
     clearAutoDraftPending,
+    gatherSourceText,
   } = useGrantWorkflow();
 
-  const [activeSection, setActiveSection] = useState<GrantSectionId>(GRANT_SECTION_IDS[0]);
+  const sectionIds = resolveSectionOrder(
+    effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings),
+    sectionSettings,
+  );
+  const grantDefaultDescriptions = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const section of getDocumentTypeConfig("GRANT_APPLICATION").sections) {
+      map[section.id] = section.description;
+    }
+    return map;
+  }, []);
+  const grantWarnOnRemoveIds = useMemo(() => new Set<string>(), []);
+  const customSectionsPayload = useMemo(
+    () => buildCustomSectionsPayload(GRANT_SECTION_IDS, sectionSettings),
+    [sectionSettings],
+  );
+  const resolvedSectionLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const id of effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings)) {
+      map[id] = resolveSectionLabel(
+        id,
+        sectionSettings,
+        GRANT_SECTION_LABELS[id as GrantSectionId] ?? id,
+      );
+    }
+    return map;
+  }, [sectionSettings]);
+
+  const [activeSection, setActiveSection] = useState<string>(sectionIds[0]);
   const [draftText, setDraftText] = useState("");
   const [parallelDrafting, setParallelDrafting] = useState(false);
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
@@ -48,6 +90,7 @@ export default function GrantDraft() {
   const [confirmingRegenerateAll, setConfirmingRegenerateAll] = useState(false);
   const [regeneratingSelection, setRegeneratingSelection] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [manageSectionsOpen, setManageSectionsOpen] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
   const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
 
@@ -81,14 +124,21 @@ export default function GrantDraft() {
   }, [activeSection, sections]);
 
   const startParallelDraft = useCallback(
-    async (sectionIds: GrantSectionId[]) => {
-      if (!grantDetails || sectionIds.length === 0) return;
+    async (ids: string[]) => {
+      if (!grantDetails || ids.length === 0) return;
       setParallelDrafting(true);
       setError(null);
       try {
-        const drafted = await draftAllGrantSections(grantDetails, sectionIds);
+        const { combined } = await gatherSourceText();
+        const { sections: drafted, citations } = await draftAllGrantSections(
+          grantDetails,
+          ids,
+          combined,
+          customSectionsPayload,
+        );
         setSections({ ...sectionsRef.current, ...drafted });
-        if (sectionIds.includes(activeSectionRef.current)) {
+        setSectionCitations(citations);
+        if (ids.includes(activeSectionRef.current)) {
           setDraftText(drafted[activeSectionRef.current] ?? "");
         }
         saveToStorage();
@@ -99,7 +149,15 @@ export default function GrantDraft() {
         setParallelDrafting(false);
       }
     },
-    [grantDetails, setSections, saveToStorage, flashSaved],
+    [
+      grantDetails,
+      gatherSourceText,
+      customSectionsPayload,
+      setSections,
+      setSectionCitations,
+      saveToStorage,
+      flashSaved,
+    ],
   );
 
   useEffect(() => {
@@ -110,16 +168,17 @@ export default function GrantDraft() {
     }
     autoDraftStarted.current = true;
     clearAutoDraftPending();
-    void startParallelDraft([...GRANT_SECTION_IDS]);
+    void startParallelDraft([...sectionIds]);
   }, [
     grantDetails,
     autoDraftPending,
     sections,
+    sectionIds,
     clearAutoDraftPending,
     startParallelDraft,
   ]);
 
-  const selectSection = (sectionId: GrantSectionId) => {
+  const selectSection = (sectionId: string) => {
     setSection(activeSection, draftText);
     setActiveSection(sectionId);
   };
@@ -140,11 +199,15 @@ export default function GrantDraft() {
     setError(null);
     void (async () => {
       try {
-        const content = await draftGrantSection(grantDetails, activeSection, {
+        const { combined } = await gatherSourceText();
+        const { content, citations } = await draftGrantSection(grantDetails, activeSection, {
           priorDraft: draftText,
+          combinedText: combined,
+          customSections: customSectionsPayload,
         });
         setDraftText(content);
         setSection(activeSection, content);
+        setSectionCitations({ [activeSection]: citations });
         saveToStorage();
         flashSaved();
       } catch (err) {
@@ -161,14 +224,14 @@ export default function GrantDraft() {
 
   const handleRegenerateAll = () => {
     setConfirmingRegenerateAll(false);
-    void startParallelDraft([...GRANT_SECTION_IDS]);
+    void startParallelDraft([...sectionIds]);
   };
 
   const handleCopyAllSections = async () => {
     setSection(activeSection, draftText);
     const text = formatAllSectionsCopy(
-      GRANT_SECTION_IDS,
-      GRANT_SECTION_LABELS,
+      sectionIds,
+      resolvedSectionLabels,
       sections,
       activeSection,
       draftText,
@@ -179,7 +242,11 @@ export default function GrantDraft() {
     }
   };
 
-  const sectionIndex = GRANT_SECTION_IDS.indexOf(activeSection);
+  const sectionIndex = sectionIds.indexOf(activeSection);
+  const activeSectionLabel =
+    resolvedSectionLabels[activeSection] ??
+    GRANT_SECTION_LABELS[activeSection as GrantSectionId] ??
+    activeSection;
 
   const handleConfirmSelectionRegenerate = (instruction: string) => {
     if (!textareaSelection || !grantDetails) return;
@@ -246,11 +313,20 @@ export default function GrantDraft() {
     >
       <div className="flex flex-1 overflow-hidden min-h-0">
         <aside className="w-64 bg-surface-container-lowest border-r border-outline-variant flex flex-col py-6 px-4 shrink-0 min-h-0">
-          <h3 className="px-2 mb-2 font-label-sm text-label-sm text-outline uppercase tracking-widest">
-            Sections
-          </h3>
+          <div className="px-2 mb-2 flex items-center justify-between gap-2">
+            <h3 className="font-label-sm text-label-sm text-outline uppercase tracking-widest">
+              Sections
+            </h3>
+            <button
+              type="button"
+              onClick={() => setManageSectionsOpen(true)}
+              className="shrink-0 font-label-sm text-label-sm text-secondary hover:underline"
+            >
+              Manage sections
+            </button>
+          </div>
           <div className="flex-1 overflow-y-auto flex flex-col gap-2 min-h-0">
-            {GRANT_SECTION_IDS.map((id) => {
+            {sectionIds.map((id) => {
               const done = Boolean(sections[id]?.trim());
               return (
                 <button
@@ -263,7 +339,9 @@ export default function GrantDraft() {
                       : "hover:bg-surface-container"
                   }`}
                 >
-                  <span className="font-label-md text-label-md">{GRANT_SECTION_LABELS[id]}</span>
+                  <span className="font-label-md text-label-md">
+                    {resolvedSectionLabels[id] ?? GRANT_SECTION_LABELS[id as GrantSectionId]}
+                  </span>
                   {done && (
                     <span className="material-symbols-outlined text-secondary text-[18px]">check_circle</span>
                   )}
@@ -275,7 +353,7 @@ export default function GrantDraft() {
             {confirmingRegenerateAll ? (
               <div className="p-3 rounded-lg border border-secondary/30 bg-secondary/5 space-y-3">
                 <p className="font-body-sm text-body-sm text-on-surface">
-                  Are you sure? This will regenerate all {GRANT_SECTION_IDS.length} sections.
+                  Are you sure? This will regenerate all {sectionIds.length} sections.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -357,10 +435,10 @@ export default function GrantDraft() {
             <div className="flex justify-between items-end gap-4">
               <div>
                 <span className="font-label-sm text-label-sm text-secondary uppercase tracking-widest mb-2 block">
-                  Section {sectionIndex + 1} of {GRANT_SECTION_IDS.length}
+                  Section {sectionIndex + 1} of {sectionIds.length}
                 </span>
                 <h1 className="font-headline-lg text-headline-lg text-on-surface">
-                  {GRANT_SECTION_LABELS[activeSection]}
+                  {activeSectionLabel}
                 </h1>
               </div>
               <button
@@ -376,7 +454,10 @@ export default function GrantDraft() {
             <div className="relative bg-surface-container-lowest border border-outline-variant rounded-lg p-8 min-h-[400px]">
               {regenerating.has(activeSection) && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface-container-lowest/90 rounded-lg">
-                  <GenerationProgress active label={`Drafting ${GRANT_SECTION_LABELS[activeSection].toLowerCase()}…`} />
+                  <GenerationProgress
+                    active
+                    label={`Drafting ${activeSectionLabel.toLowerCase()}…`}
+                  />
                 </div>
               )}
               <AutoResizeTextarea
@@ -388,6 +469,8 @@ export default function GrantDraft() {
                 onKeyUp={handleKeyUp}
               />
             </div>
+
+            <SectionCitationsPanel citations={sectionCitations[activeSection] ?? []} />
           </div>
           </div>{/* end p-8 */}
         </div>
@@ -399,8 +482,18 @@ export default function GrantDraft() {
         inventionTitle={grantDetails?.project_title}
         sections={previewSections}
         pendingSectionIds={[]}
-        onSectionClick={(sectionId) => selectSection(sectionId as GrantSectionId)}
+        onSectionClick={(sectionId) => selectSection(sectionId)}
         footerNote="Click a section heading to jump back and edit it."
+      />
+      <SectionManagerModal
+        open={manageSectionsOpen}
+        onClose={() => setManageSectionsOpen(false)}
+        sectionIds={GRANT_SECTION_IDS}
+        defaultLabels={GRANT_SECTION_LABELS}
+        defaultDescriptions={grantDefaultDescriptions}
+        warnOnRemoveIds={grantWarnOnRemoveIds}
+        settings={sectionSettings}
+        onSave={setSectionSettings}
       />
       <SelectionRegeneratePopover
         anchorRect={textareaSelection?.anchorRect ?? null}

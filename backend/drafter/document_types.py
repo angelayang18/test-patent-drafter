@@ -10,8 +10,18 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from .ada_sections import (
+    ADA_SECTIONS,
+    _SECTION_DESCRIPTIONS as ADA_SECTION_DESCRIPTIONS,
+    _SECTION_LABELS as ADA_SECTION_LABELS,
+)
 from .grant_sections import GRANT_SECTIONS, _SECTION_LABELS as GRANT_SECTION_LABELS
 from .prompts import PATENT_SECTIONS
+from .sow_sections import (
+    SOW_SECTIONS,
+    _SECTION_DESCRIPTIONS as SOW_SECTION_DESCRIPTIONS,
+    _SECTION_LABELS as SOW_SECTION_LABELS,
+)
 
 SourceType = Literal[
     "file_upload",
@@ -89,6 +99,130 @@ _GRANT_SECTION_DESCRIPTIONS: dict[str, str] = {
 }
 
 
+def get_patent_section_description(section_id: str) -> str:
+    """Return the patent section description used for retrieval queries."""
+    return _PATENT_SECTION_DESCRIPTIONS.get(section_id, "")
+
+
+def get_grant_section_description(section_id: str) -> str:
+    """Return the grant section description used for retrieval queries."""
+    return _GRANT_SECTION_DESCRIPTIONS.get(section_id, "")
+
+
+def get_sow_section_description(section_id: str) -> str:
+    """Return the SOW section description used for retrieval queries."""
+    return SOW_SECTION_DESCRIPTIONS.get(section_id, "")
+
+
+def get_ada_section_description(section_id: str) -> str:
+    """Return the ADA section description used for retrieval queries."""
+    return ADA_SECTION_DESCRIPTIONS.get(section_id, "")
+
+
+# Invention/grant/SOW/ADA fields that feed each section's retrieval query. Restricting
+# inputs (not scoring weights) prevents cross-section vocabulary bleed.
+_PATENT_SECTION_QUERY_FIELDS: dict[str, list[str]] = {
+    "field": ["technical_field"],
+    "background": ["technical_field", "problem_being_solved"],
+    "summary": [
+        "technical_field",
+        "problem_being_solved",
+        "core_technical_solution",
+        "novel_mechanism",
+    ],
+    "description": [
+        "technical_field",
+        "core_technical_solution",
+        "novel_mechanism",
+        "key_components",
+        "alternative_embodiments",
+    ],
+    "claims": [
+        "technical_field",
+        "core_technical_solution",
+        "novel_mechanism",
+        "key_components",
+        "alternative_embodiments",
+    ],
+    "abstract": [
+        "technical_field",
+        "novel_mechanism",
+        "core_technical_solution",
+    ],
+}
+
+_GRANT_SECTION_QUERY_FIELDS: dict[str, list[str]] = {
+    "executive_summary": [
+        "problem_statement",
+        "proposed_solution",
+        "innovation_and_impact",
+    ],
+    "problem_statement": ["problem_statement", "target_population"],
+    "project_description": ["proposed_solution", "innovation_and_impact"],
+    "methodology": ["proposed_solution"],
+    "evaluation": ["evaluation_plan"],
+    "budget_narrative": ["budget_overview"],
+    "organizational_capacity": ["team_qualifications"],
+}
+
+_SOW_SECTION_QUERY_FIELDS: dict[str, list[str]] = {
+    "purpose": ["purpose_and_background"],
+    "objectives": ["objectives", "purpose_and_background"],
+    "scope_of_work": ["scope_of_work", "objectives"],
+    "deliverables": ["deliverables", "scope_of_work"],
+    "development_areas_effort_schedule": ["timeline_and_effort", "scope_of_work"],
+    "responsibilities_required_inputs": ["responsibilities_and_inputs"],
+    "technical_integration_approach": ["scope_of_work", "deliverables"],
+    "acceptance_criteria": ["deliverables", "objectives"],
+    "assumptions_dependencies": [
+        "timeline_and_effort",
+        "responsibilities_and_inputs",
+    ],
+    "out_of_scope": ["scope_of_work"],
+    "governance_change_control": ["responsibilities_and_inputs"],
+    "commercial_terms": ["commercial_terms"],
+    "data_protection_confidentiality": [],
+    "completion": ["deliverables"],
+}
+
+_ADA_SECTION_QUERY_FIELDS: dict[str, list[str]] = {
+    "study_overview": ["study_objective"],
+    "method_summary": ["assay_platform"],
+    "study_samples": ["sample_matrix"],
+    "cut_point_determination": ["cut_point_methodology"],
+    "sensitivity": ["sensitivity_data"],
+    "specificity_selectivity": ["specificity_data"],
+    "precision_reproducibility_robustness": ["precision_data"],
+    "stability": ["stability_data"],
+    "sample_analysis_results": [
+        "results_summary",
+        "sensitivity_data",
+        "specificity_data",
+    ],
+    "data_analysis_conclusion": ["results_summary", "cut_point_methodology"],
+}
+
+
+def get_patent_section_query_fields(section_id: str) -> list[str]:
+    """Return invention field keys used for a patent section's retrieval query."""
+    return list(_PATENT_SECTION_QUERY_FIELDS.get(section_id, []))
+
+
+def get_grant_section_query_fields(section_id: str) -> list[str]:
+    """Return grant field keys used for a grant section's retrieval query."""
+    return list(_GRANT_SECTION_QUERY_FIELDS.get(section_id, []))
+
+
+def get_sow_section_query_fields(section_id: str) -> list[str]:
+    """Return SOW field keys used for a SOW section's retrieval query."""
+    return list(_SOW_SECTION_QUERY_FIELDS.get(section_id, []))
+
+
+def get_ada_section_query_fields(section_id: str) -> list[str]:
+    """Return ADA field keys used for an ADA section's retrieval query."""
+    return list(_ADA_SECTION_QUERY_FIELDS.get(section_id, []))
+
+
 class SectionConfig(BaseModel):
     """Configuration for a single document section."""
 
@@ -142,159 +276,33 @@ def _build_grant_sections() -> list[SectionConfig]:
     ]
 
 
-def _sow_sections() -> list[SectionConfig]:
-    """Default SOW Contract sections (prompt templates are placeholders)."""
-    raw: list[tuple[str, str, str]] = [
-        (
-            "purpose",
-            "Purpose / Introduction & Background",
-            "Why the engagement is happening and what problem it solves",
-        ),
-        (
-            "objectives",
-            "Objectives",
-            "The specific, quantifiable goals of the engagement",
-        ),
-        (
-            "scope_of_work",
-            "Scope of Work",
-            "The tasks and workstreams covered, broken out by development area",
-        ),
-        (
-            "deliverables",
-            "Deliverables",
-            "What will be delivered, mapped to each scope item",
-        ),
-        (
-            "development_areas_effort_schedule",
-            "Development Areas, Effort & Schedule",
-            "Estimated hours and timing per development area",
-        ),
-        (
-            "responsibilities_required_inputs",
-            "Responsibilities & Required Inputs",
-            "What the service provider and customer each own, including "
-            "required inputs from the customer",
-        ),
-        (
-            "technical_integration_approach",
-            "Technical / Integration Approach",
-            "How the solution integrates with customer systems, data exchange "
-            "method, and where AI assists vs. deterministic rules",
-        ),
-        (
-            "acceptance_criteria",
-            "Acceptance Criteria",
-            "Measurable criteria that define when the engagement is accepted",
-        ),
-        (
-            "assumptions_dependencies",
-            "Assumptions & Dependencies",
-            "What must be true for the schedule and scope to hold",
-        ),
-        (
-            "out_of_scope",
-            "Out of Scope",
-            "What is explicitly excluded, to prevent scope creep",
-        ),
-        (
-            "governance_change_control",
-            "Governance & Change Control",
-            "Meeting cadence and how scope changes are requested and approved",
-        ),
-        (
-            "commercial_terms",
-            "Commercial Terms",
-            "Fees, payment schedule, and what's billed separately",
-        ),
-        (
-            "data_protection_confidentiality",
-            "Data Protection & Confidentiality",
-            "How each party's data is handled, retained, and protected",
-        ),
-        (
-            "completion",
-            "Completion",
-            "The conditions that mark the engagement as complete",
-        ),
-    ]
+def _build_sow_sections() -> list[SectionConfig]:
+    """Build SOW sections from SOW_SECTIONS (id source of truth)."""
     return [
         SectionConfig(
             id=section_id,
-            name=name,
-            description=description,
+            name=SOW_SECTION_LABELS[section_id],
+            description=SOW_SECTION_DESCRIPTIONS[section_id],
             order=index + 1,
             required=True,
             prompt_template_id=f"sow_{section_id}",
         )
-        for index, (section_id, name, description) in enumerate(raw)
+        for index, section_id in enumerate(SOW_SECTIONS)
     ]
 
 
-def _ada_sections() -> list[SectionConfig]:
-    """Default ADA Bioanalytical Report sections (prompt templates are placeholders)."""
-    raw: list[tuple[str, str, str]] = [
-        (
-            "study_overview",
-            "Study Overview / Objective",
-            "What is being validated or reported and why",
-        ),
-        (
-            "method_summary",
-            "Method Summary",
-            "Assay platform, critical reagents, and equipment used",
-        ),
-        (
-            "study_samples",
-            "Study Samples",
-            "Sample source, matrix, and handling",
-        ),
-        (
-            "cut_point_determination",
-            "Cut Point Determination",
-            "Pre-study and in-study cut point methodology and results",
-        ),
-        (
-            "sensitivity",
-            "Sensitivity",
-            "Lowest ADA concentration consistently detected above the cut point",
-        ),
-        (
-            "specificity_selectivity",
-            "Specificity & Selectivity",
-            "Drug tolerance, target tolerance, and matrix interference",
-        ),
-        (
-            "precision_reproducibility_robustness",
-            "Precision, Reproducibility & Robustness",
-            "Inter/intra-assay precision and robustness data",
-        ),
-        (
-            "stability",
-            "Stability",
-            "Sample stability under storage and handling conditions",
-        ),
-        (
-            "sample_analysis_results",
-            "Sample Analysis Results & Titer Reporting",
-            "Screening, confirmatory, and titer results per the tiered testing approach",
-        ),
-        (
-            "data_analysis_conclusion",
-            "Data Analysis & Conclusion",
-            "Interpretation of results against acceptance criteria",
-        ),
-    ]
+def _build_ada_sections() -> list[SectionConfig]:
+    """Build ADA sections from ADA_SECTIONS (id source of truth)."""
     return [
         SectionConfig(
             id=section_id,
-            name=name,
-            description=description,
+            name=ADA_SECTION_LABELS[section_id],
+            description=ADA_SECTION_DESCRIPTIONS[section_id],
             order=index + 1,
             required=True,
             prompt_template_id=f"ada_{section_id}",
         )
-        for index, (section_id, name, description) in enumerate(raw)
+        for index, section_id in enumerate(ADA_SECTIONS)
     ]
 
 
@@ -330,7 +338,7 @@ DOCUMENT_TYPES: list[DocumentTypeConfig] = [
             "Statement of Work contract covering purpose, scope, deliverables, "
             "schedule, and commercial terms."
         ),
-        sections=_sow_sections(),
+        sections=_build_sow_sections(),
         source_types=list(ALL_SOURCE_TYPES),
         title_generation_enabled=True,
         citations_enabled=True,
@@ -342,7 +350,7 @@ DOCUMENT_TYPES: list[DocumentTypeConfig] = [
             "Anti-drug antibody bioanalytical report covering method validation, "
             "cut points, and sample analysis."
         ),
-        sections=_ada_sections(),
+        sections=_build_ada_sections(),
         source_types=list(ALL_SOURCE_TYPES),
         title_generation_enabled=True,
         citations_enabled=True,

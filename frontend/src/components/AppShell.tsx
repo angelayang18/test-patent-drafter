@@ -13,6 +13,7 @@ interface AppShellProps {
   mainClassName?: string;
   /** fixed = viewport-locked (draft/review); document = page scrolls (export) */
   layout?: "fixed" | "document";
+  showStepNav?: boolean;
 }
 
 export function AppShell({
@@ -21,6 +22,7 @@ export function AppShell({
   footer,
   mainClassName = "",
   layout = "fixed",
+  showStepNav = true,
 }: AppShellProps) {
   const { saveToStorage } = usePatentWorkflow();
   const [draftManagerOpen, setDraftManagerOpen] = useState(false);
@@ -41,7 +43,7 @@ export function AppShell({
       }`}
     >
       <AppHeader
-        stepNav={<StepNav current={step} />}
+        stepNav={showStepNav ? <StepNav current={step} /> : null}
         draftCount={draftCount}
         onOpenDrafts={openDraftManager}
         filingGuideButton={

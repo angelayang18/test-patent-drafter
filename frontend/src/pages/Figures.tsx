@@ -67,7 +67,7 @@ export default function Figures() {
       return;
     }
     if (!isWorkflowStepAccessible("figures", getWorkflowSnapshot())) {
-      navigate("/draft", { replace: true });
+      navigate("/patent/draft", { replace: true });
     }
   }, [getWorkflowSnapshot, navigate, workflowResetting]);
 
@@ -189,10 +189,10 @@ export default function Figures() {
       footer={
         lightboxOpen ? null : (
           <WorkflowFooter
-            left={<WorkflowBackLink to="/draft" />}
+            left={<WorkflowBackLink to="/patent/draft" />}
             right={
               <WorkflowNextLink
-                to="/export"
+                to="/patent/export"
                 onClick={() => {
                   markStepComplete("figures");
                   saveToStorage();

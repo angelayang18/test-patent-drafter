@@ -6,7 +6,8 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { GrantDetails } from "../types/patent";
+import type { GrantDetails, SectionCitation } from "../types/patent";
+import { GRANT_SECTION_IDS } from "../types/patent";
 import {
   clearActiveGrantWorkflow,
   createEmptyGrantWorkflowSnapshot,
@@ -29,6 +30,10 @@ import {
   type GatherSourceTextOptions,
 } from "../utils/gatherSourceText";
 import {
+  defaultSectionSettings,
+  type SectionSettingsMap,
+} from "../utils/sectionSettings";
+import {
   GrantWorkflowContext,
   type InputSources,
   type UploadedSourceFile,
@@ -44,6 +49,12 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     initial.grantDetails,
   );
   const [sections, setSectionsState] = useState<Record<string, string>>(initial.sections);
+  const [sectionCitations, setSectionCitationsState] = useState<
+    Record<string, SectionCitation[]>
+  >(initial.sectionCitations ?? {});
+  const [sectionSettings, setSectionSettingsState] = useState<SectionSettingsMap>(
+    initial.sectionSettings ?? defaultSectionSettings(GRANT_SECTION_IDS),
+  );
   const [uploadedFiles, setUploadedFilesState] = useState<UploadedSourceFile[]>(
     initial.uploadedFiles,
   );
@@ -136,6 +147,10 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
   const applyWorkflowSnapshot = useCallback((next: GrantWorkflowSnapshot) => {
     setGrantDetailsState(next.grantDetails);
     setSectionsState(next.sections);
+    setSectionCitationsState(next.sectionCitations ?? {});
+    setSectionSettingsState(
+      next.sectionSettings ?? defaultSectionSettings(GRANT_SECTION_IDS),
+    );
     setUploadedFilesState(next.uploadedFiles);
     setInputSourcesState(next.inputSources);
     setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
@@ -149,6 +164,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     (): GrantWorkflowSnapshot => ({
       grantDetails,
       sections,
+      sectionCitations,
+      sectionSettings,
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
@@ -160,6 +177,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     [
       grantDetails,
       sections,
+      sectionCitations,
+      sectionSettings,
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
@@ -180,6 +199,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
   }, [
     grantDetails,
     sections,
+    sectionCitations,
+    sectionSettings,
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
@@ -257,6 +278,14 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setSections = useCallback((next: Record<string, string>) => {
     setSectionsState(next);
+  }, []);
+
+  const setSectionCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
+    setSectionCitationsState((prev) => ({ ...prev, ...citations }));
+  }, []);
+
+  const setSectionSettings = useCallback((settings: SectionSettingsMap) => {
+    setSectionSettingsState(settings);
   }, []);
 
   const setUploadedFiles = useCallback((files: UploadedSourceFile[]) => {
@@ -364,6 +393,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     () => ({
       grantDetails,
       sections,
+      sectionCitations,
+      sectionSettings,
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
@@ -374,6 +405,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       setGrantDetails,
       setSection,
       setSections,
+      setSectionCitations,
+      setSectionSettings,
       setUploadedFiles,
       addUploadedFilesAndPersist,
       removeUploadedFile,
@@ -397,6 +430,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     [
       grantDetails,
       sections,
+      sectionCitations,
+      sectionSettings,
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
@@ -407,6 +442,8 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       setGrantDetails,
       setSection,
       setSections,
+      setSectionCitations,
+      setSectionSettings,
       setUploadedFiles,
       addUploadedFilesAndPersist,
       removeUploadedFile,

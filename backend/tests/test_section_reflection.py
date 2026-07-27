@@ -39,9 +39,10 @@ def test_reflection_retries_on_validation_errors(
     mock_generate.side_effect = [bad_claims, good_claims]
 
     invention = {"technical_field": "AI", "invention_title": "Test"}
-    result = draft_section_agent(invention, "claims")
+    content, citations = draft_section_agent(invention, "claims")
 
-    assert result.startswith("1.")
+    assert content.startswith("1.")
+    assert citations == []
     assert mock_generate.call_count == 2
 
 

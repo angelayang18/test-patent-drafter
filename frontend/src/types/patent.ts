@@ -92,6 +92,8 @@ export interface PatentDraft {
   filing_info?: FilingInfo | null;
   /** Base64 PNGs keyed by figure number — from /export/prerender-figures */
   figure_pngs?: Record<string, string>;
+  /** Display headings for export (renames + custom sections). */
+  section_labels?: Record<string, string>;
 }
 
 export const PATENT_SECTION_IDS = [
@@ -104,6 +106,11 @@ export const PATENT_SECTION_IDS = [
 ] as const;
 
 export type PatentSectionId = (typeof PATENT_SECTION_IDS)[number];
+
+export interface SectionCitation {
+  label: string;
+  excerpt: string;
+}
 
 export const SECTION_LABELS: Record<PatentSectionId, string> = {
   field: "Field of the Invention",
@@ -148,4 +155,120 @@ export const GRANT_SECTION_LABELS: Record<GrantSectionId, string> = {
   evaluation: "Evaluation Plan",
   budget_narrative: "Budget Narrative",
   organizational_capacity: "Organizational Capacity",
+};
+
+export interface SOWDetails {
+  engagement_title: string;
+  client_name: string;
+  vendor_name: string;
+  purpose_and_background: string;
+  objectives: string;
+  scope_of_work: string;
+  deliverables: string;
+  timeline_and_effort: string;
+  responsibilities_and_inputs: string;
+  commercial_terms: string;
+}
+
+export const defaultSowDetails: SOWDetails = {
+  engagement_title: "",
+  client_name: "",
+  vendor_name: "",
+  purpose_and_background: "",
+  objectives: "",
+  scope_of_work: "",
+  deliverables: "",
+  timeline_and_effort: "",
+  responsibilities_and_inputs: "",
+  commercial_terms: "",
+};
+
+export const SOW_SECTION_IDS = [
+  "purpose",
+  "objectives",
+  "scope_of_work",
+  "deliverables",
+  "development_areas_effort_schedule",
+  "responsibilities_required_inputs",
+  "technical_integration_approach",
+  "acceptance_criteria",
+  "assumptions_dependencies",
+  "out_of_scope",
+  "governance_change_control",
+  "commercial_terms",
+  "data_protection_confidentiality",
+  "completion",
+] as const;
+
+export type SowSectionId = (typeof SOW_SECTION_IDS)[number];
+
+export const SOW_SECTION_LABELS: Record<SowSectionId, string> = {
+  purpose: "Purpose / Introduction & Background",
+  objectives: "Objectives",
+  scope_of_work: "Scope of Work",
+  deliverables: "Deliverables",
+  development_areas_effort_schedule: "Development Areas, Effort & Schedule",
+  responsibilities_required_inputs: "Responsibilities & Required Inputs",
+  technical_integration_approach: "Technical / Integration Approach",
+  acceptance_criteria: "Acceptance Criteria",
+  assumptions_dependencies: "Assumptions & Dependencies",
+  out_of_scope: "Out of Scope",
+  governance_change_control: "Governance & Change Control",
+  commercial_terms: "Commercial Terms",
+  data_protection_confidentiality: "Data Protection & Confidentiality",
+  completion: "Completion",
+};
+
+export interface ADADetails {
+  study_title: string;
+  study_objective: string;
+  assay_platform: string;
+  sample_matrix: string;
+  cut_point_methodology: string;
+  sensitivity_data: string;
+  specificity_data: string;
+  precision_data: string;
+  stability_data: string;
+  results_summary: string;
+}
+
+export const defaultAdaDetails: ADADetails = {
+  study_title: "",
+  study_objective: "",
+  assay_platform: "",
+  sample_matrix: "",
+  cut_point_methodology: "",
+  sensitivity_data: "",
+  specificity_data: "",
+  precision_data: "",
+  stability_data: "",
+  results_summary: "",
+};
+
+export const ADA_SECTION_IDS = [
+  "study_overview",
+  "method_summary",
+  "study_samples",
+  "cut_point_determination",
+  "sensitivity",
+  "specificity_selectivity",
+  "precision_reproducibility_robustness",
+  "stability",
+  "sample_analysis_results",
+  "data_analysis_conclusion",
+] as const;
+
+export type AdaSectionId = (typeof ADA_SECTION_IDS)[number];
+
+export const ADA_SECTION_LABELS: Record<AdaSectionId, string> = {
+  study_overview: "Study Overview / Objective",
+  method_summary: "Method Summary",
+  study_samples: "Study Samples",
+  cut_point_determination: "Cut Point Determination",
+  sensitivity: "Sensitivity",
+  specificity_selectivity: "Specificity & Selectivity",
+  precision_reproducibility_robustness: "Precision, Reproducibility & Robustness",
+  stability: "Stability",
+  sample_analysis_results: "Sample Analysis Results & Titer Reporting",
+  data_analysis_conclusion: "Data Analysis & Conclusion",
 };

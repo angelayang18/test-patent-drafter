@@ -1,4 +1,10 @@
-import type { FilingInfo, PatentFigure, PatentSectionId, WorkflowMode } from "../types/patent";
+import type {
+  FilingInfo,
+  PatentFigure,
+  PatentSectionId,
+  SectionCitation,
+  WorkflowMode,
+} from "../types/patent";
 import {
   EMPTY_FILING_INFO,
   emptyApprovedExemplars,
@@ -18,6 +24,7 @@ import {
 } from "./grantStorage";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import { sanitizePatentProse } from "./documentPreview";
+import type { SectionSettingsMap } from "./sectionSettings";
 
 export { DRAFTS_CHANGED_EVENT, notifyDraftsChanged } from "./draftLibraryEvents";
 
@@ -32,11 +39,11 @@ export const WORKFLOW_STEP_ORDER: WorkflowStep[] = [
 ];
 
 export const WORKFLOW_STEP_PATHS: Record<WorkflowStep, string> = {
-  input: "/",
-  review: "/review",
-  draft: "/draft",
-  figures: "/figures",
-  export: "/export",
+  input: "/patent",
+  review: "/patent/review",
+  draft: "/patent/draft",
+  figures: "/patent/figures",
+  export: "/patent/export",
 };
 
 export const ACTIVE_WORKFLOW_KEY = "patent-drafter-workflow";
@@ -65,6 +72,8 @@ export interface WorkflowSnapshot {
   cachedRemoteSources?: CachedRemoteSources;
   attorneyFeedback?: Record<PatentSectionId, string>;
   attorneyFeedbackGlobal?: string;
+  sectionCitations?: Record<string, SectionCitation[]>;
+  sectionSettings?: SectionSettingsMap;
   approvedExemplars?: Record<PatentSectionId, boolean>;
   aiInitialSections?: Record<string, string>;
   includeInLearningCorpus?: boolean;
@@ -200,6 +209,8 @@ export function normalizeWorkflow(
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
     attorneyFeedback: { ...emptyAttorneyFeedback(), ...raw?.attorneyFeedback },
     attorneyFeedbackGlobal: raw?.attorneyFeedbackGlobal ?? "",
+    sectionCitations: raw?.sectionCitations ?? {},
+    sectionSettings: raw?.sectionSettings,
     approvedExemplars: { ...emptyApprovedExemplars(), ...raw?.approvedExemplars },
     aiInitialSections: raw?.aiInitialSections ?? {},
     includeInLearningCorpus: raw?.includeInLearningCorpus ?? true,
@@ -391,15 +402,15 @@ export function getResumePath(workflow: WorkflowSnapshot): string {
   }
 
   if (workflow.figures.length > 0 || workflow.brief_description_of_drawings.trim()) {
-    return "/figures";
+    return "/patent/figures";
   }
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
-    return "/draft";
+    return "/patent/draft";
   }
   if (workflow.invention) {
-    return "/review";
+    return "/patent/review";
   }
-  return "/";
+  return "/patent";
 }
 
 export function buildDraftFileExport(

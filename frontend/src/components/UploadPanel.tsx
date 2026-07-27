@@ -104,13 +104,6 @@ export default function UploadPanel({
 
   return (
     <>
-      <RelevanceGuidancePanel
-        relevantContentNotes={inputSources.relevantContentNotes}
-        irrelevantContentNotes={inputSources.irrelevantContentNotes}
-        onRelevantChange={(value) => onInputSourcesChange({ relevantContentNotes: value })}
-        onIrrelevantChange={(value) => onInputSourcesChange({ irrelevantContentNotes: value })}
-      />
-
       <div>
         <h2 className="font-headline-md text-headline-md text-primary">Add source material</h2>
         <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
@@ -385,6 +378,13 @@ export default function UploadPanel({
           </section>
         </div>
       </div>
+
+      <RelevanceGuidancePanel
+        relevantContentNotes={inputSources.relevantContentNotes}
+        irrelevantContentNotes={inputSources.irrelevantContentNotes}
+        onRelevantChange={(value) => onInputSourcesChange({ relevantContentNotes: value })}
+        onIrrelevantChange={(value) => onInputSourcesChange({ irrelevantContentNotes: value })}
+      />
 
       <SourceFilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
     </>

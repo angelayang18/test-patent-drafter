@@ -55,5 +55,13 @@ def ordered_section_keys(sections: dict[str, str]) -> list[str]:
     return ordered
 
 
-def section_heading(key: str) -> str:
+def section_heading(
+    key: str,
+    section_labels: dict[str, str] | None = None,
+) -> str:
+    """Resolve a section heading, preferring caller-supplied labels for custom ids."""
+    labels = section_labels or {}
+    override = str(labels.get(key) or "").strip()
+    if override:
+        return override
     return SECTION_TITLES.get(key, key.replace("_", " ").upper())

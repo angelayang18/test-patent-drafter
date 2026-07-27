@@ -15,12 +15,18 @@ from learning.config import is_section_reflection_enabled
 from learning.guidelines import retrieve_drafting_context
 from learning.prompts import SECTION_CRITIQUE_SYSTEM, build_section_critique_user_prompt
 
+from .document_types import (
+    get_patent_section_description,
+    get_patent_section_query_fields,
+)
 from .llm_client import generate_text
 from .patent_template import (
     PROVISIONAL_FILING_OVERVIEW,
     get_section_template_instructions,
 )
-from .prompts import PATENT_SECTIONS, get_prompt
+from .prompts import PATENT_SECTIONS, _format_invention_context, get_prompt
+from .retrieval import citations_from_excerpts, format_excerpts_block, retrieve_relevant_excerpts
+from .source_chunks import parse_source_chunks
 
 _SECTION_LABELS = {
     "field": "Field of the Invention",
@@ -42,6 +48,42 @@ _AGENT_CONVENTIONS = (
 )
 
 _MAX_REFLECTION_ATTEMPTS = 2
+
+_DEFAULT_CUSTOM_DESCRIPTION = (
+    "Draft this section using the invention details and any provided source material. "
+    "Use your judgment on appropriate content and structure for a section with this name "
+    "in a patent application."
+)
+
+
+def _resolve_custom_meta(
+    custom_sections: dict[str, dict[str, str]] | None,
+    section: str,
+) -> tuple[str, str] | None:
+    """Return (name, description) for a custom section id, or None if not registered."""
+    if not custom_sections or section not in custom_sections:
+        return None
+    meta = custom_sections.get(section) or {}
+    name = str(meta.get("name") or "").strip() or section.replace("_", " ").title()
+    description = str(meta.get("description") or "").strip()
+    return name, description
+
+
+def get_custom_section_agent_system(name: str, description: str) -> str:
+    """System prompt for a user-defined section not in the canonical PATENT_SECTIONS list."""
+    instructions = description.strip() or _DEFAULT_CUSTOM_DESCRIPTION
+    base = (
+        f'You are a dedicated patent drafting agent assigned ONLY to draft the "{name}" '
+        f"section of a US provisional patent application, a section the user has added beyond "
+        f"the standard set.\n\n"
+        f"{PROVISIONAL_FILING_OVERVIEW}\n\n"
+        f"SECTION INSTRUCTIONS: {instructions}\n\n"
+        f"{_AGENT_CONVENTIONS}\n\n"
+        "CRITICAL: You are not drafting any other section. Do not reference or invent "
+        "content from other sections unless it appears in the invention details provided in "
+        "the user message."
+    )
+    return base
 
 
 def get_section_agent_system(section: str) -> str:
@@ -73,6 +115,7 @@ def _build_user_prompt(
     *,
     prior_draft: str = "",
     attorney_feedback: str = "",
+    excerpts_block: str = "",
 ) -> str:
     """Assemble the full user prompt with org guidance and same-draft context."""
     base = get_prompt(section, invention)
@@ -81,8 +124,31 @@ def _build_user_prompt(
     guidance = combine_guidance_blocks(
         format_org_drafting_guidance(section, context),
         format_prior_draft_context(prior_draft, attorney_feedback),
+        excerpts_block,
     )
     return base + guidance
+
+
+def _build_custom_user_prompt(
+    name: str,
+    description: str,
+    invention: dict,
+    *,
+    prior_draft: str = "",
+    attorney_feedback: str = "",
+    excerpts_block: str = "",
+) -> str:
+    """User prompt for a custom section — bypasses get_prompt / _SECTION_DISPATCH."""
+    instructions = description.strip() or _DEFAULT_CUSTOM_DESCRIPTION
+    details = _format_invention_context(invention)
+    prior_block = format_prior_draft_context(prior_draft, attorney_feedback)
+    return (
+        f'Draft the "{name}" section of a US provisional patent application.\n\n'
+        f"{details}\n\n"
+        f"Instructions:\n{instructions}"
+        f"{prior_block}{excerpts_block}\n\n"
+        f'Output ONLY the body text for the "{name}" section.'
+    )
 
 
 def _org_guidelines_text(section: str, invention: dict) -> str:
@@ -137,22 +203,69 @@ def draft_section_agent(
     *,
     prior_draft: str = "",
     attorney_feedback: str = "",
-) -> str:
-    """Draft one section via its isolated agent with optional reflection."""
+    combined_text: str = "",
+    custom_sections: dict[str, dict[str, str]] | None = None,
+) -> tuple[str, list[dict]]:
+    """Draft one section via its isolated agent with optional reflection.
+
+    Returns ``(content, citations)``. When ``combined_text`` is empty, retrieval
+    is skipped and citations is ``[]``.
+
+    Custom (non-canonical) section ids are accepted when ``custom_sections``
+    supplies ``name`` / ``description`` metadata for that id.
+    """
     section = section_name.strip()
-    if section not in PATENT_SECTIONS:
+    custom_meta = _resolve_custom_meta(custom_sections, section)
+    if section not in PATENT_SECTIONS and custom_meta is None:
         raise ValueError(
             f"Unknown section '{section}'. Must be one of: {PATENT_SECTIONS}"
         )
-    system = get_section_agent_system(section)
-    user_prompt = _build_user_prompt(
-        section,
-        invention,
-        prior_draft=prior_draft,
-        attorney_feedback=attorney_feedback,
-    )
+
+    excerpts = []
+    excerpts_block = ""
+    if combined_text.strip():
+        chunks = parse_source_chunks(combined_text)
+        if chunks:
+            if custom_meta is not None and section not in PATENT_SECTIONS:
+                _, description = custom_meta
+                excerpts = retrieve_relevant_excerpts(
+                    description,
+                    invention,
+                    chunks,
+                    [],
+                )
+            else:
+                excerpts = retrieve_relevant_excerpts(
+                    get_patent_section_description(section),
+                    invention,
+                    chunks,
+                    get_patent_section_query_fields(section),
+                )
+            excerpts_block = format_excerpts_block(excerpts)
+
+    if custom_meta is not None and section not in PATENT_SECTIONS:
+        name, description = custom_meta
+        system = get_custom_section_agent_system(name, description)
+        user_prompt = _build_custom_user_prompt(
+            name,
+            description,
+            invention,
+            prior_draft=prior_draft,
+            attorney_feedback=attorney_feedback,
+            excerpts_block=excerpts_block,
+        )
+    else:
+        system = get_section_agent_system(section)
+        user_prompt = _build_user_prompt(
+            section,
+            invention,
+            prior_draft=prior_draft,
+            attorney_feedback=attorney_feedback,
+            excerpts_block=excerpts_block,
+        )
     raw = generate_text(system, user_prompt)
-    return _reflect_and_revise(section, invention, raw, system)
+    content = _reflect_and_revise(section, invention, raw, system)
+    return content, citations_from_excerpts(excerpts)
 
 
 def draft_all_sections_parallel(
@@ -160,24 +273,30 @@ def draft_all_sections_parallel(
     section_names: Iterable[str] | None = None,
     *,
     attorney_feedback: dict[str, str] | None = None,
-) -> dict[str, str]:
+    combined_text: str = "",
+    custom_sections: dict[str, dict[str, str]] | None = None,
+) -> tuple[dict[str, str], dict[str, list[dict]]]:
     """
     Run one agent per section concurrently.
 
     Each agent receives only invention details and its template slot — never other
     sections' drafted text — preventing context poisoning across sections.
+
+    Returns ``(content_by_section, citations_by_section)``.
     """
     names = list(section_names) if section_names is not None else list(PATENT_SECTIONS)
-    invalid = [n for n in names if n not in PATENT_SECTIONS]
+    custom = custom_sections or {}
+    invalid = [n for n in names if n not in PATENT_SECTIONS and n not in custom]
     if invalid:
         raise ValueError(
             f"Unknown section(s): {invalid}. Must be subset of: {PATENT_SECTIONS}"
         )
     if not names:
-        return {}
+        return {}, {}
 
     feedback_map = attorney_feedback or {}
     results: dict[str, str] = {}
+    citations_by_section: dict[str, list[dict]] = {}
     max_workers = min(len(names), 6)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -187,10 +306,14 @@ def draft_all_sections_parallel(
                 name,
                 prior_draft="",
                 attorney_feedback=feedback_map.get(name, ""),
+                combined_text=combined_text,
+                custom_sections=custom,
             ): name
             for name in names
         }
         for future in as_completed(futures):
             section = futures[future]
-            results[section] = future.result()
-    return results
+            content, citations = future.result()
+            results[section] = content
+            citations_by_section[section] = citations
+    return results, citations_by_section

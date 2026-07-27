@@ -1,7 +1,8 @@
-import type { GrantDetails } from "../types/patent";
+import type { GrantDetails, SectionCitation } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/grantContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
+import type { SectionSettingsMap } from "./sectionSettings";
 
 export type GrantWorkflowStep = "input" | "review" | "draft" | "export";
 
@@ -19,6 +20,8 @@ export const ACTIVE_GRANT_WORKFLOW_KEY = "patent-drafter-grant-workflow";
 export interface GrantWorkflowSnapshot {
   grantDetails: GrantDetails | null;
   sections: Record<string, string>;
+  sectionCitations?: Record<string, SectionCitation[]>;
+  sectionSettings?: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
@@ -115,6 +118,8 @@ export function normalizeGrantWorkflow(
   return {
     grantDetails: raw?.grantDetails ?? null,
     sections: raw?.sections ?? {},
+    sectionCitations: raw?.sectionCitations ?? {},
+    sectionSettings: raw?.sectionSettings,
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),

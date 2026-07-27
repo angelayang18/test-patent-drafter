@@ -12,9 +12,15 @@ import type {
   InventionDetails,
   PatentFigure,
   PatentSectionId,
+  SectionCitation,
   WorkflowMode,
 } from "../types/patent";
-import { EMPTY_FILING_INFO, emptyApprovedExemplars, emptyAttorneyFeedback } from "../types/patent";
+import {
+  EMPTY_FILING_INFO,
+  emptyApprovedExemplars,
+  emptyAttorneyFeedback,
+  PATENT_SECTION_IDS,
+} from "../types/patent";
 import {
   clearActiveWorkflow,
   createEmptyWorkflowSnapshot,
@@ -32,6 +38,10 @@ import {
   type WorkflowStep,
 } from "../utils/draftStorage";
 import { gatherCombinedSourceText, type CachedRemoteSources, type GatherSourceTextOptions } from "../utils/gatherSourceText";
+import {
+  defaultSectionSettings,
+  type SectionSettingsMap,
+} from "../utils/sectionSettings";
 import {
   PatentWorkflowContext,
   type InputSources,
@@ -79,6 +89,12 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   >(initial.attorneyFeedback ?? emptyAttorneyFeedback());
   const [attorneyFeedbackGlobal, setAttorneyFeedbackGlobalState] = useState(
     initial.attorneyFeedbackGlobal ?? "",
+  );
+  const [sectionCitations, setSectionCitationsState] = useState<
+    Record<string, SectionCitation[]>
+  >(initial.sectionCitations ?? {});
+  const [sectionSettings, setSectionSettingsState] = useState<SectionSettingsMap>(
+    initial.sectionSettings ?? defaultSectionSettings(PATENT_SECTION_IDS),
   );
   const [approvedExemplars, setApprovedExemplarsState] = useState<
     Record<PatentSectionId, boolean>
@@ -180,6 +196,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
       setAttorneyFeedbackState(next.attorneyFeedback ?? emptyAttorneyFeedback());
       setAttorneyFeedbackGlobalState(next.attorneyFeedbackGlobal ?? "");
+      setSectionCitationsState(next.sectionCitations ?? {});
+      setSectionSettingsState(
+        next.sectionSettings ?? defaultSectionSettings(PATENT_SECTION_IDS),
+      );
       setApprovedExemplarsState(next.approvedExemplars ?? emptyApprovedExemplars());
       setAiInitialSectionsState(next.aiInitialSections ?? {});
       setIncludeInLearningCorpusState(next.includeInLearningCorpus ?? true);
@@ -205,6 +225,8 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      sectionCitations,
+      sectionSettings,
       approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
@@ -226,6 +248,8 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      sectionCitations,
+      sectionSettings,
       approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
@@ -338,6 +362,18 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const setAttorneyFeedbackGlobal = useCallback((comment: string) => {
     setAttorneyFeedbackGlobalState(comment);
   }, []);
+
+  const setSectionCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
+    setSectionCitationsState((prev) => ({ ...prev, ...citations }));
+  }, []);
+
+  const setSectionSettings = useCallback(
+    (settings: SectionSettingsMap) => {
+      setSectionSettingsState(settings);
+      writeStoragePayload({ sectionSettings: settings });
+    },
+    [writeStoragePayload],
+  );
 
   const setApprovedExemplar = useCallback((sectionId: PatentSectionId, approved: boolean) => {
     setApprovedExemplarsState((prev) => ({ ...prev, [sectionId]: approved }));
@@ -504,6 +540,8 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      sectionCitations,
+      sectionSettings,
       approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
@@ -519,6 +557,8 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       captureAiInitialSections,
       setAttorneyFeedback,
       setAttorneyFeedbackGlobal,
+      setSectionCitations,
+      setSectionSettings,
       setApprovedExemplar,
       setIncludeInLearningCorpus,
       setFiguresResult,
@@ -560,6 +600,8 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       cachedRemoteSources,
       attorneyFeedback,
       attorneyFeedbackGlobal,
+      sectionCitations,
+      sectionSettings,
       approvedExemplars,
       aiInitialSections,
       includeInLearningCorpus,
@@ -575,6 +617,8 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       captureAiInitialSections,
       setAttorneyFeedback,
       setAttorneyFeedbackGlobal,
+      setSectionCitations,
+      setSectionSettings,
       setApprovedExemplar,
       setIncludeInLearningCorpus,
       setFiguresResult,

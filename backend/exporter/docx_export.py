@@ -36,10 +36,14 @@ def _add_page_break(doc: Document) -> None:
     run.add_break(WD_BREAK.PAGE)
 
 
-def _add_section_heading(doc: Document, key: str) -> None:
+def _add_section_heading(
+    doc: Document,
+    key: str,
+    section_labels: dict[str, str] | None = None,
+) -> None:
     """Add an underlined ALL CAPS section heading matching USPTO sample format."""
     paragraph = doc.add_paragraph()
-    run = paragraph.add_run(section_heading(key))
+    run = paragraph.add_run(section_heading(key, section_labels))
     run.bold = True
     run.underline = True
     run.font.size = Pt(12)
@@ -182,6 +186,7 @@ def export_patent_docx(
     invention_title: str = "",
     filing_info: dict[str, Any] | None = None,
     client_figure_pngs: dict[int, bytes] | None = None,
+    section_labels: dict[str, str] | None = None,
 ) -> BytesIO:
     """
     Build a DOCX patent draft from text sections and optional figures.
@@ -217,7 +222,7 @@ def export_patent_docx(
         if key in SECTIONS_REQUIRING_PAGE_BREAK_BEFORE:
             _add_page_break(doc)
 
-        _add_section_heading(doc, key)
+        _add_section_heading(doc, key, section_labels)
         if key == "cross_reference":
             _add_section_body(doc, body, key)
         else:

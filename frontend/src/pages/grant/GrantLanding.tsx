@@ -5,7 +5,6 @@ import {
   FIT_TAG_CLASSES,
   FUNDING_OPPORTUNITIES,
 } from "../../constants/fundingOpportunities";
-import { GRANT_STEP_PATHS } from "../../utils/grantStorage";
 import "../../styles/patent-drafter.css";
 
 export default function GrantLanding() {
@@ -29,7 +28,7 @@ export default function GrantLanding() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-gutter max-w-2xl mx-auto">
             <Link
-              to={GRANT_STEP_PATHS.input}
+              to="/grant/input"
               className="p-8 rounded-xl border-2 border-secondary bg-secondary-container/10 hover:bg-secondary-container/20 transition-all text-left group"
             >
               <span className="material-symbols-outlined text-secondary text-4xl mb-4 block">

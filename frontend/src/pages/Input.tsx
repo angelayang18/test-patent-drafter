@@ -135,7 +135,7 @@ export default function InputPage() {
     setConfluenceError(null);
 
     if (hasExtractedDetails) {
-      navigate("/review");
+      navigate("/patent/review");
       return;
     }
 
@@ -175,7 +175,7 @@ export default function InputPage() {
       setInvention(details);
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
-      navigate("/review");
+      navigate("/patent/review");
     } catch (err) {
       if (err instanceof SourceGatherError && err.source === "confluence") {
         setConfluenceError(err.message);

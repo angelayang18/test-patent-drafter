@@ -1,0 +1,472 @@
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { ADADetails, SectionCitation } from "../types/patent";
+import { ADA_SECTION_IDS } from "../types/patent";
+import {
+  clearActiveAdaWorkflow,
+  createEmptyAdaWorkflowSnapshot,
+  defaultAdaDraftName,
+  deleteSavedAdaDraft,
+  downloadAdaDraftFile,
+  adaWorkflowHasProgress,
+  listSavedAdaDrafts,
+  normalizeAdaWorkflow,
+  readActiveAdaWorkflow,
+  readAdaDraftFile,
+  saveAdaDraftToLibrary,
+  writeActiveAdaWorkflow,
+  type AdaWorkflowSnapshot,
+  type AdaWorkflowStep,
+} from "../utils/adaStorage";
+import {
+  gatherCombinedSourceText,
+  type CachedRemoteSources,
+  type GatherSourceTextOptions,
+} from "../utils/gatherSourceText";
+import {
+  defaultSectionSettings,
+  type SectionSettingsMap,
+} from "../utils/sectionSettings";
+import {
+  AdaWorkflowContext,
+  type InputSources,
+  type UploadedSourceFile,
+} from "./adaContext";
+
+function readStorage(): AdaWorkflowSnapshot {
+  return readActiveAdaWorkflow();
+}
+
+export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
+  const initial = readStorage();
+  const [adaDetails, setAdaDetailsState] = useState<ADADetails | null>(
+    initial.adaDetails,
+  );
+  const [sections, setSectionsState] = useState<Record<string, string>>(initial.sections);
+  const [sectionCitations, setSectionCitationsState] = useState<
+    Record<string, SectionCitation[]>
+  >(initial.sectionCitations ?? {});
+  const [sectionSettings, setSectionSettingsState] = useState<SectionSettingsMap>(
+    initial.sectionSettings ?? defaultSectionSettings(ADA_SECTION_IDS),
+  );
+  const [uploadedFiles, setUploadedFilesState] = useState<UploadedSourceFile[]>(
+    initial.uploadedFiles,
+  );
+  const [inputSources, setInputSourcesState] = useState<InputSources>(initial.inputSources);
+  const [cachedRemoteSources, setCachedRemoteSourcesState] = useState<CachedRemoteSources>(
+    initial.cachedRemoteSources ?? {},
+  );
+  const [completedSteps, setCompletedStepsState] = useState<AdaWorkflowStep[]>(
+    initial.completedSteps ?? [],
+  );
+  const [extractionSourceKey, setExtractionSourceKeyState] = useState<string | null>(
+    initial.extractionSourceKey ?? null,
+  );
+  const [autoDraftPending, setAutoDraftPendingState] = useState(
+    initial.autoDraftPending ?? false,
+  );
+  const [loadedFromDraftId, setLoadedFromDraftIdState] = useState<string | undefined>(
+    initial.loadedFromDraftId,
+  );
+  const [workflowResetting, setWorkflowResetting] = useState(false);
+
+  const storageWriteGenerationRef = useRef(0);
+  const pendingStorageWriteRef = useRef<number | null>(null);
+  const buildSnapshotRef = useRef<() => AdaWorkflowSnapshot>(() =>
+    createEmptyAdaWorkflowSnapshot(),
+  );
+  const extractionSourceKeyRef = useRef(extractionSourceKey);
+  extractionSourceKeyRef.current = extractionSourceKey;
+
+  const cancelPendingStorageWrite = useCallback(() => {
+    const pending = pendingStorageWriteRef.current;
+    if (pending === null) {
+      return;
+    }
+    pendingStorageWriteRef.current = null;
+    if (typeof cancelIdleCallback !== "undefined") {
+      cancelIdleCallback(pending);
+    } else {
+      window.clearTimeout(pending);
+    }
+  }, []);
+
+  const writeStoragePayload = useCallback(
+    (patch?: Partial<AdaWorkflowSnapshot>) => {
+      if (workflowResetting) {
+        return;
+      }
+      const generation = storageWriteGenerationRef.current;
+      const write = () => {
+        pendingStorageWriteRef.current = null;
+        if (generation !== storageWriteGenerationRef.current) {
+          return;
+        }
+        const payload = normalizeAdaWorkflow({
+          ...buildSnapshotRef.current(),
+          ...patch,
+        });
+        if (!adaWorkflowHasProgress(payload)) {
+          clearActiveAdaWorkflow();
+          return;
+        }
+        try {
+          writeActiveAdaWorkflow(payload);
+        } catch {
+          // localStorage quota — workflow still lives in memory
+        }
+      };
+      if (typeof requestIdleCallback !== "undefined") {
+        pendingStorageWriteRef.current = requestIdleCallback(write, { timeout: 2000 });
+      } else {
+        pendingStorageWriteRef.current = window.setTimeout(write, 0);
+      }
+    },
+    [workflowResetting],
+  );
+
+  const persistWorkflowSnapshot = useCallback((workflow: AdaWorkflowSnapshot) => {
+    const payload = normalizeAdaWorkflow(workflow);
+    if (!adaWorkflowHasProgress(payload)) {
+      clearActiveAdaWorkflow();
+      return;
+    }
+    try {
+      writeActiveAdaWorkflow(payload);
+    } catch {
+      // localStorage quota — workflow still lives in memory
+    }
+  }, []);
+
+  const applyWorkflowSnapshot = useCallback((next: AdaWorkflowSnapshot) => {
+    setAdaDetailsState(next.adaDetails);
+    setSectionsState(next.sections);
+    setSectionCitationsState(next.sectionCitations ?? {});
+    setSectionSettingsState(
+      next.sectionSettings ?? defaultSectionSettings(ADA_SECTION_IDS),
+    );
+    setUploadedFilesState(next.uploadedFiles);
+    setInputSourcesState(next.inputSources);
+    setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
+    setCompletedStepsState(next.completedSteps ?? []);
+    setExtractionSourceKeyState(next.extractionSourceKey ?? null);
+    setAutoDraftPendingState(next.autoDraftPending ?? false);
+    setLoadedFromDraftIdState(next.loadedFromDraftId);
+  }, []);
+
+  const buildSnapshot = useCallback(
+    (): AdaWorkflowSnapshot => ({
+      adaDetails,
+      sections,
+      sectionCitations,
+      sectionSettings,
+      uploadedFiles,
+      inputSources,
+      cachedRemoteSources,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
+      loadedFromDraftId,
+    }),
+    [
+      adaDetails,
+      sections,
+      sectionCitations,
+      sectionSettings,
+      uploadedFiles,
+      inputSources,
+      cachedRemoteSources,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
+      loadedFromDraftId,
+    ],
+  );
+
+  buildSnapshotRef.current = buildSnapshot;
+
+  useEffect(() => {
+    if (workflowResetting) {
+      return;
+    }
+    writeStoragePayload();
+  }, [
+    adaDetails,
+    sections,
+    sectionCitations,
+    sectionSettings,
+    uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
+    completedSteps,
+    extractionSourceKey,
+    autoDraftPending,
+    loadedFromDraftId,
+    workflowResetting,
+    writeStoragePayload,
+  ]);
+
+  const saveToStorage = useCallback(() => {
+    if (workflowResetting) {
+      return;
+    }
+    const snapshot = buildSnapshot();
+    if (!adaWorkflowHasProgress(snapshot)) {
+      clearActiveAdaWorkflow();
+      return;
+    }
+    writeStoragePayload();
+  }, [buildSnapshot, writeStoragePayload, workflowResetting]);
+
+  const getWorkflowSnapshot = useCallback(() => buildSnapshot(), [buildSnapshot]);
+
+  const importWorkflow = useCallback(
+    (workflow: AdaWorkflowSnapshot) => {
+      const next = normalizeAdaWorkflow(workflow);
+      applyWorkflowSnapshot(next);
+      persistWorkflowSnapshot(next);
+    },
+    [applyWorkflowSnapshot, persistWorkflowSnapshot],
+  );
+
+  const getSavedDrafts = useCallback(() => listSavedAdaDrafts(), []);
+
+  const saveNamedDraft = useCallback(
+    (name: string) => {
+      const record = saveAdaDraftToLibrary(name, buildSnapshot());
+      // Retarget identity to the newly saved library entry.
+      setLoadedFromDraftIdState(record.id);
+      writeStoragePayload({ loadedFromDraftId: record.id });
+      return record;
+    },
+    [buildSnapshot, writeStoragePayload],
+  );
+
+  const removeSavedDraft = useCallback((id: string) => {
+    deleteSavedAdaDraft(id);
+  }, []);
+
+  const exportDraftFile = useCallback(
+    (name: string) => {
+      downloadAdaDraftFile(name || defaultAdaDraftName(buildSnapshot()), buildSnapshot());
+    },
+    [buildSnapshot],
+  );
+
+  const importDraftFile = useCallback(
+    async (file: File) => {
+      const parsed = await readAdaDraftFile(file);
+      importWorkflow(parsed.workflow);
+      return parsed.workflow;
+    },
+    [importWorkflow],
+  );
+
+  const setAdaDetails = useCallback((details: ADADetails) => {
+    setAdaDetailsState(details);
+  }, []);
+
+  const setSection = useCallback((sectionId: string, content: string) => {
+    setSectionsState((prev) => ({ ...prev, [sectionId]: content }));
+  }, []);
+
+  const setSections = useCallback((next: Record<string, string>) => {
+    setSectionsState(next);
+  }, []);
+
+  const setSectionCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
+    setSectionCitationsState((prev) => ({ ...prev, ...citations }));
+  }, []);
+
+  const setSectionSettings = useCallback((settings: SectionSettingsMap) => {
+    setSectionSettingsState(settings);
+  }, []);
+
+  const setUploadedFiles = useCallback((files: UploadedSourceFile[]) => {
+    setUploadedFilesState(files);
+  }, []);
+
+  const addUploadedFilesAndPersist = useCallback(
+    (files: UploadedSourceFile[]) => {
+      setUploadedFilesState((prev) => {
+        const next = [...prev, ...files];
+        writeStoragePayload({ uploadedFiles: next });
+        return next;
+      });
+    },
+    [writeStoragePayload],
+  );
+
+  const removeUploadedFile = useCallback((id: string) => {
+    setUploadedFilesState((prev) => prev.filter((f) => f.id !== id));
+  }, []);
+
+  const setInputSources = useCallback((patch: Partial<InputSources>) => {
+    setInputSourcesState((prev) => ({ ...prev, ...patch }));
+  }, []);
+
+  const buildCombinedSourceText = useCallback(() => {
+    const parts: string[] = [];
+    for (const file of uploadedFiles) {
+      if (file.content.trim()) {
+        parts.push(`--- ${file.filename} ---\n${file.content}`);
+      }
+    }
+    if (inputSources.pastedText.trim()) {
+      parts.push(`--- Pasted text ---\n${inputSources.pastedText.trim()}`);
+    }
+    return parts.join("\n\n");
+  }, [uploadedFiles, inputSources.pastedText]);
+
+  const gatherSourceText = useCallback(
+    async (options?: GatherSourceTextOptions) => {
+      const result = await gatherCombinedSourceText({
+        buildLocalText: buildCombinedSourceText,
+        inputSources,
+        cached: cachedRemoteSources,
+        onProgress: options?.onProgress,
+      });
+      setCachedRemoteSourcesState(result.cache);
+      writeStoragePayload({ cachedRemoteSources: result.cache });
+      return { combined: result.combined, cache: result.cache };
+    },
+    [buildCombinedSourceText, inputSources, cachedRemoteSources, writeStoragePayload],
+  );
+
+  const markStepComplete = useCallback(
+    (step: AdaWorkflowStep) => {
+      setCompletedStepsState((prev) => {
+        if (prev.includes(step)) return prev;
+        const next = [...prev, step];
+        writeStoragePayload({ completedSteps: next });
+        return next;
+      });
+    },
+    [writeStoragePayload],
+  );
+
+  const setExtractionSourceKey = useCallback(
+    (key: string | null) => {
+      const diverged = extractionSourceKeyRef.current !== key;
+      setExtractionSourceKeyState(key);
+      if (diverged) {
+        // Re-extracting from different sources means this session has diverged
+        // from the library draft it was opened from.
+        setLoadedFromDraftIdState(undefined);
+        writeStoragePayload({
+          extractionSourceKey: key,
+          loadedFromDraftId: undefined,
+        });
+        return;
+      }
+      writeStoragePayload({ extractionSourceKey: key });
+    },
+    [writeStoragePayload],
+  );
+
+  const requestAutoDraft = useCallback(() => {
+    setAutoDraftPendingState(true);
+    writeStoragePayload({ autoDraftPending: true });
+  }, [writeStoragePayload]);
+
+  const clearAutoDraftPending = useCallback(() => {
+    setAutoDraftPendingState(false);
+    writeStoragePayload({ autoDraftPending: false });
+  }, [writeStoragePayload]);
+
+  const clearWorkflow = useCallback(() => {
+    storageWriteGenerationRef.current += 1;
+    cancelPendingStorageWrite();
+    clearActiveAdaWorkflow();
+    setWorkflowResetting(true);
+    applyWorkflowSnapshot(createEmptyAdaWorkflowSnapshot());
+    window.setTimeout(() => setWorkflowResetting(false), 0);
+  }, [cancelPendingStorageWrite, applyWorkflowSnapshot]);
+
+  const value = useMemo(
+    () => ({
+      adaDetails,
+      sections,
+      sectionCitations,
+      sectionSettings,
+      uploadedFiles,
+      inputSources,
+      cachedRemoteSources,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
+      workflowResetting,
+      setAdaDetails,
+      setSection,
+      setSections,
+      setSectionCitations,
+      setSectionSettings,
+      setUploadedFiles,
+      addUploadedFilesAndPersist,
+      removeUploadedFile,
+      setInputSources,
+      buildCombinedSourceText,
+      gatherSourceText,
+      getWorkflowSnapshot,
+      importWorkflow,
+      getSavedDrafts,
+      saveNamedDraft,
+      removeSavedDraft,
+      exportDraftFile,
+      importDraftFile,
+      saveToStorage,
+      clearWorkflow,
+      markStepComplete,
+      setExtractionSourceKey,
+      requestAutoDraft,
+      clearAutoDraftPending,
+    }),
+    [
+      adaDetails,
+      sections,
+      sectionCitations,
+      sectionSettings,
+      uploadedFiles,
+      inputSources,
+      cachedRemoteSources,
+      completedSteps,
+      extractionSourceKey,
+      autoDraftPending,
+      workflowResetting,
+      setAdaDetails,
+      setSection,
+      setSections,
+      setSectionCitations,
+      setSectionSettings,
+      setUploadedFiles,
+      addUploadedFilesAndPersist,
+      removeUploadedFile,
+      setInputSources,
+      buildCombinedSourceText,
+      gatherSourceText,
+      getWorkflowSnapshot,
+      importWorkflow,
+      getSavedDrafts,
+      saveNamedDraft,
+      removeSavedDraft,
+      exportDraftFile,
+      importDraftFile,
+      saveToStorage,
+      clearWorkflow,
+      markStepComplete,
+      setExtractionSourceKey,
+      requestAutoDraft,
+      clearAutoDraftPending,
+    ],
+  );
+
+  return (
+    <AdaWorkflowContext.Provider value={value}>{children}</AdaWorkflowContext.Provider>
+  );
+}

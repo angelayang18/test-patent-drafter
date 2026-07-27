@@ -15,18 +15,24 @@ from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from drafter.extractor import extract_invention_details, extract_invention_field
+from drafter.ada_extractor import extract_ada_details, extract_ada_field
+from drafter.ada_sections import draft_all_ada_sections_parallel, draft_single_ada_section
 from drafter.grant_extractor import extract_grant_details, extract_grant_field
 from drafter.grant_sections import draft_all_grant_sections_parallel, draft_single_grant_section
 from drafter.figures import generate_patent_figures, regenerate_patent_figure
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
 from drafter.selection_regenerate import regenerate_selection
 from drafter.sections import draft_all_sections_parallel, draft_section
+from drafter.sow_extractor import extract_sow_details, extract_sow_field
+from drafter.sow_sections import draft_all_sow_sections_parallel, draft_single_sow_section
 from drafter.titles import suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
 from learning.storage import get_storage
 from exporter.docx_export import export_patent_docx
 from exporter.grant_export import export_grant_docx, export_grant_pdf
+from exporter.sow_export import export_sow_docx, export_sow_pdf
+from exporter.ada_export import export_ada_docx, export_ada_pdf
 from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
@@ -146,15 +152,112 @@ class ExtractTitlesRequest(BaseModel):
 class GrantDraftRequest(GrantDetails):
     section: str
     prior_draft: str = ""
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class GrantDraftAllRequest(GrantDetails):
     sections: Optional[List[str]] = None
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class GrantExportRequest(BaseModel):
     sections: dict[str, str] = Field(default_factory=dict)
     project_title: str = ""
+    section_labels: Dict[str, str] = Field(default_factory=dict)
+
+
+class SOWDetails(BaseModel):
+    engagement_title: str = ""
+    client_name: str = ""
+    vendor_name: str = ""
+    purpose_and_background: str = ""
+    objectives: str = ""
+    scope_of_work: str = ""
+    deliverables: str = ""
+    timeline_and_effort: str = ""
+    responsibilities_and_inputs: str = ""
+    commercial_terms: str = ""
+
+
+class ExtractSOWRequest(BaseModel):
+    combined_text: str
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class ExtractSOWFieldRequest(BaseModel):
+    combined_text: str
+    field: str
+    current: Optional[SOWDetails] = None
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class SOWDraftRequest(SOWDetails):
+    section: str
+    prior_draft: str = ""
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class SOWDraftAllRequest(SOWDetails):
+    sections: Optional[List[str]] = None
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class SOWExportRequest(BaseModel):
+    sections: Dict[str, str] = Field(default_factory=dict)
+    engagement_title: str = ""
+    section_labels: Dict[str, str] = Field(default_factory=dict)
+
+
+class ADADetails(BaseModel):
+    study_title: str = ""
+    study_objective: str = ""
+    assay_platform: str = ""
+    sample_matrix: str = ""
+    cut_point_methodology: str = ""
+    sensitivity_data: str = ""
+    specificity_data: str = ""
+    precision_data: str = ""
+    stability_data: str = ""
+    results_summary: str = ""
+
+
+class ExtractADARequest(BaseModel):
+    combined_text: str
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class ExtractADAFieldRequest(BaseModel):
+    combined_text: str
+    field: str
+    current: Optional[ADADetails] = None
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class ADADraftRequest(ADADetails):
+    section: str
+    prior_draft: str = ""
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class ADADraftAllRequest(ADADetails):
+    sections: Optional[List[str]] = None
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
+
+
+class ADAExportRequest(BaseModel):
+    sections: Dict[str, str] = Field(default_factory=dict)
+    study_title: str = ""
+    section_labels: Dict[str, str] = Field(default_factory=dict)
 
 
 class RegenerateSelectionRequest(BaseModel):
@@ -168,6 +271,8 @@ class DraftRequest(InventionDetails):
     section: str
     prior_draft: str = ""
     attorney_feedback: str = ""
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class DraftAllRequest(InventionDetails):
@@ -175,6 +280,8 @@ class DraftAllRequest(InventionDetails):
 
     sections: Optional[List[str]] = None
     attorney_feedback: dict[str, str] = Field(default_factory=dict)
+    combined_text: str = ""
+    custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class LearningSubmitRequest(InventionDetails):
@@ -219,6 +326,7 @@ class ExportRequest(BaseModel):
     filing_info: Optional[Dict[str, str]] = None
     """Optional base64 PNGs keyed by figure number — skips re-render when exporting."""
     figure_pngs: Optional[Dict[str, str]] = None
+    section_labels: Dict[str, str] = Field(default_factory=dict)
 
 
 class QAReportRequest(BaseModel):
@@ -515,6 +623,112 @@ def extract_grant_field_endpoint(body: ExtractGrantFieldRequest) -> dict:
         ) from exc
 
 
+@app.post("/extract/sow")
+def extract_sow(body: ExtractSOWRequest) -> dict:
+    """Extract structured Statement of Work details from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+
+    try:
+        return extract_sow_details(
+            body.combined_text,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("SOW extraction failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to extract SOW details: {exc}",
+        ) from exc
+
+
+@app.post("/extract/sow/field")
+def extract_sow_field_endpoint(body: ExtractSOWFieldRequest) -> dict:
+    """Re-extract a single SOW detail field from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+    if not body.field.strip():
+        raise HTTPException(status_code=400, detail="field is required.")
+
+    current = body.current.model_dump() if body.current else None
+    try:
+        return extract_sow_field(
+            body.combined_text,
+            body.field.strip(),
+            current=current,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("SOW field extraction failed for %s", body.field)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to extract SOW field '{body.field}': {exc}",
+        ) from exc
+
+
+@app.post("/extract/ada")
+def extract_ada(body: ExtractADARequest) -> dict:
+    """Extract structured ADA bioanalytical report details from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+
+    try:
+        return extract_ada_details(
+            body.combined_text,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("ADA extraction failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to extract ADA details: {exc}",
+        ) from exc
+
+
+@app.post("/extract/ada/field")
+def extract_ada_field_endpoint(body: ExtractADAFieldRequest) -> dict:
+    """Re-extract a single ADA detail field from combined source text."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+    if not body.field.strip():
+        raise HTTPException(status_code=400, detail="field is required.")
+
+    current = body.current.model_dump() if body.current else None
+    try:
+        return extract_ada_field(
+            body.combined_text,
+            body.field.strip(),
+            current=current,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("ADA field extraction failed for %s", body.field)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to extract ADA field '{body.field}': {exc}",
+        ) from exc
+
+
 @app.post("/draft")
 def draft_patent_section(body: DraftRequest) -> dict:
     """Draft a single patent section via one dedicated section agent."""
@@ -522,15 +736,23 @@ def draft_patent_section(body: DraftRequest) -> dict:
         raise HTTPException(status_code=400, detail="section is required.")
 
     invention = body.model_dump(
-        exclude={"section", "prior_draft", "attorney_feedback"},
+        exclude={
+            "section",
+            "prior_draft",
+            "attorney_feedback",
+            "combined_text",
+            "custom_sections",
+        },
     )
     section = body.section.strip()
     try:
-        content = draft_section(
+        content, citations = draft_section(
             invention,
             section,
             prior_draft=body.prior_draft,
             attorney_feedback=body.attorney_feedback,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -543,7 +765,7 @@ def draft_patent_section(body: DraftRequest) -> dict:
             detail=f"Failed to draft section '{section}': {exc}",
         ) from exc
 
-    return {"section": section, "content": content}
+    return {"section": section, "content": content, "citations": citations}
 
 
 @app.post("/draft/all")
@@ -553,7 +775,9 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
 
     Each agent uses the provisional filing template for its section only.
     """
-    invention = body.model_dump(exclude={"sections", "attorney_feedback"})
+    invention = body.model_dump(
+        exclude={"sections", "attorney_feedback", "combined_text", "custom_sections"},
+    )
     section_list = body.sections
     if section_list is not None:
         section_list = [s.strip() for s in section_list if s.strip()]
@@ -561,10 +785,12 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
             raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
 
     try:
-        drafted = draft_all_sections_parallel(
+        drafted, citations = draft_all_sections_parallel(
             invention,
             section_list,
             attorney_feedback=body.attorney_feedback,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -577,7 +803,7 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
             detail=f"Failed to draft sections in parallel: {exc}",
         ) from exc
 
-    return {"sections": drafted}
+    return {"sections": drafted, "citations": citations}
 
 
 @app.post("/draft/grant")
@@ -586,10 +812,18 @@ def draft_grant_section(body: GrantDraftRequest) -> dict:
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
-    grant = body.model_dump(exclude={"section", "prior_draft"})
+    grant = body.model_dump(
+        exclude={"section", "prior_draft", "combined_text", "custom_sections"},
+    )
     section = body.section.strip()
     try:
-        content = draft_single_grant_section(grant, section, body.prior_draft)
+        content, citations = draft_single_grant_section(
+            grant,
+            section,
+            body.prior_draft,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMUnavailableError:
@@ -601,13 +835,13 @@ def draft_grant_section(body: GrantDraftRequest) -> dict:
             detail=f"Failed to draft grant section '{section}': {exc}",
         ) from exc
 
-    return {"section": section, "content": content}
+    return {"section": section, "content": content, "citations": citations}
 
 
 @app.post("/draft/grant/all")
 def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
     """Draft multiple grant sections in parallel — one isolated LLM agent per section."""
-    grant = body.model_dump(exclude={"sections"})
+    grant = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
     section_list = body.sections
     if section_list is not None:
         section_list = [s.strip() for s in section_list if s.strip()]
@@ -615,7 +849,12 @@ def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
             raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
 
     try:
-        drafted = draft_all_grant_sections_parallel(grant, section_list)
+        drafted, citations = draft_all_grant_sections_parallel(
+            grant,
+            section_list,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMUnavailableError:
@@ -627,7 +866,133 @@ def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
             detail=f"Failed to draft grant sections in parallel: {exc}",
         ) from exc
 
-    return {"sections": drafted}
+    return {"sections": drafted, "citations": citations}
+
+
+@app.post("/draft/sow")
+def draft_sow_section(body: SOWDraftRequest) -> dict:
+    """Draft a single Statement of Work section via one dedicated section agent."""
+    if not body.section.strip():
+        raise HTTPException(status_code=400, detail="section is required.")
+
+    sow = body.model_dump(
+        exclude={"section", "prior_draft", "combined_text", "custom_sections"},
+    )
+    section = body.section.strip()
+    try:
+        content, citations = draft_single_sow_section(
+            sow,
+            section,
+            body.prior_draft,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("SOW section drafting failed for %s", body.section)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft SOW section '{section}': {exc}",
+        ) from exc
+
+    return {"section": section, "content": content, "citations": citations}
+
+
+@app.post("/draft/sow/all")
+def draft_all_sow_sections(body: SOWDraftAllRequest) -> dict:
+    """Draft multiple SOW sections in parallel — one isolated LLM agent per section."""
+    sow = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
+    section_list = body.sections
+    if section_list is not None:
+        section_list = [s.strip() for s in section_list if s.strip()]
+        if not section_list:
+            raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
+
+    try:
+        drafted, citations = draft_all_sow_sections_parallel(
+            sow,
+            section_list,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Parallel SOW section drafting failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft SOW sections in parallel: {exc}",
+        ) from exc
+
+    return {"sections": drafted, "citations": citations}
+
+
+@app.post("/draft/ada")
+def draft_ada_section(body: ADADraftRequest) -> dict:
+    """Draft a single ADA bioanalytical report section via one dedicated section agent."""
+    if not body.section.strip():
+        raise HTTPException(status_code=400, detail="section is required.")
+
+    ada = body.model_dump(
+        exclude={"section", "prior_draft", "combined_text", "custom_sections"},
+    )
+    section = body.section.strip()
+    try:
+        content, citations = draft_single_ada_section(
+            ada,
+            section,
+            body.prior_draft,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("ADA section drafting failed for %s", body.section)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft ADA section '{section}': {exc}",
+        ) from exc
+
+    return {"section": section, "content": content, "citations": citations}
+
+
+@app.post("/draft/ada/all")
+def draft_all_ada_sections(body: ADADraftAllRequest) -> dict:
+    """Draft multiple ADA sections in parallel — one isolated LLM agent per section."""
+    ada = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
+    section_list = body.sections
+    if section_list is not None:
+        section_list = [s.strip() for s in section_list if s.strip()]
+        if not section_list:
+            raise HTTPException(status_code=400, detail="sections must be non-empty when provided.")
+
+    try:
+        drafted, citations = draft_all_ada_sections_parallel(
+            ada,
+            section_list,
+            combined_text=body.combined_text,
+            custom_sections=body.custom_sections,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Parallel ADA section drafting failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft ADA sections in parallel: {exc}",
+        ) from exc
+
+    return {"sections": drafted, "citations": citations}
 
 
 @app.post("/learning/submit")
@@ -835,6 +1200,7 @@ def export_docx(body: ExportRequest) -> Response:
             invention_title=body.invention_title,
             filing_info=body.filing_info,
             client_figure_pngs=client_pngs,
+            section_labels=body.section_labels,
         )
     except Exception as exc:
         log.exception("DOCX export failed")
@@ -865,6 +1231,7 @@ def export_pdf(body: ExportRequest) -> Response:
             invention_title=body.invention_title,
             filing_info=body.filing_info,
             client_figure_pngs=client_pngs,
+            section_labels=body.section_labels,
         )
     except Exception as exc:
         log.exception("PDF export failed")
@@ -887,7 +1254,11 @@ def export_grant_docx_endpoint(body: GrantExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
-        buffer = export_grant_docx(body.sections, project_title=body.project_title)
+        buffer = export_grant_docx(
+            body.sections,
+            project_title=body.project_title,
+            section_labels=body.section_labels,
+        )
     except Exception as exc:
         log.exception("Grant DOCX export failed")
         raise HTTPException(
@@ -909,7 +1280,11 @@ def export_grant_pdf_endpoint(body: GrantExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
-        buffer = export_grant_pdf(body.sections, project_title=body.project_title)
+        buffer = export_grant_pdf(
+            body.sections,
+            project_title=body.project_title,
+            section_labels=body.section_labels,
+        )
     except Exception as exc:
         log.exception("Grant PDF export failed")
         raise HTTPException(
@@ -921,4 +1296,108 @@ def export_grant_pdf_endpoint(body: GrantExportRequest) -> Response:
         content=buffer.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="grant-application.pdf"'},
+    )
+
+
+@app.post("/export/sow/docx")
+def export_sow_docx_endpoint(body: SOWExportRequest) -> Response:
+    """Export the SOW contract draft as a downloadable DOCX file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_sow_docx(
+            body.sections,
+            engagement_title=body.engagement_title,
+            section_labels=body.section_labels,
+        )
+    except Exception as exc:
+        log.exception("SOW DOCX export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate SOW DOCX export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="sow-contract.docx"'},
+    )
+
+
+@app.post("/export/sow/pdf")
+def export_sow_pdf_endpoint(body: SOWExportRequest) -> Response:
+    """Export the SOW contract draft as a downloadable PDF file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_sow_pdf(
+            body.sections,
+            engagement_title=body.engagement_title,
+            section_labels=body.section_labels,
+        )
+    except Exception as exc:
+        log.exception("SOW PDF export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate SOW PDF export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="sow-contract.pdf"'},
+    )
+
+
+@app.post("/export/ada/docx")
+def export_ada_docx_endpoint(body: ADAExportRequest) -> Response:
+    """Export the ADA bioanalytical report draft as a downloadable DOCX file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_ada_docx(
+            body.sections,
+            study_title=body.study_title,
+            section_labels=body.section_labels,
+        )
+    except Exception as exc:
+        log.exception("ADA DOCX export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate ADA DOCX export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="ada-bioanalytical-report.docx"'},
+    )
+
+
+@app.post("/export/ada/pdf")
+def export_ada_pdf_endpoint(body: ADAExportRequest) -> Response:
+    """Export the ADA bioanalytical report draft as a downloadable PDF file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_ada_pdf(
+            body.sections,
+            study_title=body.study_title,
+            section_labels=body.section_labels,
+        )
+    except Exception as exc:
+        log.exception("ADA PDF export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate ADA PDF export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="ada-bioanalytical-report.pdf"'},
     )
