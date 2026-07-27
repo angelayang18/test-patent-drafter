@@ -1,31 +1,46 @@
-import { defaultGrantDetails, type GrantDetails, type SectionCitation } from "../types/patent";
-import type { InputSources, UploadedSourceFile } from "../context/grantContext";
+import type { SectionCitation } from "../types/patent";
+import type { InputSources, UploadedSourceFile } from "../context/genericContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
 
-export type GrantWorkflowStep = "input" | "review" | "draft" | "export";
+export type GenericWorkflowStep = "input" | "review" | "draft" | "export";
 
-export const GRANT_STEP_ORDER: GrantWorkflowStep[] = ["input", "review", "draft", "export"];
+export const GENERIC_STEP_ORDER: GenericWorkflowStep[] = [
+  "input",
+  "review",
+  "draft",
+  "export",
+];
 
-export const GRANT_STEP_PATHS: Record<GrantWorkflowStep, string> = {
-  input: "/grant/input",
-  review: "/grant/review",
-  draft: "/grant/draft",
-  export: "/grant/export",
-};
+export interface GenericDocumentDetails {
+  title: string;
+}
 
-export const ACTIVE_GRANT_WORKFLOW_KEY = "patent-drafter-grant-workflow";
+export const activeGenericWorkflowKey = (templateId: string) =>
+  `patent-drafter-generic-workflow-${templateId}`;
 
-export interface GrantWorkflowSnapshot {
-  grantDetails: GrantDetails | null;
+export const genericDraftLibraryKey = (templateId: string) =>
+  `patent-drafter-generic-draft-library-${templateId}`;
+
+export const GENERIC_STEP_PATHS = (
+  templateId: string,
+): Record<GenericWorkflowStep, string> => ({
+  input: `/custom/${templateId}/input`,
+  review: `/custom/${templateId}/review`,
+  draft: `/custom/${templateId}/draft`,
+  export: `/custom/${templateId}/export`,
+});
+
+export interface GenericWorkflowSnapshot {
+  details: GenericDocumentDetails | null;
   sections: Record<string, string>;
   sectionCitations?: Record<string, SectionCitation[]>;
   sectionSettings?: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
-  completedSteps?: GrantWorkflowStep[];
+  completedSteps?: GenericWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
   /**
@@ -112,13 +127,19 @@ function inputSourcesHaveProgress(inputSources: InputSources): boolean {
   });
 }
 
-export function normalizeGrantWorkflow(
-  raw: Partial<GrantWorkflowSnapshot> | null | undefined,
-): GrantWorkflowSnapshot {
+function normalizeDetails(
+  raw: Partial<GenericDocumentDetails> | null | undefined,
+): GenericDocumentDetails | null {
+  if (!raw || typeof raw !== "object") return null;
+  const title = typeof raw.title === "string" ? raw.title : "";
+  return { title };
+}
+
+export function normalizeGenericWorkflow(
+  raw: Partial<GenericWorkflowSnapshot> | null | undefined,
+): GenericWorkflowSnapshot {
   return {
-    grantDetails: raw?.grantDetails
-      ? { ...defaultGrantDetails, ...raw.grantDetails }
-      : null,
+    details: normalizeDetails(raw?.details),
     sections: raw?.sections ?? {},
     sectionCitations: raw?.sectionCitations ?? {},
     sectionSettings: raw?.sectionSettings,
@@ -135,24 +156,26 @@ export function normalizeGrantWorkflow(
   };
 }
 
-export function hasGrantDraftSections(sections: Record<string, string>): boolean {
+export function hasGenericDraftSections(sections: Record<string, string>): boolean {
   return Object.values(sections).some((section) => section?.trim());
 }
 
-export function getGrantCompletedSteps(workflow: GrantWorkflowSnapshot): Set<GrantWorkflowStep> {
-  const completed = new Set<GrantWorkflowStep>(workflow.completedSteps ?? []);
-  if (workflow.grantDetails) {
+export function getGenericCompletedSteps(
+  workflow: GenericWorkflowSnapshot,
+): Set<GenericWorkflowStep> {
+  const completed = new Set<GenericWorkflowStep>(workflow.completedSteps ?? []);
+  if (workflow.details?.title?.trim()) {
     completed.add("input");
   }
-  if (hasGrantDraftSections(workflow.sections)) {
+  if (hasGenericDraftSections(workflow.sections)) {
     completed.add("review");
   }
   return completed;
 }
 
-export function isGrantStepAccessible(
-  step: GrantWorkflowStep,
-  workflow: GrantWorkflowSnapshot,
+export function isGenericStepAccessible(
+  step: GenericWorkflowStep,
+  workflow: GenericWorkflowSnapshot,
 ): boolean {
   if (step === "input") {
     return true;
@@ -160,11 +183,11 @@ export function isGrantStepAccessible(
   if (step === "export") {
     return (workflow.completedSteps ?? []).includes("draft");
   }
-  const stepIndex = GRANT_STEP_ORDER.indexOf(step);
+  const stepIndex = GENERIC_STEP_ORDER.indexOf(step);
   if (stepIndex <= 0) {
     return false;
   }
-  return getGrantCompletedSteps(workflow).has(GRANT_STEP_ORDER[stepIndex - 1]);
+  return getGenericCompletedSteps(workflow).has(GENERIC_STEP_ORDER[stepIndex - 1]);
 }
 
 function readJson<T>(key: string): T | null {
@@ -177,78 +200,89 @@ function readJson<T>(key: string): T | null {
   }
 }
 
-export function readActiveGrantWorkflow(): GrantWorkflowSnapshot {
-  const stored = readJson<Partial<GrantWorkflowSnapshot>>(ACTIVE_GRANT_WORKFLOW_KEY);
-  return normalizeGrantWorkflow(stored);
+export function readActiveGenericWorkflow(templateId: string): GenericWorkflowSnapshot {
+  const stored = readJson<Partial<GenericWorkflowSnapshot>>(
+    activeGenericWorkflowKey(templateId),
+  );
+  return normalizeGenericWorkflow(stored);
 }
 
-export function writeActiveGrantWorkflow(workflow: GrantWorkflowSnapshot): void {
+export function writeActiveGenericWorkflow(
+  templateId: string,
+  workflow: GenericWorkflowSnapshot,
+): void {
   try {
-    localStorage.setItem(ACTIVE_GRANT_WORKFLOW_KEY, JSON.stringify(normalizeGrantWorkflow(workflow)));
+    localStorage.setItem(
+      activeGenericWorkflowKey(templateId),
+      JSON.stringify(normalizeGenericWorkflow(workflow)),
+    );
   } catch {
     // quota exceeded — workflow still lives in memory
   }
 }
 
-export function createEmptyGrantWorkflowSnapshot(): GrantWorkflowSnapshot {
-  return normalizeGrantWorkflow(null);
+export function createEmptyGenericWorkflowSnapshot(): GenericWorkflowSnapshot {
+  return normalizeGenericWorkflow(null);
 }
 
-export function clearActiveGrantWorkflow(): void {
+export function clearActiveGenericWorkflow(templateId: string): void {
   try {
-    localStorage.removeItem(ACTIVE_GRANT_WORKFLOW_KEY);
+    localStorage.removeItem(activeGenericWorkflowKey(templateId));
   } catch {
     // ignore
   }
 }
 
-export function grantWorkflowHasProgress(workflow: GrantWorkflowSnapshot): boolean {
-  if (workflow.grantDetails) return true;
+export function genericWorkflowHasProgress(workflow: GenericWorkflowSnapshot): boolean {
+  if (workflow.details?.title?.trim()) return true;
   if (workflow.uploadedFiles.length > 0) return true;
   if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
   return false;
 }
 
-export function getGrantResumePath(workflow: GrantWorkflowSnapshot): string {
+export function getGenericResumePath(
+  templateId: string,
+  workflow: GenericWorkflowSnapshot,
+): string {
+  const paths = GENERIC_STEP_PATHS(templateId);
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
-    return GRANT_STEP_PATHS.draft;
+    return paths.draft;
   }
-  if (workflow.grantDetails) {
-    return GRANT_STEP_PATHS.review;
+  if (workflow.details?.title?.trim()) {
+    return paths.review;
   }
-  return GRANT_STEP_PATHS.input;
+  return paths.input;
 }
 
-export function defaultGrantDraftName(workflow: GrantWorkflowSnapshot): string {
-  const title = workflow.grantDetails?.project_title?.trim();
+export function defaultGenericDraftName(workflow: GenericWorkflowSnapshot): string {
+  const title = workflow.details?.title?.trim();
   if (title) return title;
-  return `Grant application ${new Date().toLocaleDateString()}`;
+  return `Custom document ${new Date().toLocaleDateString()}`;
 }
 
-const GRANT_DRAFT_LIBRARY_KEY = "patent-drafter-grant-draft-library";
-const GRANT_DRAFT_FILE_SUFFIX = ".grant-draft.json";
-const MAX_SAVED_GRANT_DRAFTS = 20;
+const GENERIC_DRAFT_FILE_SUFFIX = ".generic-draft.json";
+const MAX_SAVED_GENERIC_DRAFTS = 20;
 
-export interface SavedGrantDraftRecord {
+export interface SavedGenericDraftRecord {
   id: string;
   name: string;
   savedAt: string;
-  workflow: GrantWorkflowSnapshot;
+  workflow: GenericWorkflowSnapshot;
 }
 
-export interface GrantDraftFileExport {
-  format: "patent-drafter-grant-draft";
+export interface GenericDraftFileExport {
+  format: "patent-drafter-generic-draft";
   version: number;
   savedAt: string;
   name: string;
-  workflow: GrantWorkflowSnapshot;
+  workflow: GenericWorkflowSnapshot;
 }
 
-const GRANT_DRAFT_FILE_FORMAT = "patent-drafter-grant-draft";
-const GRANT_DRAFT_FILE_VERSION = 1;
+const GENERIC_DRAFT_FILE_FORMAT = "patent-drafter-generic-draft";
+const GENERIC_DRAFT_FILE_VERSION = 1;
 
-function writeGrantJson(key: string, value: unknown): void {
+function writeGenericJson(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
@@ -256,75 +290,79 @@ function writeGrantJson(key: string, value: unknown): void {
   }
 }
 
-export function listSavedGrantDrafts(): SavedGrantDraftRecord[] {
-  const records = readJson<SavedGrantDraftRecord[]>(GRANT_DRAFT_LIBRARY_KEY) ?? [];
+export function listSavedGenericDrafts(templateId: string): SavedGenericDraftRecord[] {
+  const records =
+    readJson<SavedGenericDraftRecord[]>(genericDraftLibraryKey(templateId)) ?? [];
   return records.sort(
     (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
   );
 }
 
-export function saveGrantDraftToLibrary(
+export function saveGenericDraftToLibrary(
+  templateId: string,
   name: string,
-  workflow: GrantWorkflowSnapshot,
-): SavedGrantDraftRecord {
-  const trimmedName = name.trim() || defaultGrantDraftName(workflow);
+  workflow: GenericWorkflowSnapshot,
+): SavedGenericDraftRecord {
+  const trimmedName = name.trim() || defaultGenericDraftName(workflow);
   const { loadedFromDraftId: _omit, ...rest } = workflow;
-  const record: SavedGrantDraftRecord = {
+  const record: SavedGenericDraftRecord = {
     id: crypto.randomUUID(),
     name: trimmedName,
     savedAt: new Date().toISOString(),
-    workflow: normalizeGrantWorkflow(rest),
+    workflow: normalizeGenericWorkflow(rest),
   };
 
-  const existing = listSavedGrantDrafts();
-  const next = [record, ...existing].slice(0, MAX_SAVED_GRANT_DRAFTS);
-  writeGrantJson(GRANT_DRAFT_LIBRARY_KEY, next);
+  const existing = listSavedGenericDrafts(templateId);
+  const next = [record, ...existing].slice(0, MAX_SAVED_GENERIC_DRAFTS);
+  writeGenericJson(genericDraftLibraryKey(templateId), next);
   notifyDraftsChanged();
   return record;
 }
 
-export function deleteSavedGrantDraft(id: string): void {
-  const next = listSavedGrantDrafts().filter((draft) => draft.id !== id);
-  writeGrantJson(GRANT_DRAFT_LIBRARY_KEY, next);
+export function deleteSavedGenericDraft(templateId: string, id: string): void {
+  const next = listSavedGenericDrafts(templateId).filter((draft) => draft.id !== id);
+  writeGenericJson(genericDraftLibraryKey(templateId), next);
   notifyDraftsChanged();
 }
 
-export function buildGrantDraftFileExport(
+export function buildGenericDraftFileExport(
   name: string,
-  workflow: GrantWorkflowSnapshot,
-): GrantDraftFileExport {
+  workflow: GenericWorkflowSnapshot,
+): GenericDraftFileExport {
   return {
-    format: GRANT_DRAFT_FILE_FORMAT,
-    version: GRANT_DRAFT_FILE_VERSION,
+    format: GENERIC_DRAFT_FILE_FORMAT,
+    version: GENERIC_DRAFT_FILE_VERSION,
     savedAt: new Date().toISOString(),
-    name: name.trim() || defaultGrantDraftName(workflow),
-    workflow: normalizeGrantWorkflow(workflow),
+    name: name.trim() || defaultGenericDraftName(workflow),
+    workflow: normalizeGenericWorkflow(workflow),
   };
 }
 
-export function parseGrantDraftFile(raw: unknown): GrantDraftFileExport {
+export function parseGenericDraftFile(raw: unknown): GenericDraftFileExport {
   if (!raw || typeof raw !== "object") {
     throw new Error("Invalid draft file.");
   }
 
-  const data = raw as Partial<GrantDraftFileExport>;
-  if (data.format !== GRANT_DRAFT_FILE_FORMAT) {
-    throw new Error("Unrecognized grant draft file format.");
+  const data = raw as Partial<GenericDraftFileExport>;
+  if (data.format !== GENERIC_DRAFT_FILE_FORMAT) {
+    throw new Error("Unrecognized generic draft file format.");
   }
   if (!data.workflow || typeof data.workflow !== "object") {
     throw new Error("Draft file is missing workflow data.");
   }
 
   return {
-    format: GRANT_DRAFT_FILE_FORMAT,
+    format: GENERIC_DRAFT_FILE_FORMAT,
     version: data.version ?? 1,
     savedAt: data.savedAt ?? new Date().toISOString(),
-    name: data.name?.trim() || defaultGrantDraftName(normalizeGrantWorkflow(data.workflow)),
-    workflow: normalizeGrantWorkflow(data.workflow),
+    name:
+      data.name?.trim() ||
+      defaultGenericDraftName(normalizeGenericWorkflow(data.workflow)),
+    workflow: normalizeGenericWorkflow(data.workflow),
   };
 }
 
-export async function readGrantDraftFile(file: File): Promise<GrantDraftFileExport> {
+export async function readGenericDraftFile(file: File): Promise<GenericDraftFileExport> {
   const text = await file.text();
   let parsed: unknown;
   try {
@@ -332,19 +370,23 @@ export async function readGrantDraftFile(file: File): Promise<GrantDraftFileExpo
   } catch {
     throw new Error("Draft file is not valid JSON.");
   }
-  return parseGrantDraftFile(parsed);
+  return parseGenericDraftFile(parsed);
 }
 
-export function downloadGrantDraftFile(name: string, workflow: GrantWorkflowSnapshot): void {
-  const payload = buildGrantDraftFileExport(name, workflow);
+export function downloadGenericDraftFile(
+  name: string,
+  workflow: GenericWorkflowSnapshot,
+): void {
+  const payload = buildGenericDraftFileExport(name, workflow);
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
-  const safeName = name.trim().replace(/[^\w\-]+/g, "-").replace(/-+/g, "-") || "grant-draft";
+  const safeName =
+    name.trim().replace(/[^\w\-]+/g, "-").replace(/-+/g, "-") || "generic-draft";
   anchor.href = url;
-  anchor.download = `${safeName}${GRANT_DRAFT_FILE_SUFFIX}`;
+  anchor.download = `${safeName}${GENERIC_DRAFT_FILE_SUFFIX}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }

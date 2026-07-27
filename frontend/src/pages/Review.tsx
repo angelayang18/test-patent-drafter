@@ -786,7 +786,7 @@ export default function Review() {
 
   const renderFieldValue = (field: (typeof reviewFields)[number]) => {
     if (!isGrant && field.key === "alternative_embodiments") {
-      const altText = (form as InventionDetails).alternative_embodiments.join("\n");
+      const altText = ((form as InventionDetails).alternative_embodiments ?? []).join("\n");
       return (
         <AutoResizeTextarea
           className={textareaClassName}

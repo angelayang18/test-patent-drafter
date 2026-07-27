@@ -3,16 +3,19 @@ import type { ReactNode } from "react";
 
 interface AppHeaderProps {
   stepNav: ReactNode;
-  draftCount: number;
-  onOpenDrafts: () => void;
+  draftCount?: number;
+  onOpenDrafts?: () => void;
   filingGuideButton?: ReactNode;
+  /** When false, hides the Drafts button (e.g. custom-type pages). Default true. */
+  showDraftsButton?: boolean;
 }
 
 export function AppHeader({
   stepNav,
-  draftCount,
+  draftCount = 0,
   onOpenDrafts,
   filingGuideButton,
+  showDraftsButton = true,
 }: AppHeaderProps) {
   const location = useLocation();
   const showFilingGuide = location.pathname.startsWith("/patent");
@@ -31,19 +34,21 @@ export function AppHeader({
       </div>
       <div className="flex items-center gap-2 sm:gap-4 shrink-0">
         {showFilingGuide && filingGuideButton}
-        <button
-          type="button"
-          onClick={onOpenDrafts}
-          className="bg-primary-container/20 hover:bg-primary-container/40 text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[18px]">folder_open</span>
-          <span className="hidden sm:inline">
-            Drafts{draftCount > 0 ? ` (${draftCount})` : ""}
-          </span>
-          {draftCount > 0 && (
-            <span className="sm:hidden font-label-sm text-label-sm">({draftCount})</span>
-          )}
-        </button>
+        {showDraftsButton && (
+          <button
+            type="button"
+            onClick={onOpenDrafts}
+            className="bg-primary-container/20 hover:bg-primary-container/40 text-on-primary px-4 py-2 rounded-lg font-label-md text-label-md transition-all active:scale-95 flex items-center gap-2"
+          >
+            <span className="material-symbols-outlined text-[18px]">folder_open</span>
+            <span className="hidden sm:inline">
+              Drafts{draftCount > 0 ? ` (${draftCount})` : ""}
+            </span>
+            {draftCount > 0 && (
+              <span className="sm:hidden font-label-sm text-label-sm">({draftCount})</span>
+            )}
+          </button>
+        )}
         <span
           className="material-symbols-outlined text-on-primary cursor-default opacity-60 p-2 rounded-full"
           title="Account (coming soon)"

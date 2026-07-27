@@ -25,6 +25,7 @@ from drafter.selection_regenerate import regenerate_selection
 from drafter.sections import draft_all_sections_parallel, draft_section
 from drafter.sow_extractor import extract_sow_details, extract_sow_field
 from drafter.sow_sections import draft_all_sow_sections_parallel, draft_single_sow_section
+from drafter.generic_sections import draft_generic_section, draft_generic_sections_parallel
 from drafter.titles import suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
@@ -33,6 +34,7 @@ from exporter.docx_export import export_patent_docx
 from exporter.grant_export import export_grant_docx, export_grant_pdf
 from exporter.sow_export import export_sow_docx, export_sow_pdf
 from exporter.ada_export import export_ada_docx, export_ada_pdf
+from exporter.generic_export import export_generic_docx, export_generic_pdf
 from exporter.figure_png import decode_client_pngs, encode_png_map_for_client, prerender_figure_pngs
 from exporter.mermaid_render import render_mermaid_to_png
 from exporter.pdf_export import export_patent_pdf
@@ -258,6 +260,34 @@ class ADAExportRequest(BaseModel):
     sections: Dict[str, str] = Field(default_factory=dict)
     study_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
+
+
+class GenericSectionDef(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+
+
+class GenericDraftRequest(BaseModel):
+    document_title: str = ""
+    section_id: str
+    name: str
+    description: str = ""
+    prior_draft: str = ""
+    combined_text: str = ""
+
+
+class GenericDraftAllRequest(BaseModel):
+    document_title: str = ""
+    sections: list[GenericSectionDef]
+    combined_text: str = ""
+
+
+class GenericExportRequest(BaseModel):
+    document_title: str = ""
+    sections: dict[str, str] = Field(default_factory=dict)
+    section_order: list[str] = Field(default_factory=list)
+    section_labels: dict[str, str] = Field(default_factory=dict)
 
 
 class RegenerateSelectionRequest(BaseModel):
@@ -995,6 +1025,65 @@ def draft_all_ada_sections(body: ADADraftAllRequest) -> dict:
     return {"sections": drafted, "citations": citations}
 
 
+@app.post("/draft/generic")
+def draft_generic_section_endpoint(body: GenericDraftRequest) -> dict:
+    """Draft a single fully-custom section via a dedicated generic agent."""
+    if not body.section_id.strip():
+        raise HTTPException(status_code=400, detail="section_id is required.")
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="name is required.")
+
+    section_id = body.section_id.strip()
+    try:
+        content, citations = draft_generic_section(
+            body.document_title,
+            section_id,
+            body.name,
+            body.description,
+            prior_draft=body.prior_draft,
+            combined_text=body.combined_text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Generic section drafting failed for %s", section_id)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft generic section '{section_id}': {exc}",
+        ) from exc
+
+    return {"section": section_id, "content": content, "citations": citations}
+
+
+@app.post("/draft/generic/all")
+def draft_generic_all_endpoint(body: GenericDraftAllRequest) -> dict:
+    """Draft multiple fully-custom sections in parallel — one isolated agent each."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections must be non-empty.")
+
+    section_dicts = [sec.model_dump() for sec in body.sections]
+    try:
+        drafted, citations = draft_generic_sections_parallel(
+            body.document_title,
+            section_dicts,
+            combined_text=body.combined_text,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Parallel generic section drafting failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to draft generic sections in parallel: {exc}",
+        ) from exc
+
+    return {"sections": drafted, "citations": citations}
+
+
 @app.post("/learning/submit")
 def submit_learning_corpus(body: LearningSubmitRequest) -> dict:
     """Persist attorney-reviewed draft and feedback for org-wide learning."""
@@ -1400,4 +1489,58 @@ def export_ada_pdf_endpoint(body: ADAExportRequest) -> Response:
         content=buffer.getvalue(),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="ada-bioanalytical-report.pdf"'},
+    )
+
+
+@app.post("/export/generic/docx")
+def export_generic_docx_endpoint(body: GenericExportRequest) -> Response:
+    """Export a fully-custom document draft as a downloadable DOCX file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_generic_docx(
+            body.sections,
+            document_title=body.document_title,
+            section_order=body.section_order,
+            section_labels=body.section_labels,
+        )
+    except Exception as exc:
+        log.exception("Generic DOCX export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate generic DOCX export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": 'attachment; filename="custom-document.docx"'},
+    )
+
+
+@app.post("/export/generic/pdf")
+def export_generic_pdf_endpoint(body: GenericExportRequest) -> Response:
+    """Export a fully-custom document draft as a downloadable PDF file."""
+    if not body.sections:
+        raise HTTPException(status_code=400, detail="sections are required.")
+
+    try:
+        buffer = export_generic_pdf(
+            body.sections,
+            document_title=body.document_title,
+            section_order=body.section_order,
+            section_labels=body.section_labels,
+        )
+    except Exception as exc:
+        log.exception("Generic PDF export failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate generic PDF export: {exc}",
+        ) from exc
+
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'attachment; filename="custom-document.pdf"'},
     )

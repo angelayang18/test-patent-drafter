@@ -7,6 +7,8 @@ import type {
 } from "../types/patent";
 import {
   EMPTY_FILING_INFO,
+  defaultGrantDetails,
+  defaultInvention,
   emptyApprovedExemplars,
   emptyAttorneyFeedback,
   GRANT_SECTION_IDS,
@@ -198,8 +200,12 @@ export function normalizeWorkflow(
 ): WorkflowSnapshot {
   return {
     workflowMode: raw?.workflowMode ?? "patent",
-    invention: raw?.invention ?? null,
-    grantDetails: raw?.grantDetails ?? null,
+    invention: raw?.invention
+      ? { ...defaultInvention, ...raw.invention }
+      : null,
+    grantDetails: raw?.grantDetails
+      ? { ...defaultGrantDetails, ...raw.grantDetails }
+      : null,
     sections: sanitizeSections(raw?.sections),
     figures: raw?.figures ?? [],
     brief_description_of_drawings: raw?.brief_description_of_drawings ?? "",

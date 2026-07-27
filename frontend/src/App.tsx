@@ -24,6 +24,11 @@ import AdaInput from "./pages/ada/AdaInput";
 import AdaReview from "./pages/ada/AdaReview";
 import AdaDraft from "./pages/ada/AdaDraft";
 import AdaExport from "./pages/ada/AdaExport";
+import GenericWorkflowLayout from "./pages/generic/GenericWorkflowLayout";
+import GenericInput from "./pages/generic/GenericInput";
+import GenericReview from "./pages/generic/GenericReview";
+import GenericDraft from "./pages/generic/GenericDraft";
+import GenericExport from "./pages/generic/GenericExport";
 
 export default function App() {
   return (
@@ -63,6 +68,14 @@ export default function App() {
                 <Route path="/ada/review" element={<AdaReview />} />
                 <Route path="/ada/draft" element={<AdaDraft />} />
                 <Route path="/ada/export" element={<AdaExport />} />
+
+                <Route path="/custom/:templateId" element={<GenericWorkflowLayout />}>
+                  <Route index element={<Navigate to="input" replace />} />
+                  <Route path="input" element={<GenericInput />} />
+                  <Route path="review" element={<GenericReview />} />
+                  <Route path="draft" element={<GenericDraft />} />
+                  <Route path="export" element={<GenericExport />} />
+                </Route>
 
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>

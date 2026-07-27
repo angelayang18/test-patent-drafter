@@ -870,6 +870,115 @@ export async function exportAdaPdf(
   return response.blob();
 }
 
+export interface GenericSectionDefPayload {
+  id: string;
+  name: string;
+  description?: string;
+}
+
+export async function draftGenericSection(
+  documentTitle: string,
+  section: GenericSectionDefPayload,
+  options?: { priorDraft?: string; combinedText?: string },
+): Promise<{ content: string; citations: SectionCitation[] }> {
+  const data = await requestJson<{
+    section: string;
+    content: string;
+    citations?: SectionCitation[];
+  }>("/draft/generic", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      document_title: documentTitle,
+      section_id: section.id,
+      name: section.name,
+      description: section.description ?? "",
+      prior_draft: options?.priorDraft?.trim() ?? "",
+      combined_text: options?.combinedText ?? "",
+    }),
+  });
+
+  return { content: data.content, citations: data.citations ?? [] };
+}
+
+export async function draftAllGenericSections(
+  documentTitle: string,
+  sections: GenericSectionDefPayload[],
+  combinedText?: string,
+): Promise<{
+  sections: Record<string, string>;
+  citations: Record<string, SectionCitation[]>;
+}> {
+  const data = await requestJson<{
+    sections: Record<string, string>;
+    citations?: Record<string, SectionCitation[]>;
+  }>("/draft/generic/all", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      document_title: documentTitle,
+      sections: sections.map((section) => ({
+        id: section.id,
+        name: section.name,
+        description: section.description ?? "",
+      })),
+      combined_text: combinedText ?? "",
+    }),
+  });
+
+  return { sections: data.sections, citations: data.citations ?? {} };
+}
+
+export async function exportGenericDocx(
+  sections: Record<string, string>,
+  documentTitle?: string,
+  sectionOrder?: string[],
+  sectionLabels?: Record<string, string>,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/generic/docx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      document_title: documentTitle ?? "",
+      section_order: sectionOrder ?? [],
+      section_labels: sectionLabels ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
+export async function exportGenericPdf(
+  sections: Record<string, string>,
+  documentTitle?: string,
+  sectionOrder?: string[],
+  sectionLabels?: Record<string, string>,
+): Promise<Blob> {
+  const response = await fetch(`${API_BASE_URL}/export/generic/pdf`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sections,
+      document_title: documentTitle ?? "",
+      section_order: sectionOrder ?? [],
+      section_labels: sectionLabels ?? {},
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await parseErrorMessage(response);
+    throw new ApiError(message, response.status);
+  }
+
+  return response.blob();
+}
+
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");

@@ -1,4 +1,4 @@
-import type { SOWDetails, SectionCitation } from "../types/patent";
+import { defaultSowDetails, type SOWDetails, type SectionCitation } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/sowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
@@ -116,7 +116,9 @@ export function normalizeSowWorkflow(
   raw: Partial<SowWorkflowSnapshot> | null | undefined,
 ): SowWorkflowSnapshot {
   return {
-    sowDetails: raw?.sowDetails ?? null,
+    sowDetails: raw?.sowDetails
+      ? { ...defaultSowDetails, ...raw.sowDetails }
+      : null,
     sections: raw?.sections ?? {},
     sectionCitations: raw?.sectionCitations ?? {},
     sectionSettings: raw?.sectionSettings,

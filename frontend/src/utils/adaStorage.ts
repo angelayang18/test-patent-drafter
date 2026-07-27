@@ -1,4 +1,4 @@
-import type { ADADetails, SectionCitation } from "../types/patent";
+import { defaultAdaDetails, type ADADetails, type SectionCitation } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/adaContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
@@ -116,7 +116,9 @@ export function normalizeAdaWorkflow(
   raw: Partial<AdaWorkflowSnapshot> | null | undefined,
 ): AdaWorkflowSnapshot {
   return {
-    adaDetails: raw?.adaDetails ?? null,
+    adaDetails: raw?.adaDetails
+      ? { ...defaultAdaDetails, ...raw.adaDetails }
+      : null,
     sections: raw?.sections ?? {},
     sectionCitations: raw?.sectionCitations ?? {},
     sectionSettings: raw?.sectionSettings,
