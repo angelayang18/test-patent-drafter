@@ -26,7 +26,7 @@ from drafter.sections import draft_all_sections_parallel, draft_section
 from drafter.sow_extractor import extract_sow_details, extract_sow_field
 from drafter.sow_sections import draft_all_sow_sections_parallel, draft_single_sow_section
 from drafter.generic_sections import draft_generic_section, draft_generic_sections_parallel
-from drafter.titles import suggest_titles
+from drafter.titles import suggest_generic_titles, suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
 from learning.storage import get_storage
@@ -146,6 +146,14 @@ class ExtractGrantFieldRequest(BaseModel):
 class ExtractTitlesRequest(BaseModel):
     combined_text: str
     document_kind: str
+    current: Optional[str] = None
+    relevant_notes: str = ""
+    irrelevant_notes: str = ""
+
+
+class ExtractGenericTitlesRequest(BaseModel):
+    combined_text: str
+    document_type_label: str
     current: Optional[str] = None
     relevant_notes: str = ""
     irrelevant_notes: str = ""
@@ -570,6 +578,33 @@ def extract_titles(body: ExtractTitlesRequest) -> dict:
         raise
     except Exception as exc:
         log.exception("Title suggestion failed for %s", body.document_kind)
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to suggest titles: {exc}",
+        ) from exc
+
+
+@app.post("/extract/titles/generic")
+def extract_generic_titles(body: ExtractGenericTitlesRequest) -> dict:
+    """Suggest candidate titles for a custom/generic document type."""
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+
+    try:
+        titles = suggest_generic_titles(
+            body.combined_text,
+            body.document_type_label,
+            current=body.current,
+            relevant_notes=body.relevant_notes,
+            irrelevant_notes=body.irrelevant_notes,
+        )
+        return {"titles": titles}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Generic title suggestion failed for %s", body.document_type_label)
         raise HTTPException(
             status_code=502,
             detail=f"Failed to suggest titles: {exc}",

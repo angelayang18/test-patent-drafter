@@ -7,7 +7,12 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from drafter.titles import TITLE_MAX_LENGTH, _normalize_titles, suggest_titles
+from drafter.titles import (
+    TITLE_MAX_LENGTH,
+    _normalize_titles,
+    suggest_generic_titles,
+    suggest_titles,
+)
 from main import app
 
 
@@ -51,6 +56,68 @@ def test_suggest_titles_grant_returns_five():
     assert result == expected
     system_arg = mock_json.call_args[0][0]
     assert "grant" in system_arg.lower()
+
+
+def test_suggest_titles_sow_returns_five():
+    expected = _five_titles(
+        "Clinical Data Integration Engagement",
+        "Bioanalytical Assay Development Services",
+        "Regulatory Submission Support Work Order",
+        "Laboratory Method Transfer Engagement",
+        "Sample Analysis and Reporting Services",
+    )
+
+    with patch("drafter.titles.generate_json", return_value={"titles": expected}) as mock_json:
+        result = suggest_titles("Source material about a clinical SOW.", "sow")
+
+    assert result == expected
+    system_arg = mock_json.call_args[0][0]
+    assert "statement of work" in system_arg.lower() or "engagement" in system_arg.lower()
+
+
+def test_suggest_titles_ada_returns_five():
+    expected = _five_titles(
+        "Anti-Drug Antibody Detection Study",
+        "Immunogenicity Assay Validation Report",
+        "ADA Screening and Confirmatory Analysis",
+        "Neutralizing Antibody Bioanalytical Study",
+        "Serum ADA Method Qualification Report",
+    )
+
+    with patch("drafter.titles.generate_json", return_value={"titles": expected}) as mock_json:
+        result = suggest_titles("Source material about an ADA study.", "ada")
+
+    assert result == expected
+    system_arg = mock_json.call_args[0][0]
+    assert "ada" in system_arg.lower() or "bioanalytical" in system_arg.lower()
+
+
+def test_suggest_generic_titles_returns_five():
+    expected = _five_titles(
+        "Quarterly Operations Brief",
+        "Internal Process Update Memo",
+        "Cross-Team Coordination Summary",
+        "Project Status Working Document",
+        "Operational Readiness Briefing",
+    )
+
+    with patch("drafter.titles.generate_json", return_value={"titles": expected}) as mock_json:
+        result = suggest_generic_titles(
+            "Source material about an internal brief.",
+            "Internal Brief",
+            current="Old Brief Title",
+        )
+
+    assert result == expected
+    system_arg = mock_json.call_args[0][0]
+    user_arg = mock_json.call_args[0][1]
+    assert "Internal Brief" in system_arg
+    assert "Old Brief Title" in user_arg
+
+
+def test_suggest_generic_titles_rejects_empty_label():
+    with pytest.raises(ValueError, match="document_type_label"):
+        suggest_generic_titles("Some source text.", "   ")
 
 
 def test_suggest_titles_rejects_empty_combined_text():
@@ -138,3 +205,37 @@ def test_extract_titles_route_returns_titles():
 
     assert response.status_code == 200
     assert response.json() == {"titles": expected}
+
+
+def test_extract_generic_titles_route_returns_titles():
+    client = TestClient(app)
+    expected = _five_titles(
+        "Alpha Title",
+        "Beta Title",
+        "Gamma Title",
+        "Delta Title",
+        "Epsilon Title",
+    )
+
+    with patch("main.suggest_generic_titles", return_value=expected):
+        response = client.post(
+            "/extract/titles/generic",
+            json={
+                "combined_text": "Detailed custom document source.",
+                "document_type_label": "White Paper",
+                "current": "Existing Title",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {"titles": expected}
+
+
+def test_extract_generic_titles_route_returns_400_for_empty_combined_text():
+    client = TestClient(app)
+    response = client.post(
+        "/extract/titles/generic",
+        json={"combined_text": "   ", "document_type_label": "Memo"},
+    )
+    assert response.status_code == 400
+    assert "combined_text" in response.json()["detail"]

@@ -27,11 +27,13 @@ import {
   saveDocumentTypeTemplate,
 } from "../utils/documentTypeTemplates";
 import {
+  clearActiveGenericWorkflow,
   GENERIC_STEP_PATHS,
   getGenericResumePath,
   genericWorkflowHasProgress,
   normalizeGenericWorkflow,
   readActiveGenericWorkflow,
+  saveGenericDraftToLibrary,
   writeActiveGenericWorkflow,
 } from "../utils/genericStorage";
 import { getGrantResumePath, grantWorkflowHasProgress, GRANT_STEP_PATHS } from "../utils/grantStorage";
@@ -171,6 +173,8 @@ interface TypeSectionsPanelProps {
   hasProgress: boolean;
   resumePath: string;
   entryPath: string;
+  saveNamedDraft: (name: string) => unknown;
+  clearWorkflow: () => void;
 }
 
 function TypeSectionsPanel({
@@ -184,6 +188,8 @@ function TypeSectionsPanel({
   hasProgress,
   resumePath,
   entryPath,
+  saveNamedDraft,
+  clearWorkflow,
 }: TypeSectionsPanelProps) {
   const navigate = useNavigate();
 
@@ -205,30 +211,46 @@ function TypeSectionsPanel({
     ),
   );
 
-  if (hasProgress) {
-    return (
-      <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-8 space-y-4">
-        <p className="font-body-md text-body-md text-on-surface">
-          You have a {typeTitle} draft in progress.
-        </p>
-        <Link
-          to={resumePath}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95"
-        >
-          Continue draft
-          <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
-        </Link>
-      </div>
-    );
-  }
-
   const handleContinue = () => {
-    setSectionSettings(commitSectionSettings(rowOrder, localSettings));
+    const committed = commitSectionSettings(rowOrder, localSettings);
+    if (hasProgress) {
+      saveNamedDraft("");
+      clearWorkflow();
+      // clearWorkflow() resets state asynchronously (it flips an internal
+      // "resetting" flag back off on a deferred tick, suppressing storage
+      // writes until then). Apply the new section settings after that
+      // settles so this update isn't silently dropped.
+      window.setTimeout(() => {
+        setSectionSettings(committed);
+        navigate(entryPath);
+      }, 0);
+      return;
+    }
+    setSectionSettings(committed);
     navigate(entryPath);
   };
 
   return (
     <div className="space-y-6">
+      {hasProgress && (
+        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-6 space-y-3">
+          <p className="font-body-md text-body-md text-on-surface">
+            You have a {typeTitle} draft in progress.
+          </p>
+          <Link
+            to={resumePath}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95"
+          >
+            Continue draft
+            <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+          </Link>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">
+            Or configure sections below to start a new {typeTitle} — your current progress will
+            be saved to Drafts automatically.
+          </p>
+        </div>
+      )}
+
       <p className="font-body-md text-body-md text-on-surface-variant">
         These are the default sections we&apos;ll draft. Reorder, rename, remove, or add sections —
         if you don&apos;t change anything, the defaults below are used.
@@ -275,8 +297,10 @@ function TypeSectionsPanel({
           onClick={handleContinue}
           className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95"
         >
-          Continue
-          <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+          {hasProgress ? "Start new draft" : "Continue"}
+          <span className="material-symbols-outlined text-[20px]">
+            {hasProgress ? "add" : "arrow_forward"}
+          </span>
         </button>
       </div>
     </div>
@@ -325,35 +349,46 @@ function CustomTypeSectionsPanel({ template }: CustomTypeSectionsPanelProps) {
     ),
   );
 
-  if (hasProgress) {
-    return (
-      <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-8 space-y-4">
-        <p className="font-body-md text-body-md text-on-surface">
-          You have a {template.name} draft in progress.
-        </p>
-        <Link
-          to={resumePath}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95"
-        >
-          Continue draft
-          <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
-        </Link>
-      </div>
-    );
-  }
-
   const handleContinue = () => {
     const committed = commitSectionSettings(rowOrder, localSettings);
-    const current = readActiveGenericWorkflow(template.id);
-    writeActiveGenericWorkflow(
-      template.id,
-      normalizeGenericWorkflow({ ...current, sectionSettings: committed }),
-    );
+    if (hasProgress) {
+      saveGenericDraftToLibrary(template.id, "", workflow);
+      clearActiveGenericWorkflow(template.id);
+      writeActiveGenericWorkflow(
+        template.id,
+        normalizeGenericWorkflow({ sectionSettings: committed }),
+      );
+    } else {
+      const current = readActiveGenericWorkflow(template.id);
+      writeActiveGenericWorkflow(
+        template.id,
+        normalizeGenericWorkflow({ ...current, sectionSettings: committed }),
+      );
+    }
     navigate(entryPath);
   };
 
   return (
     <div className="space-y-6">
+      {hasProgress && (
+        <div className="rounded-xl border border-outline-variant bg-surface-container-lowest p-6 space-y-3">
+          <p className="font-body-md text-body-md text-on-surface">
+            You have a {template.name} draft in progress.
+          </p>
+          <Link
+            to={resumePath}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95"
+          >
+            Continue draft
+            <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+          </Link>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">
+            Or configure sections below to start a new {template.name} — your current progress
+            will be saved to Drafts automatically.
+          </p>
+        </div>
+      )}
+
       {template.description && (
         <p className="font-body-md text-body-md text-on-surface-variant">{template.description}</p>
       )}
@@ -406,8 +441,10 @@ function CustomTypeSectionsPanel({ template }: CustomTypeSectionsPanelProps) {
           onClick={handleContinue}
           className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95"
         >
-          Continue
-          <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+          {hasProgress ? "Start new draft" : "Continue"}
+          <span className="material-symbols-outlined text-[20px]">
+            {hasProgress ? "add" : "arrow_forward"}
+          </span>
         </button>
       </div>
     </div>
@@ -752,6 +789,8 @@ export default function Home() {
             !patent.workflowResetting && workflowHasProgress(patent.getWorkflowSnapshot()),
           resumePath: getResumePath(patent.getWorkflowSnapshot()),
           entryPath: "/patent",
+          saveNamedDraft: patent.saveNamedDraft,
+          clearWorkflow: patent.clearWorkflow,
         };
       case "GRANT_APPLICATION":
         return {
@@ -766,6 +805,8 @@ export default function Home() {
             !grant.workflowResetting && grantWorkflowHasProgress(grant.getWorkflowSnapshot()),
           resumePath: getGrantResumePath(grant.getWorkflowSnapshot()),
           entryPath: GRANT_STEP_PATHS.input,
+          saveNamedDraft: grant.saveNamedDraft,
+          clearWorkflow: grant.clearWorkflow,
         };
       case "SOW_CONTRACT":
         return {
@@ -780,6 +821,8 @@ export default function Home() {
             !sow.workflowResetting && sowWorkflowHasProgress(sow.getWorkflowSnapshot()),
           resumePath: getSowResumePath(sow.getWorkflowSnapshot()),
           entryPath: SOW_STEP_PATHS.input,
+          saveNamedDraft: sow.saveNamedDraft,
+          clearWorkflow: sow.clearWorkflow,
         };
       case "ADA_BIOANALYTICAL_REPORT":
         return {
@@ -794,6 +837,8 @@ export default function Home() {
             !ada.workflowResetting && adaWorkflowHasProgress(ada.getWorkflowSnapshot()),
           resumePath: getAdaResumePath(ada.getWorkflowSnapshot()),
           entryPath: ADA_STEP_PATHS.input,
+          saveNamedDraft: ada.saveNamedDraft,
+          clearWorkflow: ada.clearWorkflow,
         };
     }
   })();

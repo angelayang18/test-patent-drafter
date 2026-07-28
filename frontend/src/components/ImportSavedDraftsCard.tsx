@@ -1,5 +1,8 @@
 import { useEffect, useId, useState } from "react";
-import type { SavedDraftImportSummary } from "../utils/draftStorage";
+import type {
+  ImportableDraftKind,
+  SavedDraftImportSummary,
+} from "../utils/draftStorage";
 import {
   DRAFTS_CHANGED_EVENT,
   formatSavedAt,
@@ -8,6 +11,14 @@ import {
   pastedTextHasImportedDraft,
   stripImportedDraftBlock,
 } from "../utils/draftStorage";
+
+const KIND_BADGE_LABELS: Record<ImportableDraftKind, string> = {
+  patent: "Patent",
+  grant: "Grant",
+  sow: "SOW",
+  ada: "ADA",
+  generic: "Custom",
+};
 
 interface ImportSavedDraftsCardProps {
   /** Active workflow's loadedFromDraftId — excluded so a draft cannot import itself. */
@@ -27,7 +38,7 @@ function readImportableDrafts(excludeDraftId?: string | null): SavedDraftImportS
 
 /**
  * Dismissible multi-select card that lets users seed the current Input page
- * with one or more saved patent/grant drafts via pastedText.
+ * with one or more saved drafts via pastedText.
  */
 export function ImportSavedDraftsCard({
   excludeDraftId,
@@ -108,7 +119,7 @@ export function ImportSavedDraftsCard({
       </div>
 
       <p className="font-body-sm text-body-sm text-on-surface-variant mb-6">
-        Include one or more prior patent or grant drafts as source material
+        Include one or more prior drafts as source material
       </p>
 
       <ul className="space-y-5">
@@ -116,7 +127,7 @@ export function ImportSavedDraftsCard({
           const checkboxId = `${baseId}-${draft.id}`;
           const included = pastedTextHasImportedDraft(pastedText, draft.id);
           const sectionsOpen = expandedIds.has(draft.id);
-          const modeLabel = draft.workflowMode === "grant" ? "Grant" : "Patent";
+          const modeLabel = KIND_BADGE_LABELS[draft.kind];
 
           return (
             <li

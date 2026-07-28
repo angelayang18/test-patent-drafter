@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from typing import Optional
 
+from drafter.ada_extractor import EXTRACT_ADA_SYSTEM
 from drafter.grant_extractor import EXTRACT_GRANT_SYSTEM
 from drafter.llm_client import generate_json
 from drafter.prompts import EXTRACT_INVENTION_SYSTEM
 from drafter.relevance import extraction_system_prompt, format_relevance_guidance
 from drafter.source_text import prepare_source_text
+from drafter.sow_extractor import EXTRACT_SOW_SYSTEM
 
 TITLE_MAX_LENGTH = 500
 REQUIRED_TITLE_COUNT = 5
-VALID_DOCUMENT_KINDS = frozenset({"patent", "grant"})
+VALID_DOCUMENT_KINDS = frozenset({"patent", "grant", "sow", "ada"})
 
 _PATENT_TITLE_GUIDANCE = (
     "Suggest US provisional patent cover-sheet titles: short and specific "
@@ -23,6 +25,24 @@ _GRANT_TITLE_GUIDANCE = (
     "Suggest concise working titles for a grant proposal: descriptive and "
     "funder-facing, focused on the project purpose and impact."
 )
+
+_SOW_TITLE_GUIDANCE = (
+    "Suggest concise engagement titles for a statement of work: descriptive "
+    "of the work being performed, suitable for a contract cover page."
+)
+
+_ADA_TITLE_GUIDANCE = (
+    "Suggest concise titles for an ADA bioanalytical report: descriptive of "
+    "the study/assay, matching the tone of a regulatory/scientific report."
+)
+
+# (base_system, tone_guidance, user-prompt label)
+_KIND_LOOKUP: dict[str, tuple[str, str, str]] = {
+    "patent": (EXTRACT_INVENTION_SYSTEM, _PATENT_TITLE_GUIDANCE, "invention (patent)"),
+    "grant": (EXTRACT_GRANT_SYSTEM, _GRANT_TITLE_GUIDANCE, "grant project"),
+    "sow": (EXTRACT_SOW_SYSTEM, _SOW_TITLE_GUIDANCE, "statement of work engagement"),
+    "ada": (EXTRACT_ADA_SYSTEM, _ADA_TITLE_GUIDANCE, "ADA bioanalytical study"),
+}
 
 
 def _normalize_titles(raw: object) -> list[str]:
@@ -65,8 +85,8 @@ def suggest_titles(
     """
     Suggest exactly five distinct candidate titles from source text.
 
-    ``document_kind`` must be ``\"patent\"`` or ``\"grant\"`` so the prompt
-    uses the matching title tone.
+    ``document_kind`` must be one of ``patent``, ``grant``, ``sow``, or ``ada``
+    so the prompt uses the matching title tone.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
@@ -79,8 +99,7 @@ def suggest_titles(
 
     body = prepare_source_text(combined_text)
     guidance = format_relevance_guidance(relevant_notes, irrelevant_notes)
-    base_system = EXTRACT_INVENTION_SYSTEM if kind == "patent" else EXTRACT_GRANT_SYSTEM
-    tone = _PATENT_TITLE_GUIDANCE if kind == "patent" else _GRANT_TITLE_GUIDANCE
+    base_system, tone, label = _KIND_LOOKUP[kind]
     system = extraction_system_prompt(base_system, relevant_notes, irrelevant_notes)
     system = (
         f"{system} {tone} "
@@ -97,10 +116,65 @@ def suggest_titles(
             f"{current_title}"
         )
 
-    label = "invention (patent)" if kind == "patent" else "grant project"
     user = f"""\
 Analyze the documentation below and suggest exactly {REQUIRED_TITLE_COUNT} distinct \
 candidate titles for this {label}.
+
+Return a JSON object with exactly one key "titles" whose value is a list of exactly \
+{REQUIRED_TITLE_COUNT} strings. Each title must be at most {TITLE_MAX_LENGTH} characters.
+
+Documentation:
+{source}
+{current_block}
+"""
+
+    parsed = generate_json(system, user)
+    if "titles" not in parsed:
+        raise ValueError("Model response missing field 'titles'.")
+    return _normalize_titles(parsed["titles"])
+
+
+def suggest_generic_titles(
+    combined_text: str,
+    document_type_label: str,
+    current: Optional[str] = None,
+    relevant_notes: str = "",
+    irrelevant_notes: str = "",
+) -> list[str]:
+    """
+    Suggest exactly five distinct candidate titles for a custom/generic document type.
+
+    Uses a minimal inline system prompt keyed off ``document_type_label`` rather than
+    a fixed extractor system (custom types have no EXTRACT_*_SYSTEM).
+    """
+    if not combined_text.strip():
+        raise ValueError("combined_text is required.")
+
+    label = document_type_label.strip()
+    if not label:
+        raise ValueError("document_type_label is required.")
+
+    body = prepare_source_text(combined_text)
+    guidance = format_relevance_guidance(relevant_notes, irrelevant_notes)
+    system = (
+        f"You are drafting a candidate title for a document of type '{label}'. "
+        f"Suggest concise, descriptive working titles suited to that document type. "
+        f"Return JSON with exactly one key: 'titles' (list of exactly "
+        f"{REQUIRED_TITLE_COUNT} distinct strings, each at most {TITLE_MAX_LENGTH} characters)."
+    )
+
+    source = f"{guidance}\n\n{body}" if guidance else body
+    current_block = ""
+    current_title = (current or "").strip()
+    if current_title:
+        current_block = (
+            f"\n\nCurrent title (suggest alternatives; do not merely repeat it):\n"
+            f"{current_title}"
+        )
+
+    user = f"""\
+Analyze the documentation below and suggest exactly {REQUIRED_TITLE_COUNT} distinct \
+candidate titles for this {label} document.
 
 Return a JSON object with exactly one key "titles" whose value is a list of exactly \
 {REQUIRED_TITLE_COUNT} strings. Each title must be at most {TITLE_MAX_LENGTH} characters.

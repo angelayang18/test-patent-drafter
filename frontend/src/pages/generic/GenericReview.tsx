@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GenericAppShell } from "../../components/GenericAppShell";
+import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { useGenericWorkflow } from "../../context/GenericWorkflowContext";
+import {
+  ApiError,
+  extractionNotesFromSources,
+  suggestGenericTitles,
+} from "../../services/api";
 import { GENERIC_STEP_PATHS } from "../../utils/genericStorage";
 import "../../styles/patent-drafter.css";
 
@@ -11,11 +17,13 @@ export default function GenericReview() {
   const navigate = useNavigate();
   const {
     templateId,
+    template,
     details,
     setDetails,
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
+    gatherSourceText,
     saveToStorage,
     markStepComplete,
     requestAutoDraft,
@@ -23,6 +31,9 @@ export default function GenericReview() {
 
   const paths = GENERIC_STEP_PATHS(templateId);
   const [title, setTitle] = useState(details?.title ?? "");
+  const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
+  const [suggestingTitles, setSuggestingTitles] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!details?.title?.trim()) {
@@ -47,6 +58,34 @@ export default function GenericReview() {
   const hasConfluence = Boolean(confluenceSource?.content?.trim());
   const hasAnySource = hasUploaded || hasPasted || hasWebsite || hasConfluence;
   const titleTrimmed = title.trim();
+  const extractionNotes = extractionNotesFromSources(inputSources);
+
+  const handleSuggestTitles = () => {
+    if (suggestingTitles || !hasAnySource) return;
+    setError(null);
+    setSuggestingTitles(true);
+
+    void (async () => {
+      try {
+        const { combined } = await gatherSourceText();
+        if (!combined.trim()) {
+          setError("No source material available. Go back to Input and add at least one source.");
+          return;
+        }
+        const titles = await suggestGenericTitles(
+          combined,
+          template.name,
+          title,
+          extractionNotes,
+        );
+        setTitleSuggestions(titles);
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Title suggestion failed.");
+      } finally {
+        setSuggestingTitles(false);
+      }
+    })();
+  };
 
   return (
     <GenericAppShell
@@ -58,7 +97,7 @@ export default function GenericReview() {
           right={
             <WorkflowNextLink
               to={paths.draft}
-              disabled={!titleTrimmed || !hasAnySource}
+              disabled={!titleTrimmed || !hasAnySource || suggestingTitles}
               onClick={() => {
                 setDetails({ title: titleTrimmed });
                 markStepComplete("review");
@@ -72,6 +111,10 @@ export default function GenericReview() {
         />
       }
     >
+      {error && (
+        <div className="mb-6 p-4 rounded-lg bg-error-container/20 text-error text-sm">{error}</div>
+      )}
+
       <div className="mb-8">
         <h1 className="font-headline-lg text-headline-lg text-primary">Review document</h1>
         <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
@@ -93,12 +136,32 @@ export default function GenericReview() {
             id="generic-review-title"
             type="text"
             value={title}
-            onChange={(e) => setTitle(e.target.value)}
+            disabled={suggestingTitles}
+            onChange={(e) => {
+              setTitleSuggestions([]);
+              setTitle(e.target.value);
+            }}
             className="w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none"
           />
           {!titleTrimmed && (
             <p className="font-body-sm text-body-sm text-error">A document title is required.</p>
           )}
+          {titleSuggestions.length > 0 && (
+            <TitleSuggestionsList
+              suggestions={titleSuggestions}
+              onSelect={(suggestion) => {
+                setTitle(suggestion);
+                setTitleSuggestions([]);
+              }}
+            />
+          )}
+          <div className="flex justify-end">
+            <SuggestTitlesButton
+              onClick={handleSuggestTitles}
+              loading={suggestingTitles}
+              disabled={!hasAnySource}
+            />
+          </div>
         </div>
 
         <div className="space-y-4">

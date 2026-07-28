@@ -11,22 +11,49 @@ import {
   defaultInvention,
   emptyApprovedExemplars,
   emptyAttorneyFeedback,
+  ADA_SECTION_IDS,
+  ADA_SECTION_LABELS,
   GRANT_SECTION_IDS,
   GRANT_SECTION_LABELS,
   PATENT_SECTION_IDS,
   SECTION_LABELS,
+  SOW_SECTION_IDS,
+  SOW_SECTION_LABELS,
 } from "../types/patent";
 import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import type { GrantDetails, InventionDetails } from "../types/patent";
 import {
+  hasAdaDraftSections,
+  listSavedAdaDrafts,
+  type SavedAdaDraftRecord,
+} from "./adaStorage";
+import type { DocumentTypeTemplate } from "./documentTypeTemplates";
+import { listDocumentTypeTemplates } from "./documentTypeTemplates";
+import {
   hasGrantDraftSections,
   listSavedGrantDrafts,
   type SavedGrantDraftRecord,
 } from "./grantStorage";
+import {
+  hasGenericDraftSections,
+  listSavedGenericDrafts,
+  type SavedGenericDraftRecord,
+} from "./genericStorage";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import { sanitizePatentProse } from "./documentPreview";
-import type { SectionSettingsMap } from "./sectionSettings";
+import {
+  defaultSectionSettings,
+  effectiveSectionIds,
+  resolveSectionLabel,
+  resolveSectionOrder,
+  type SectionSettingsMap,
+} from "./sectionSettings";
+import {
+  hasSowDraftSections,
+  listSavedSowDrafts,
+  type SavedSowDraftRecord,
+} from "./sowStorage";
 
 export { DRAFTS_CHANGED_EVENT, notifyDraftsChanged } from "./draftLibraryEvents";
 
@@ -492,9 +519,15 @@ export function formatSavedAt(iso: string): string {
 
 const PREVIEW_MAX_CHARS = 120;
 
-const KIND_LABELS: Record<WorkflowMode, string> = {
+/** Kind used for the import-as-source pool (broader than WorkflowMode). */
+export type ImportableDraftKind = "patent" | "grant" | "sow" | "ada" | "generic";
+
+const KIND_LABELS: Record<ImportableDraftKind, string> = {
   grant: "Grant Application Draft",
   patent: "Patent Draft",
+  sow: "SOW Draft",
+  ada: "ADA Draft",
+  generic: "Custom Document",
 };
 
 export interface OtherWorkflowDraftSectionPreview {
@@ -507,7 +540,7 @@ export interface SavedDraftImportSummary {
   id: string;
   title: string;
   displayLabel: string;
-  workflowMode: WorkflowMode;
+  kind: ImportableDraftKind;
   savedAt: string;
   sections: OtherWorkflowDraftSectionPreview[];
   serializedText: string;
@@ -563,12 +596,12 @@ function importedDraftMarkers(draftId: string): { start: string; end: string } {
 }
 
 /**
- * Build an importable summary from mode + sections (shared by patent and grant records).
+ * Build an importable summary from kind + sections (shared by all draft libraries).
  */
 function buildImportSummaryFromSections(params: {
   id: string;
   savedAt: string;
-  workflowMode: WorkflowMode;
+  kind: ImportableDraftKind;
   title: string;
   sections: Record<string, string>;
   orderedIds: readonly string[];
@@ -582,7 +615,7 @@ function buildImportSummaryFromSections(params: {
   if (sectionPreviews.length === 0) {
     return null;
   }
-  const kindLabel = KIND_LABELS[params.workflowMode];
+  const kindLabel = KIND_LABELS[params.kind];
   const body = serializeSectionsBlock(
     params.sections,
     params.orderedIds,
@@ -592,7 +625,7 @@ function buildImportSummaryFromSections(params: {
     id: params.id,
     title: params.title,
     displayLabel: `${kindLabel} — ${params.title}`,
-    workflowMode: params.workflowMode,
+    kind: params.kind,
     savedAt: params.savedAt,
     sections: sectionPreviews,
     serializedText: wrapImportedDraftBlock(params.id, body),
@@ -643,7 +676,7 @@ export function getSavedDraftImportSummary(
     return buildImportSummaryFromSections({
       id: record.id,
       savedAt: record.savedAt,
-      workflowMode: "grant",
+      kind: "grant",
       title,
       sections: record.workflow.sections,
       orderedIds: GRANT_SECTION_IDS,
@@ -661,7 +694,7 @@ export function getSavedDraftImportSummary(
   return buildImportSummaryFromSections({
     id: record.id,
     savedAt: record.savedAt,
-    workflowMode: "patent",
+    kind: "patent",
     title,
     sections: record.workflow.sections,
     orderedIds: PATENT_SECTION_IDS,
@@ -686,7 +719,7 @@ export function getSavedGrantDraftImportSummary(
   return buildImportSummaryFromSections({
     id: record.id,
     savedAt: record.savedAt,
-    workflowMode: "grant",
+    kind: "grant",
     title,
     sections: record.workflow.sections,
     orderedIds: GRANT_SECTION_IDS,
@@ -695,7 +728,84 @@ export function getSavedGrantDraftImportSummary(
 }
 
 /**
- * All saved drafts (patent + grant libraries) that have content suitable for
+ * Build an importable summary for a SOW-library SavedSowDraftRecord.
+ * Returns null when the record has no non-empty draft sections.
+ */
+export function getSavedSowDraftImportSummary(
+  record: SavedSowDraftRecord,
+): SavedDraftImportSummary | null {
+  if (!hasSowDraftSections(record.workflow.sections)) return null;
+  const title =
+    record.workflow.sowDetails?.engagement_title?.trim() ||
+    record.name.trim() ||
+    "Untitled SOW";
+  return buildImportSummaryFromSections({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "sow",
+    title,
+    sections: record.workflow.sections,
+    orderedIds: SOW_SECTION_IDS,
+    labels: SOW_SECTION_LABELS,
+  });
+}
+
+/**
+ * Build an importable summary for an ADA-library SavedAdaDraftRecord.
+ * Returns null when the record has no non-empty draft sections.
+ */
+export function getSavedAdaDraftImportSummary(
+  record: SavedAdaDraftRecord,
+): SavedDraftImportSummary | null {
+  if (!hasAdaDraftSections(record.workflow.sections)) return null;
+  const title =
+    record.workflow.adaDetails?.study_title?.trim() ||
+    record.name.trim() ||
+    "Untitled ADA report";
+  return buildImportSummaryFromSections({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "ada",
+    title,
+    sections: record.workflow.sections,
+    orderedIds: ADA_SECTION_IDS,
+    labels: ADA_SECTION_LABELS,
+  });
+}
+
+/**
+ * Build an importable summary for a generic-library SavedGenericDraftRecord.
+ * Returns null when the record has no non-empty draft sections.
+ */
+export function getSavedGenericDraftImportSummary(
+  record: SavedGenericDraftRecord,
+  template: DocumentTypeTemplate,
+): SavedDraftImportSummary | null {
+  if (!hasGenericDraftSections(record.workflow.sections)) return null;
+  const templateSectionIds = template.sections.map((s) => s.id);
+  const settings = record.workflow.sectionSettings ?? defaultSectionSettings(templateSectionIds);
+  const orderedIds = resolveSectionOrder(
+    effectiveSectionIds(templateSectionIds, settings),
+    settings,
+  );
+  const defaultLabels: Record<string, string> = {};
+  for (const section of template.sections) defaultLabels[section.id] = section.name;
+  const labels: Record<string, string> = {};
+  for (const id of orderedIds) labels[id] = resolveSectionLabel(id, settings, defaultLabels[id] ?? id);
+  const title = record.workflow.details?.title?.trim() || record.name.trim() || template.name;
+  return buildImportSummaryFromSections({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "generic",
+    title,
+    sections: record.workflow.sections,
+    orderedIds,
+    labels,
+  });
+}
+
+/**
+ * All saved drafts (patent, grant, SOW, ADA, custom) that have content suitable for
  * seeding Input pastedText as imported sources.
  */
 export function listImportableSavedDraftSummaries(): SavedDraftImportSummary[] {
@@ -705,9 +815,24 @@ export function listImportableSavedDraftSummaries(): SavedDraftImportSummary[] {
   const grantSummaries = listSavedGrantDrafts()
     .map(getSavedGrantDraftImportSummary)
     .filter((s): s is SavedDraftImportSummary => s !== null);
-  return [...patentSummaries, ...grantSummaries].sort(
-    (a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime(),
+  const sowSummaries = listSavedSowDrafts()
+    .map(getSavedSowDraftImportSummary)
+    .filter((s): s is SavedDraftImportSummary => s !== null);
+  const adaSummaries = listSavedAdaDrafts()
+    .map(getSavedAdaDraftImportSummary)
+    .filter((s): s is SavedDraftImportSummary => s !== null);
+  const genericSummaries = listDocumentTypeTemplates().flatMap((template) =>
+    listSavedGenericDrafts(template.id)
+      .map((record) => getSavedGenericDraftImportSummary(record, template))
+      .filter((s): s is SavedDraftImportSummary => s !== null),
   );
+  return [
+    ...patentSummaries,
+    ...grantSummaries,
+    ...sowSummaries,
+    ...adaSummaries,
+    ...genericSummaries,
+  ].sort((a, b) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime());
 }
 
 /** Whether pasted text already contains an injected block for the given draft id. */
