@@ -47,6 +47,7 @@ export default function InputPage() {
     setInputSources,
     gatherSourceText,
     setInvention,
+    setFieldCitations,
     setExtractionSourceKey,
     getWorkflowSnapshot,
     saveToStorage,
@@ -171,8 +172,9 @@ export default function InputPage() {
 
       setExtractPhase("Extracting invention details (parallel AI analysis)…");
       const notes = extractionNotesFromSources(inputSources);
-      const details = await extractInvention(combined, notes);
-      setInvention(details);
+      const result = await extractInvention(combined, notes);
+      setInvention(result.details);
+      setFieldCitations(result.citations);
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/patent/review");

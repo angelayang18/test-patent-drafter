@@ -5,6 +5,7 @@ import { AutoResizeTextarea } from "../components/AutoResizeTextarea";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { HorizontalSplitPane } from "../components/HorizontalSplitPane";
 import { MidWorkflowUpload } from "../components/MidWorkflowUpload";
+import { SectionCitationsPanel } from "../components/SectionCitationsPanel";
 import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
 import { SourceTextPreviewModal } from "../components/SourceTextPreviewModal";
 import { SelectionRegeneratePopover } from "../components/SelectionRegeneratePopover";
@@ -232,6 +233,8 @@ export default function Review() {
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
+    fieldCitations,
+    setFieldCitations,
     gatherSourceText,
     saveToStorage,
     markStepComplete,
@@ -401,16 +404,17 @@ export default function Review() {
             ? "Extracting grant application details (parallel AI analysis)…"
             : "Extracting invention details (parallel AI analysis)…",
         );
-        const details = isGrant
+        const result = isGrant
           ? await extractGrant(combined, extractionNotes)
           : await extractInvention(combined, extractionNotes);
         if (isGrant) {
-          grantUndo.reset(details as GrantDetails);
-          setGrantDetails(details as GrantDetails);
+          grantUndo.reset(result.details as GrantDetails);
+          setGrantDetails(result.details as GrantDetails);
         } else {
-          patentUndo.reset(details as InventionDetails);
-          setInvention(details as InventionDetails);
+          patentUndo.reset(result.details as InventionDetails);
+          setInvention(result.details as InventionDetails);
         }
+        setFieldCitations(result.citations);
         rememberExtractionSources(cache);
         saveToStorage();
       } catch (err) {
@@ -448,6 +452,7 @@ export default function Review() {
     patentUndo,
     setInvention,
     setGrantDetails,
+    setFieldCitations,
     saveToStorage,
     setExtractionSourceKey,
   ]);
@@ -462,15 +467,16 @@ export default function Review() {
         setError("No source material available. Go back to Input and add sources.");
         return;
       }
-      const details = isGrant
+      const result = isGrant
         ? await extractGrant(combined, extractionNotes)
         : await extractInvention(combined, extractionNotes);
-      pushForm(details);
+      pushForm(result.details);
       if (isGrant) {
-        setGrantDetails(details as GrantDetails);
+        setGrantDetails(result.details as GrantDetails);
       } else {
-        setInvention(details as InventionDetails);
+        setInvention(result.details as InventionDetails);
       }
+      setFieldCitations(result.citations);
       rememberExtractionSources(cache);
       saveToStorage();
       flashSaved();
@@ -501,7 +507,7 @@ export default function Review() {
           setError("No source material available. Go back to Input and add sources.");
           return;
         }
-        const patch = isGrant
+        const result = isGrant
           ? await extractGrantField(
               combined,
               field as ExtractableGrantField,
@@ -514,9 +520,10 @@ export default function Review() {
               formRef.current as InventionDetails,
               extractionNotes,
             );
-        const next = { ...formRef.current, ...patch };
+        const next = { ...formRef.current, ...result.details };
         formRef.current = next;
         pushForm(next);
+        setFieldCitations(result.citations);
         if (field === "invention_title" || field === "project_title") {
           setTitleSuggestions([]);
         }
@@ -1112,24 +1119,29 @@ export default function Review() {
                 const isTitleField =
                   field.key === "invention_title" || field.key === "project_title";
                 return (
-                  <AiField
-                    key={field.key}
-                    label={field.label}
-                    hint={field.hint}
-                    onRegenerate={() => handleRegenerateField(field.key)}
-                    regenerating={regeneratingFields.has(field.key)}
-                    extraActions={
-                      isTitleField ? (
-                        <SuggestTitlesButton
-                          onClick={handleSuggestTitles}
-                          loading={suggestingTitles}
-                          disabled={isBusy}
-                        />
-                      ) : undefined
-                    }
-                  >
-                    {renderFieldValue(field)}
-                  </AiField>
+                  <div key={field.key} className="space-y-0">
+                    <AiField
+                      label={field.label}
+                      hint={field.hint}
+                      onRegenerate={() => handleRegenerateField(field.key)}
+                      regenerating={regeneratingFields.has(field.key)}
+                      extraActions={
+                        isTitleField ? (
+                          <SuggestTitlesButton
+                            onClick={handleSuggestTitles}
+                            loading={suggestingTitles}
+                            disabled={isBusy}
+                          />
+                        ) : undefined
+                      }
+                    >
+                      {renderFieldValue(field)}
+                    </AiField>
+                    <SectionCitationsPanel
+                      citations={fieldCitations[field.key] ?? []}
+                      uploadedFiles={uploadedFiles}
+                    />
+                  </div>
                 );
               })}
             </div>

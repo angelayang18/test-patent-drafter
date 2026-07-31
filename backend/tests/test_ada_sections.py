@@ -198,7 +198,7 @@ def test_realistic_dict_sensitivity_prefers_sensitivity_topic():
     """Regression: full ADA dict must not drown out sensitivity section bias."""
     chunks = parse_source_chunks(_two_topic_ada_combined_text())
     ada = _realistic_ada()
-    excerpts = retrieve_relevant_excerpts(
+    excerpts, _ = retrieve_relevant_excerpts(
         get_ada_section_description("sensitivity"),
         ada,
         chunks,
@@ -212,7 +212,7 @@ def test_realistic_dict_stability_prefers_stability_topic():
     """Regression: full ADA dict still ranks stability source for stability section."""
     chunks = parse_source_chunks(_two_topic_ada_combined_text())
     ada = _realistic_ada()
-    excerpts = retrieve_relevant_excerpts(
+    excerpts, _ = retrieve_relevant_excerpts(
         get_ada_section_description("stability"),
         ada,
         chunks,
@@ -225,13 +225,13 @@ def test_realistic_dict_stability_prefers_stability_topic():
 def test_sensitivity_and_stability_select_different_excerpts():
     chunks = parse_source_chunks(_two_topic_ada_combined_text())
     ada = _realistic_ada()
-    sensitivity = retrieve_relevant_excerpts(
+    sensitivity, _ = retrieve_relevant_excerpts(
         get_ada_section_description("sensitivity"),
         ada,
         chunks,
         get_ada_section_query_fields("sensitivity"),
     )
-    stability = retrieve_relevant_excerpts(
+    stability, _ = retrieve_relevant_excerpts(
         get_ada_section_description("stability"),
         ada,
         chunks,

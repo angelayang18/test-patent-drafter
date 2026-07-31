@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { SowAppShell } from "../../components/SowAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
@@ -25,6 +26,9 @@ export default function SowReview() {
     sowDetails,
     setSowDetails,
     inputSources,
+    uploadedFiles,
+    fieldCitations,
+    setFieldCitations,
     gatherSourceText,
     saveToStorage,
     markStepComplete,
@@ -81,13 +85,14 @@ export default function SowReview() {
           setError("No source material available.");
           return;
         }
-        const patch = await extractSowField(
+        const result = await extractSowField(
           combined,
           field,
           formRef.current,
           extractionNotes,
         );
-        setForm((prev) => ({ ...prev, ...patch }));
+        setForm((prev) => ({ ...prev, ...result.details }));
+        setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Re-extraction failed.");
       } finally {
@@ -111,9 +116,10 @@ export default function SowReview() {
           setError("No source material available.");
           return;
         }
-        const details = await extractSow(combined, extractionNotes);
-        setForm(details);
-        setSowDetails(details);
+        const result = await extractSow(combined, extractionNotes);
+        setForm(result.details);
+        setSowDetails(result.details);
+        setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Extraction failed.");
       } finally {
@@ -279,6 +285,10 @@ export default function SowReview() {
                   {regenerating.has(field.key) ? "Re-extracting…" : "Re-extract"}
                 </button>
               </div>
+              <SectionCitationsPanel
+                citations={fieldCitations[field.key] ?? []}
+                uploadedFiles={uploadedFiles}
+              />
             </div>
           );
         })}

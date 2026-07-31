@@ -1,8 +1,47 @@
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
+
 interface SourceTextPreviewModalProps {
   title: string;
   subtitle?: string;
   content: string;
   onClose: () => void;
+  /** Optional quote to locate, highlight, and scroll into view. */
+  highlightText?: string;
+}
+
+interface HighlightRange {
+  start: number;
+  end: number;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Find the first occurrence of ``needle`` in ``content`` after normalizing
+ * whitespace on both sides (excerpts are reflowed through paragraph splitting).
+ * Trailing ellipsis characters on the needle are stripped before matching.
+ */
+function findNormalizedMatch(content: string, needle: string): HighlightRange | null {
+  const cleaned = needle.replace(/…$|\.\.\.$/, "").trim();
+  if (!cleaned) {
+    return null;
+  }
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return null;
+  }
+  const pattern = words.map(escapeRegExp).join("\\s+");
+  try {
+    const match = new RegExp(pattern, "i").exec(content);
+    if (!match) {
+      return null;
+    }
+    return { start: match.index, end: match.index + match[0].length };
+  } catch {
+    return null;
+  }
 }
 
 export function SourceTextPreviewModal({
@@ -10,8 +49,55 @@ export function SourceTextPreviewModal({
   subtitle,
   content,
   onClose,
+  highlightText,
 }: SourceTextPreviewModalProps) {
   const hasContent = content.trim().length > 0;
+  const markRef = useRef<HTMLElement | null>(null);
+
+  const highlightRange = useMemo(() => {
+    if (!highlightText?.trim() || !hasContent) {
+      return null;
+    }
+    return findNormalizedMatch(content, highlightText);
+  }, [content, highlightText, hasContent]);
+
+  useEffect(() => {
+    if (!highlightRange || !markRef.current) {
+      return;
+    }
+    markRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [highlightRange]);
+
+  let body: ReactNode;
+  if (!hasContent) {
+    body = (
+      <p className="font-body-md text-body-md text-on-surface-variant">
+        No text content available for this source.
+      </p>
+    );
+  } else if (highlightRange) {
+    const before = content.slice(0, highlightRange.start);
+    const matched = content.slice(highlightRange.start, highlightRange.end);
+    const after = content.slice(highlightRange.end);
+    body = (
+      <pre className="whitespace-pre-wrap break-words font-body-md text-body-md text-on-surface leading-relaxed bg-surface-container-lowest border border-outline-variant rounded-lg p-6">
+        {before}
+        <mark
+          ref={markRef}
+          className="bg-primary/25 text-on-surface rounded-sm px-0.5"
+        >
+          {matched}
+        </mark>
+        {after}
+      </pre>
+    );
+  } else {
+    body = (
+      <pre className="whitespace-pre-wrap break-words font-body-md text-body-md text-on-surface leading-relaxed bg-surface-container-lowest border border-outline-variant rounded-lg p-6">
+        {content}
+      </pre>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-[100] flex">
@@ -52,17 +138,7 @@ export function SourceTextPreviewModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-6">
-          {hasContent ? (
-            <pre className="whitespace-pre-wrap break-words font-body-md text-body-md text-on-surface leading-relaxed bg-surface-container-lowest border border-outline-variant rounded-lg p-6">
-              {content}
-            </pre>
-          ) : (
-            <p className="font-body-md text-body-md text-on-surface-variant">
-              No text content available for this source.
-            </p>
-          )}
-        </div>
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-6">{body}</div>
       </aside>
     </div>
   );

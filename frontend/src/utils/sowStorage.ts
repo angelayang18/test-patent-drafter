@@ -21,6 +21,8 @@ export interface SowWorkflowSnapshot {
   sowDetails: SOWDetails | null;
   sections: Record<string, string>;
   sectionCitations?: Record<string, SectionCitation[]>;
+  /** Citations keyed by extracted Review field id (not draft section id). */
+  fieldCitations?: Record<string, SectionCitation[]>;
   sectionSettings?: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
@@ -121,6 +123,7 @@ export function normalizeSowWorkflow(
       : null,
     sections: raw?.sections ?? {},
     sectionCitations: raw?.sectionCitations ?? {},
+    fieldCitations: raw?.fieldCitations ?? {},
     sectionSettings: raw?.sectionSettings,
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),

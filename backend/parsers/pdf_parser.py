@@ -30,13 +30,15 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
     Extract all text from a PDF provided as raw bytes.
 
     Opens the document with PyMuPDF (fitz), reads every page, and returns a
-    single cleaned string with excess whitespace and blank lines removed.
+    single cleaned string. Each page is introduced with a header of the form
+    ``=== Page N ===``, mirroring the PPTX slide-header convention so page
+    boundaries survive the flat-string pipeline used for retrieval/citations.
 
     Args:
         file_bytes: Raw PDF file contents.
 
     Returns:
-        Extracted text from all pages, joined with newlines.
+        Extracted text from all pages, joined with page markers.
 
     Raises:
         ValueError: If ``file_bytes`` is empty or not valid PDF data.
@@ -51,15 +53,17 @@ def extract_text_from_pdf(file_bytes: bytes) -> str:
         if doc.page_count == 0:
             return ""
 
-        page_texts: list[str] = []
+        page_sections: list[str] = []
         for page_index in range(doc.page_count):
             page = doc.load_page(page_index)
-            page_text = page.get_text()
+            header = f"=== Page {page_index + 1} ==="
+            page_text = (page.get_text() or "").strip()
             if page_text:
-                page_texts.append(page_text)
+                page_sections.append(f"{header}\n{page_text}")
+            else:
+                page_sections.append(header)
 
-        combined = "\n".join(page_texts)
-        return _clean_extracted_text(combined)
+        return _clean_extracted_text("\n\n".join(page_sections))
     except ValueError:
         raise
     except Exception as exc:

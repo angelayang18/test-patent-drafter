@@ -30,11 +30,16 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
     """
     Extract all paragraph text from a Word document provided as raw bytes.
 
+    Each non-empty paragraph is introduced with a header of the form
+    ``=== Paragraph N ===``, mirroring the PPTX slide-header convention so
+    paragraph boundaries survive the flat-string pipeline used for
+    retrieval/citations. Numbering is sequential over non-empty paragraphs only.
+
     Args:
         file_bytes: Raw DOCX file contents.
 
     Returns:
-        Extracted paragraph text as a single cleaned string.
+        Extracted paragraph text with per-paragraph markers.
 
     Raises:
         ValueError: If ``file_bytes`` is empty.
@@ -45,8 +50,17 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
 
     try:
         doc = Document(BytesIO(file_bytes))
-        paragraphs = [paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()]
-        return _clean_extracted_text("\n".join(paragraphs))
+        paragraph_sections: list[str] = []
+        paragraph_number = 0
+        for paragraph in doc.paragraphs:
+            text = paragraph.text.strip()
+            if not text:
+                continue
+            paragraph_number += 1
+            header = f"=== Paragraph {paragraph_number} ==="
+            paragraph_sections.append(f"{header}\n{text}")
+
+        return _clean_extracted_text("\n\n".join(paragraph_sections))
     except ValueError:
         raise
     except Exception as exc:

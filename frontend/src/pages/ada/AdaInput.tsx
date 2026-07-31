@@ -26,6 +26,7 @@ export default function AdaInput() {
     inputSources,
     setInputSources,
     setAdaDetails,
+    setFieldCitations,
     setExtractionSourceKey,
     gatherSourceText,
     removeUploadedFile,
@@ -90,8 +91,9 @@ export default function AdaInput() {
       }
 
       setExtractPhase("Extracting ADA study details…");
-      const details = await extractAda(combined, extractionNotesFromSources(inputSources));
-      setAdaDetails(details);
+      const result = await extractAda(combined, extractionNotesFromSources(inputSources));
+      setAdaDetails(result.details);
+      setFieldCitations(result.citations);
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/ada/review");

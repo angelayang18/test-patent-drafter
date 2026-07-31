@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { AdaAppShell } from "../../components/AdaAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
@@ -25,6 +26,9 @@ export default function AdaReview() {
     adaDetails,
     setAdaDetails,
     inputSources,
+    uploadedFiles,
+    fieldCitations,
+    setFieldCitations,
     gatherSourceText,
     saveToStorage,
     markStepComplete,
@@ -81,13 +85,14 @@ export default function AdaReview() {
           setError("No source material available.");
           return;
         }
-        const patch = await extractAdaField(
+        const result = await extractAdaField(
           combined,
           field,
           formRef.current,
           extractionNotes,
         );
-        setForm((prev) => ({ ...prev, ...patch }));
+        setForm((prev) => ({ ...prev, ...result.details }));
+        setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Re-extraction failed.");
       } finally {
@@ -111,9 +116,10 @@ export default function AdaReview() {
           setError("No source material available.");
           return;
         }
-        const details = await extractAda(combined, extractionNotes);
-        setForm(details);
-        setAdaDetails(details);
+        const result = await extractAda(combined, extractionNotes);
+        setForm(result.details);
+        setAdaDetails(result.details);
+        setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Extraction failed.");
       } finally {
@@ -279,6 +285,10 @@ export default function AdaReview() {
                   {regenerating.has(field.key) ? "Re-extracting…" : "Re-extract"}
                 </button>
               </div>
+              <SectionCitationsPanel
+                citations={fieldCitations[field.key] ?? []}
+                uploadedFiles={uploadedFiles}
+              />
             </div>
           );
         })}

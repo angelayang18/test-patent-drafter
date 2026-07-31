@@ -256,6 +256,7 @@ def draft_single_ada_section(
         )
 
     excerpts = []
+    query_terms: set[str] = set()
     excerpts_block = ""
     if combined_text.strip():
         from .document_types import (
@@ -267,14 +268,14 @@ def draft_single_ada_section(
         if chunks:
             if custom_meta is not None and section not in ADA_SECTIONS:
                 _, description = custom_meta
-                excerpts = retrieve_relevant_excerpts(
+                excerpts, query_terms = retrieve_relevant_excerpts(
                     description,
                     ada,
                     chunks,
                     [],
                 )
             else:
-                excerpts = retrieve_relevant_excerpts(
+                excerpts, query_terms = retrieve_relevant_excerpts(
                     get_ada_section_description(section),
                     ada,
                     chunks,
@@ -302,7 +303,7 @@ def draft_single_ada_section(
             excerpts_block=excerpts_block,
         )
     content = generate_text(system, user_prompt).strip()
-    return content, citations_from_excerpts(excerpts)
+    return content, citations_from_excerpts(excerpts, query_terms)
 
 
 def draft_all_ada_sections_parallel(

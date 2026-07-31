@@ -82,11 +82,12 @@ def draft_generic_section(
     query_description = description.strip() or _DEFAULT_GENERIC_DESCRIPTION
 
     excerpts: list = []
+    query_terms: set[str] = set()
     excerpts_block = ""
     if combined_text.strip():
         chunks = parse_source_chunks(combined_text)
         if chunks:
-            excerpts = retrieve_relevant_excerpts(
+            excerpts, query_terms = retrieve_relevant_excerpts(
                 query_description,
                 {},
                 chunks,
@@ -104,7 +105,7 @@ def draft_generic_section(
     )
     raw = generate_text(system, user_prompt)
     content = sanitize_patent_prose(raw)
-    return content, citations_from_excerpts(excerpts)
+    return content, citations_from_excerpts(excerpts, query_terms)
 
 
 def draft_generic_sections_parallel(

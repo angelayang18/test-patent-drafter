@@ -93,6 +93,9 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
   const [sectionCitations, setSectionCitationsState] = useState<
     Record<string, SectionCitation[]>
   >(initial.sectionCitations ?? {});
+  const [fieldCitations, setFieldCitationsState] = useState<
+    Record<string, SectionCitation[]>
+  >(initial.fieldCitations ?? {});
   const [sectionSettings, setSectionSettingsState] = useState<SectionSettingsMap>(
     initial.sectionSettings ?? defaultSectionSettings(PATENT_SECTION_IDS),
   );
@@ -197,6 +200,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setAttorneyFeedbackState(next.attorneyFeedback ?? emptyAttorneyFeedback());
       setAttorneyFeedbackGlobalState(next.attorneyFeedbackGlobal ?? "");
       setSectionCitationsState(next.sectionCitations ?? {});
+      setFieldCitationsState(next.fieldCitations ?? {});
       setSectionSettingsState(
         next.sectionSettings ?? defaultSectionSettings(PATENT_SECTION_IDS),
       );
@@ -226,6 +230,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       attorneyFeedback,
       attorneyFeedbackGlobal,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       approvedExemplars,
       aiInitialSections,
@@ -249,6 +254,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       attorneyFeedback,
       attorneyFeedbackGlobal,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       approvedExemplars,
       aiInitialSections,
@@ -365,6 +371,10 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setSectionCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
     setSectionCitationsState((prev) => ({ ...prev, ...citations }));
+  }, []);
+
+  const setFieldCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
+    setFieldCitationsState((prev) => ({ ...prev, ...citations }));
   }, []);
 
   const setSectionSettings = useCallback(
@@ -541,6 +551,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       attorneyFeedback,
       attorneyFeedbackGlobal,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       approvedExemplars,
       aiInitialSections,
@@ -558,6 +569,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setAttorneyFeedback,
       setAttorneyFeedbackGlobal,
       setSectionCitations,
+      setFieldCitations,
       setSectionSettings,
       setApprovedExemplar,
       setIncludeInLearningCorpus,
@@ -601,6 +613,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       attorneyFeedback,
       attorneyFeedbackGlobal,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       approvedExemplars,
       aiInitialSections,
@@ -618,6 +631,7 @@ export function PatentWorkflowProvider({ children }: { children: ReactNode }) {
       setAttorneyFeedback,
       setAttorneyFeedbackGlobal,
       setSectionCitations,
+      setFieldCitations,
       setSectionSettings,
       setApprovedExemplar,
       setIncludeInLearningCorpus,

@@ -13,6 +13,7 @@ from .extractor import (
 )
 from .llm_client import generate_json
 from .relevance import extraction_system_prompt, format_relevance_guidance
+from .retrieval import with_field_citations
 from .source_text import prepare_source_text
 
 log = logging.getLogger(__name__)
@@ -264,6 +265,7 @@ def extract_grant_details(
     Analyze combined source text and extract structured grant application details.
 
     Uses grouped parallel extraction by default (three LLM calls).
+    Returns field values plus ``citations`` keyed by field name.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
@@ -271,7 +273,8 @@ def extract_grant_details(
     system, source = _prepare_extract_documentation(
         combined_text, relevant_notes, irrelevant_notes
     )
-    return _extract_grouped(system, source)
+    details = _extract_grouped(system, source)
+    return with_field_citations(combined_text, details, _FIELD_LABELS)
 
 
 def extract_grant_field(
@@ -284,7 +287,8 @@ def extract_grant_field(
     """
     Re-extract a single grant field from source text.
 
-    Returns a one-key dict, e.g. ``{"project_title": "..."}``.
+    Returns a one-key dict plus ``citations`` for that field, e.g.
+    ``{"project_title": "...", "citations": {"project_title": [...]}}``.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
@@ -320,4 +324,9 @@ Source documentation:
         raise ValueError(f"Model response missing field {field!r}.")
 
     normalized = _normalize_extraction({field: parsed[field]})
-    return {field: normalized[field]}
+    return with_field_citations(
+        combined_text,
+        {field: normalized[field]},
+        _FIELD_LABELS,
+        fields=[field],
+    )

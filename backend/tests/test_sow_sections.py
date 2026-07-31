@@ -188,7 +188,7 @@ def test_realistic_dict_deliverables_prefers_deliverables_topic():
     """Regression: full SOW dict must not drown out deliverables section bias."""
     chunks = parse_source_chunks(_two_topic_sow_combined_text())
     sow = _realistic_sow()
-    excerpts = retrieve_relevant_excerpts(
+    excerpts, _ = retrieve_relevant_excerpts(
         get_sow_section_description("deliverables"),
         sow,
         chunks,
@@ -202,7 +202,7 @@ def test_realistic_dict_data_protection_prefers_confidentiality_topic():
     """Boilerplate section (no field bias) still ranks confidentiality source."""
     chunks = parse_source_chunks(_two_topic_sow_combined_text())
     sow = _realistic_sow()
-    excerpts = retrieve_relevant_excerpts(
+    excerpts, _ = retrieve_relevant_excerpts(
         get_sow_section_description("data_protection_confidentiality"),
         sow,
         chunks,
@@ -215,13 +215,13 @@ def test_realistic_dict_data_protection_prefers_confidentiality_topic():
 def test_deliverables_and_data_protection_select_different_excerpts():
     chunks = parse_source_chunks(_two_topic_sow_combined_text())
     sow = _realistic_sow()
-    deliverables = retrieve_relevant_excerpts(
+    deliverables, _ = retrieve_relevant_excerpts(
         get_sow_section_description("deliverables"),
         sow,
         chunks,
         get_sow_section_query_fields("deliverables"),
     )
-    data_protection = retrieve_relevant_excerpts(
+    data_protection, _ = retrieve_relevant_excerpts(
         get_sow_section_description("data_protection_confidentiality"),
         sow,
         chunks,

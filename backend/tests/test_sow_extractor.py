@@ -108,7 +108,10 @@ def test_extract_sow_field_returns_single_key():
             current={"engagement_title": "SOW for X Integration"},
         )
 
-    assert result == {"deliverables": "API spec and handoff package"}
+    assert result["deliverables"] == "API spec and handoff package"
+    assert "citations" in result
+    assert "deliverables" in result["citations"]
+    assert isinstance(result["citations"]["deliverables"], list)
 
 
 def test_extract_sow_details_empty_combined_text_raises():

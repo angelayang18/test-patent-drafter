@@ -114,7 +114,10 @@ def test_extract_ada_field_returns_single_key():
             current={"study_title": "ADA Assay Validation for Drug X"},
         )
 
-    assert result == {"sensitivity_data": "Assay sensitivity 100 ng/mL"}
+    assert result["sensitivity_data"] == "Assay sensitivity 100 ng/mL"
+    assert "citations" in result
+    assert "sensitivity_data" in result["citations"]
+    assert isinstance(result["citations"]["sensitivity_data"], list)
 
 
 def test_extract_ada_details_empty_combined_text_raises():

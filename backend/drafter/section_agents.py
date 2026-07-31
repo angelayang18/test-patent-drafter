@@ -222,20 +222,21 @@ def draft_section_agent(
         )
 
     excerpts = []
+    query_terms: set[str] = set()
     excerpts_block = ""
     if combined_text.strip():
         chunks = parse_source_chunks(combined_text)
         if chunks:
             if custom_meta is not None and section not in PATENT_SECTIONS:
                 _, description = custom_meta
-                excerpts = retrieve_relevant_excerpts(
+                excerpts, query_terms = retrieve_relevant_excerpts(
                     description,
                     invention,
                     chunks,
                     [],
                 )
             else:
-                excerpts = retrieve_relevant_excerpts(
+                excerpts, query_terms = retrieve_relevant_excerpts(
                     get_patent_section_description(section),
                     invention,
                     chunks,
@@ -265,7 +266,7 @@ def draft_section_agent(
         )
     raw = generate_text(system, user_prompt)
     content = _reflect_and_revise(section, invention, raw, system)
-    return content, citations_from_excerpts(excerpts)
+    return content, citations_from_excerpts(excerpts, query_terms)
 
 
 def draft_all_sections_parallel(

@@ -102,6 +102,8 @@ export interface WorkflowSnapshot {
   attorneyFeedback?: Record<PatentSectionId, string>;
   attorneyFeedbackGlobal?: string;
   sectionCitations?: Record<string, SectionCitation[]>;
+  /** Citations keyed by extracted Review field id (not draft section id). */
+  fieldCitations?: Record<string, SectionCitation[]>;
   sectionSettings?: SectionSettingsMap;
   approvedExemplars?: Record<PatentSectionId, boolean>;
   aiInitialSections?: Record<string, string>;
@@ -243,6 +245,7 @@ export function normalizeWorkflow(
     attorneyFeedback: { ...emptyAttorneyFeedback(), ...raw?.attorneyFeedback },
     attorneyFeedbackGlobal: raw?.attorneyFeedbackGlobal ?? "",
     sectionCitations: raw?.sectionCitations ?? {},
+    fieldCitations: raw?.fieldCitations ?? {},
     sectionSettings: raw?.sectionSettings,
     approvedExemplars: { ...emptyApprovedExemplars(), ...raw?.approvedExemplars },
     aiInitialSections: raw?.aiInitialSections ?? {},

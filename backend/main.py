@@ -305,6 +305,14 @@ class RegenerateSelectionRequest(BaseModel):
     instruction: str = ""
 
 
+class SectionCitation(BaseModel):
+    """A source excerpt cited for a drafted section."""
+
+    label: str
+    location: str
+    excerpt: str
+
+
 class DraftRequest(InventionDetails):
     section: str
     prior_draft: str = ""
@@ -530,7 +538,11 @@ def regenerate_selection_endpoint(body: RegenerateSelectionRequest) -> dict:
 
 @app.post("/extract/field")
 def extract_field(body: ExtractFieldRequest) -> dict:
-    """Re-extract a single invention detail field from combined source text."""
+    """Re-extract a single invention detail field from combined source text.
+
+    Returns the field value plus ``citations`` keyed by field name
+    (list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
     if not body.field.strip():
@@ -613,7 +625,11 @@ def extract_generic_titles(body: ExtractGenericTitlesRequest) -> dict:
 
 @app.post("/extract")
 def extract_details(body: ExtractRequest) -> dict:
-    """Extract structured invention details from combined source text."""
+    """Extract structured invention details from combined source text.
+
+    Returns field values plus ``citations`` keyed by field name
+    (each a list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
 
@@ -637,7 +653,11 @@ def extract_details(body: ExtractRequest) -> dict:
 
 @app.post("/extract/grant")
 def extract_grant(body: ExtractGrantRequest) -> dict:
-    """Extract structured grant application details from combined source text."""
+    """Extract structured grant application details from combined source text.
+
+    Returns field values plus ``citations`` keyed by field name
+    (each a list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
 
@@ -661,7 +681,11 @@ def extract_grant(body: ExtractGrantRequest) -> dict:
 
 @app.post("/extract/grant/field")
 def extract_grant_field_endpoint(body: ExtractGrantFieldRequest) -> dict:
-    """Re-extract a single grant detail field from combined source text."""
+    """Re-extract a single grant detail field from combined source text.
+
+    Returns the field value plus ``citations`` keyed by field name
+    (list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
     if not body.field.strip():
@@ -690,7 +714,11 @@ def extract_grant_field_endpoint(body: ExtractGrantFieldRequest) -> dict:
 
 @app.post("/extract/sow")
 def extract_sow(body: ExtractSOWRequest) -> dict:
-    """Extract structured Statement of Work details from combined source text."""
+    """Extract structured Statement of Work details from combined source text.
+
+    Returns field values plus ``citations`` keyed by field name
+    (each a list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
 
@@ -714,7 +742,11 @@ def extract_sow(body: ExtractSOWRequest) -> dict:
 
 @app.post("/extract/sow/field")
 def extract_sow_field_endpoint(body: ExtractSOWFieldRequest) -> dict:
-    """Re-extract a single SOW detail field from combined source text."""
+    """Re-extract a single SOW detail field from combined source text.
+
+    Returns the field value plus ``citations`` keyed by field name
+    (list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
     if not body.field.strip():
@@ -743,7 +775,11 @@ def extract_sow_field_endpoint(body: ExtractSOWFieldRequest) -> dict:
 
 @app.post("/extract/ada")
 def extract_ada(body: ExtractADARequest) -> dict:
-    """Extract structured ADA bioanalytical report details from combined source text."""
+    """Extract structured ADA bioanalytical report details from combined source text.
+
+    Returns field values plus ``citations`` keyed by field name
+    (each a list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
 
@@ -767,7 +803,11 @@ def extract_ada(body: ExtractADARequest) -> dict:
 
 @app.post("/extract/ada/field")
 def extract_ada_field_endpoint(body: ExtractADAFieldRequest) -> dict:
-    """Re-extract a single ADA detail field from combined source text."""
+    """Re-extract a single ADA detail field from combined source text.
+
+    Returns the field value plus ``citations`` keyed by field name
+    (list of :class:`SectionCitation` dicts).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
     if not body.field.strip():
@@ -796,7 +836,11 @@ def extract_ada_field_endpoint(body: ExtractADAFieldRequest) -> dict:
 
 @app.post("/draft")
 def draft_patent_section(body: DraftRequest) -> dict:
-    """Draft a single patent section via one dedicated section agent."""
+    """Draft a single patent section via one dedicated section agent.
+
+    Returns ``citations`` as a list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
@@ -839,6 +883,8 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
     Draft multiple sections in parallel — one isolated LLM agent per section.
 
     Each agent uses the provisional filing template for its section only.
+    ``citations`` maps section id → list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
     """
     invention = body.model_dump(
         exclude={"sections", "attorney_feedback", "combined_text", "custom_sections"},
@@ -873,7 +919,11 @@ def draft_all_patent_sections(body: DraftAllRequest) -> dict:
 
 @app.post("/draft/grant")
 def draft_grant_section(body: GrantDraftRequest) -> dict:
-    """Draft a single grant application section via one dedicated section agent."""
+    """Draft a single grant application section via one dedicated section agent.
+
+    Returns ``citations`` as a list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
@@ -905,7 +955,11 @@ def draft_grant_section(body: GrantDraftRequest) -> dict:
 
 @app.post("/draft/grant/all")
 def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
-    """Draft multiple grant sections in parallel — one isolated LLM agent per section."""
+    """Draft multiple grant sections in parallel — one isolated LLM agent per section.
+
+    ``citations`` maps section id → list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     grant = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
     section_list = body.sections
     if section_list is not None:
@@ -936,7 +990,11 @@ def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
 
 @app.post("/draft/sow")
 def draft_sow_section(body: SOWDraftRequest) -> dict:
-    """Draft a single Statement of Work section via one dedicated section agent."""
+    """Draft a single Statement of Work section via one dedicated section agent.
+
+    Returns ``citations`` as a list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
@@ -968,7 +1026,11 @@ def draft_sow_section(body: SOWDraftRequest) -> dict:
 
 @app.post("/draft/sow/all")
 def draft_all_sow_sections(body: SOWDraftAllRequest) -> dict:
-    """Draft multiple SOW sections in parallel — one isolated LLM agent per section."""
+    """Draft multiple SOW sections in parallel — one isolated LLM agent per section.
+
+    ``citations`` maps section id → list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     sow = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
     section_list = body.sections
     if section_list is not None:
@@ -999,7 +1061,11 @@ def draft_all_sow_sections(body: SOWDraftAllRequest) -> dict:
 
 @app.post("/draft/ada")
 def draft_ada_section(body: ADADraftRequest) -> dict:
-    """Draft a single ADA bioanalytical report section via one dedicated section agent."""
+    """Draft a single ADA bioanalytical report section via one dedicated section agent.
+
+    Returns ``citations`` as a list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     if not body.section.strip():
         raise HTTPException(status_code=400, detail="section is required.")
 
@@ -1031,7 +1097,11 @@ def draft_ada_section(body: ADADraftRequest) -> dict:
 
 @app.post("/draft/ada/all")
 def draft_all_ada_sections(body: ADADraftAllRequest) -> dict:
-    """Draft multiple ADA sections in parallel — one isolated LLM agent per section."""
+    """Draft multiple ADA sections in parallel — one isolated LLM agent per section.
+
+    ``citations`` maps section id → list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     ada = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
     section_list = body.sections
     if section_list is not None:
@@ -1062,7 +1132,11 @@ def draft_all_ada_sections(body: ADADraftAllRequest) -> dict:
 
 @app.post("/draft/generic")
 def draft_generic_section_endpoint(body: GenericDraftRequest) -> dict:
-    """Draft a single fully-custom section via a dedicated generic agent."""
+    """Draft a single fully-custom section via a dedicated generic agent.
+
+    Returns ``citations`` as a list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     if not body.section_id.strip():
         raise HTTPException(status_code=400, detail="section_id is required.")
     if not body.name.strip():
@@ -1094,7 +1168,11 @@ def draft_generic_section_endpoint(body: GenericDraftRequest) -> dict:
 
 @app.post("/draft/generic/all")
 def draft_generic_all_endpoint(body: GenericDraftAllRequest) -> dict:
-    """Draft multiple fully-custom sections in parallel — one isolated agent each."""
+    """Draft multiple fully-custom sections in parallel — one isolated agent each.
+
+    ``citations`` maps section id → list of :class:`SectionCitation` dicts
+    (``label``, ``location``, ``excerpt``).
+    """
     if not body.sections:
         raise HTTPException(status_code=400, detail="sections must be non-empty.")
 

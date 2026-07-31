@@ -52,6 +52,7 @@ export default function GrantDraft() {
     autoDraftPending,
     clearAutoDraftPending,
     gatherSourceText,
+    uploadedFiles,
   } = useGrantWorkflow();
 
   const sectionIds = resolveSectionOrder(
@@ -470,7 +471,10 @@ export default function GrantDraft() {
               />
             </div>
 
-            <SectionCitationsPanel citations={sectionCitations[activeSection] ?? []} />
+            <SectionCitationsPanel
+              citations={sectionCitations[activeSection] ?? []}
+              uploadedFiles={uploadedFiles}
+            />
           </div>
           </div>{/* end p-8 */}
         </div>

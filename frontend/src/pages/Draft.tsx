@@ -70,6 +70,7 @@ export default function Draft() {
     clearAutoDraftPending,
     workflowResetting,
     gatherSourceText,
+    uploadedFiles,
   } = usePatentWorkflow();
 
   const isGrant = workflowMode === "grant";
@@ -808,7 +809,10 @@ export default function Draft() {
               </div>
             </div>
 
-            <SectionCitationsPanel citations={sectionCitations[activeSection] ?? []} />
+            <SectionCitationsPanel
+              citations={sectionCitations[activeSection] ?? []}
+              uploadedFiles={uploadedFiles}
+            />
 
             <div className="flex justify-end items-center px-2">
               <span className="text-outline font-label-md text-label-md">

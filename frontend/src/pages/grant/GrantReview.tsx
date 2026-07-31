@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { GRANT_CORE_FIELD_KEYS, GRANT_REVIEW_FIELDS } from "../../constants/grantFields";
@@ -23,6 +24,9 @@ export default function GrantReview() {
     grantDetails,
     setGrantDetails,
     inputSources,
+    uploadedFiles,
+    fieldCitations,
+    setFieldCitations,
     gatherSourceText,
     saveToStorage,
     markStepComplete,
@@ -77,13 +81,14 @@ export default function GrantReview() {
           setError("No source material available.");
           return;
         }
-        const patch = await extractGrantField(
+        const result = await extractGrantField(
           combined,
           field,
           formRef.current,
           extractionNotes,
         );
-        setForm((prev) => ({ ...prev, ...patch }));
+        setForm((prev) => ({ ...prev, ...result.details }));
+        setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Re-extraction failed.");
       } finally {
@@ -106,9 +111,10 @@ export default function GrantReview() {
           setError("No source material available.");
           return;
         }
-        const details = await extractGrant(combined, extractionNotes);
-        setForm(details);
-        setGrantDetails(details);
+        const result = await extractGrant(combined, extractionNotes);
+        setForm(result.details);
+        setGrantDetails(result.details);
+        setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Extraction failed.");
       } finally {
@@ -222,6 +228,10 @@ export default function GrantReview() {
                 {regenerating.has(field.key) ? "Re-extracting…" : "Re-extract"}
               </button>
             </div>
+            <SectionCitationsPanel
+              citations={fieldCitations[field.key] ?? []}
+              uploadedFiles={uploadedFiles}
+            />
           </div>
         ))}
       </div>

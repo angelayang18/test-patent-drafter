@@ -52,6 +52,9 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
   const [sectionCitations, setSectionCitationsState] = useState<
     Record<string, SectionCitation[]>
   >(initial.sectionCitations ?? {});
+  const [fieldCitations, setFieldCitationsState] = useState<
+    Record<string, SectionCitation[]>
+  >(initial.fieldCitations ?? {});
   const [sectionSettings, setSectionSettingsState] = useState<SectionSettingsMap>(
     initial.sectionSettings ?? defaultSectionSettings(SOW_SECTION_IDS),
   );
@@ -148,6 +151,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
     setSowDetailsState(next.sowDetails);
     setSectionsState(next.sections);
     setSectionCitationsState(next.sectionCitations ?? {});
+    setFieldCitationsState(next.fieldCitations ?? {});
     setSectionSettingsState(
       next.sectionSettings ?? defaultSectionSettings(SOW_SECTION_IDS),
     );
@@ -165,6 +169,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
       sowDetails,
       sections,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -178,6 +183,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
       sowDetails,
       sections,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -282,6 +288,10 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setSectionCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
     setSectionCitationsState((prev) => ({ ...prev, ...citations }));
+  }, []);
+
+  const setFieldCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
+    setFieldCitationsState((prev) => ({ ...prev, ...citations }));
   }, []);
 
   const setSectionSettings = useCallback((settings: SectionSettingsMap) => {
@@ -394,6 +404,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
       sowDetails,
       sections,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -406,6 +417,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
       setSection,
       setSections,
       setSectionCitations,
+      setFieldCitations,
       setSectionSettings,
       setUploadedFiles,
       addUploadedFilesAndPersist,
@@ -431,6 +443,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
       sowDetails,
       sections,
       sectionCitations,
+      fieldCitations,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -443,6 +456,7 @@ export function SowWorkflowProvider({ children }: { children: ReactNode }) {
       setSection,
       setSections,
       setSectionCitations,
+      setFieldCitations,
       setSectionSettings,
       setUploadedFiles,
       addUploadedFilesAndPersist,

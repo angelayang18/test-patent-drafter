@@ -27,6 +27,7 @@ export default function GrantInput() {
     inputSources,
     setInputSources,
     setGrantDetails,
+    setFieldCitations,
     setExtractionSourceKey,
     gatherSourceText,
     removeUploadedFile,
@@ -91,8 +92,9 @@ export default function GrantInput() {
       }
 
       setExtractPhase("Extracting grant application details…");
-      const details = await extractGrant(combined, extractionNotesFromSources(inputSources));
-      setGrantDetails(details);
+      const result = await extractGrant(combined, extractionNotesFromSources(inputSources));
+      setGrantDetails(result.details);
+      setFieldCitations(result.citations);
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/grant/review");

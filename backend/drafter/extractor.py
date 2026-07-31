@@ -19,6 +19,7 @@ from .prompts import (
     EXTRACT_INVENTION_USER,
 )
 from .relevance import extraction_system_prompt, format_relevance_guidance
+from .retrieval import with_field_citations
 from .source_text import prepare_source_text
 
 EXTRACTABLE_FIELDS = frozenset(
@@ -316,7 +317,11 @@ def _extract_parallel_fields(
             for field in fields
         }
         for future in as_completed(futures):
-            merged.update(future.result())
+            payload = future.result()
+            # Parallel mode reuses extract_invention_field; drop per-call citations
+            # so they are attached once for all fields by extract_invention_details.
+            payload.pop("citations", None)
+            merged.update(payload)
     return _normalize_extraction(merged)
 
 
@@ -330,6 +335,8 @@ def extract_invention_details(
 
     Source text is truncated per EXTRACT_MAX_SOURCE_CHARS. Strategy is controlled
     by EXTRACT_MODE (default: grouped parallel calls).
+
+    Returns field values plus ``citations`` keyed by field name.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
@@ -340,10 +347,12 @@ def extract_invention_details(
     mode = get_extract_mode()
 
     if mode == "single":
-        return _extract_single_pass(system, source)
-    if mode == "parallel":
-        return _extract_parallel_fields(combined_text, relevant_notes, irrelevant_notes)
-    return _extract_grouped(system, source)
+        details = _extract_single_pass(system, source)
+    elif mode == "parallel":
+        details = _extract_parallel_fields(combined_text, relevant_notes, irrelevant_notes)
+    else:
+        details = _extract_grouped(system, source)
+    return with_field_citations(combined_text, details, _FIELD_LABELS)
 
 
 def extract_invention_field(
@@ -356,7 +365,8 @@ def extract_invention_field(
     """
     Re-extract a single invention field from source text.
 
-    Returns a one-key dict, e.g. ``{"invention_title": "..."}``.
+    Returns a one-key dict plus ``citations`` for that field, e.g.
+    ``{"invention_title": "...", "citations": {"invention_title": [...]}}``.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
@@ -396,4 +406,9 @@ Technical documentation:
         raise ValueError(f"Model response missing field {field!r}.")
 
     normalized = _normalize_extraction({field: parsed[field]})
-    return {field: normalized[field]}
+    return with_field_citations(
+        combined_text,
+        {field: normalized[field]},
+        _FIELD_LABELS,
+        fields=[field],
+    )

@@ -48,6 +48,7 @@ export default function GenericDraft() {
     autoDraftPending,
     clearAutoDraftPending,
     gatherSourceText,
+    uploadedFiles,
   } = useGenericWorkflow();
 
   const paths = GENERIC_STEP_PATHS(templateId);
@@ -529,7 +530,10 @@ export default function GenericDraft() {
                   />
                 </div>
 
-                <SectionCitationsPanel citations={sectionCitations[activeSection] ?? []} />
+                <SectionCitationsPanel
+                  citations={sectionCitations[activeSection] ?? []}
+                  uploadedFiles={uploadedFiles}
+                />
               </div>
             )}
           </div>

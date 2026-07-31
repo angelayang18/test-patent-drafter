@@ -52,6 +52,7 @@ export default function SowDraft() {
     autoDraftPending,
     clearAutoDraftPending,
     gatherSourceText,
+    uploadedFiles,
   } = useSowWorkflow();
 
   const sectionIds = resolveSectionOrder(
@@ -476,7 +477,10 @@ export default function SowDraft() {
               />
             </div>
 
-            <SectionCitationsPanel citations={sectionCitations[activeSection] ?? []} />
+            <SectionCitationsPanel
+              citations={sectionCitations[activeSection] ?? []}
+              uploadedFiles={uploadedFiles}
+            />
           </div>
           </div>{/* end p-8 */}
         </div>

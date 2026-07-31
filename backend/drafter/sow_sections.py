@@ -292,6 +292,7 @@ def draft_single_sow_section(
         )
 
     excerpts = []
+    query_terms: set[str] = set()
     excerpts_block = ""
     if combined_text.strip():
         from .document_types import (
@@ -303,14 +304,14 @@ def draft_single_sow_section(
         if chunks:
             if custom_meta is not None and section not in SOW_SECTIONS:
                 _, description = custom_meta
-                excerpts = retrieve_relevant_excerpts(
+                excerpts, query_terms = retrieve_relevant_excerpts(
                     description,
                     sow,
                     chunks,
                     [],
                 )
             else:
-                excerpts = retrieve_relevant_excerpts(
+                excerpts, query_terms = retrieve_relevant_excerpts(
                     get_sow_section_description(section),
                     sow,
                     chunks,
@@ -338,7 +339,7 @@ def draft_single_sow_section(
             excerpts_block=excerpts_block,
         )
     content = generate_text(system, user_prompt).strip()
-    return content, citations_from_excerpts(excerpts)
+    return content, citations_from_excerpts(excerpts, query_terms)
 
 
 def draft_all_sow_sections_parallel(

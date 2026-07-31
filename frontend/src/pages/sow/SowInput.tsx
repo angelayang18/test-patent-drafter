@@ -26,6 +26,7 @@ export default function SowInput() {
     inputSources,
     setInputSources,
     setSowDetails,
+    setFieldCitations,
     setExtractionSourceKey,
     gatherSourceText,
     removeUploadedFile,
@@ -90,8 +91,9 @@ export default function SowInput() {
       }
 
       setExtractPhase("Extracting SOW engagement details…");
-      const details = await extractSow(combined, extractionNotesFromSources(inputSources));
-      setSowDetails(details);
+      const result = await extractSow(combined, extractionNotesFromSources(inputSources));
+      setSowDetails(result.details);
+      setFieldCitations(result.citations);
       setExtractionSourceKey(computeExtractionSourceKey(uploadedFiles, inputSources, cache));
       saveToStorage();
       navigate("/sow/review");

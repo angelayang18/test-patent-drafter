@@ -109,6 +109,8 @@ export type PatentSectionId = (typeof PATENT_SECTION_IDS)[number];
 
 export interface SectionCitation {
   label: string;
+  /** Document location such as "Page 3", "Slide 4", or "Paragraph 12". */
+  location: string;
   excerpt: string;
 }
 

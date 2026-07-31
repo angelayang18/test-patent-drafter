@@ -44,6 +44,7 @@ export interface PatentWorkflowContextValue {
   attorneyFeedback: Record<PatentSectionId, string>;
   attorneyFeedbackGlobal: string;
   sectionCitations: Record<string, SectionCitation[]>;
+  fieldCitations: Record<string, SectionCitation[]>;
   sectionSettings: SectionSettingsMap;
   approvedExemplars: Record<PatentSectionId, boolean>;
   aiInitialSections: Record<string, string>;
@@ -62,6 +63,7 @@ export interface PatentWorkflowContextValue {
   setAttorneyFeedback: (sectionId: PatentSectionId, comment: string) => void;
   setAttorneyFeedbackGlobal: (comment: string) => void;
   setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;
+  setFieldCitations: (citations: Record<string, SectionCitation[]>) => void;
   setSectionSettings: (settings: SectionSettingsMap) => void;
   setApprovedExemplar: (sectionId: PatentSectionId, approved: boolean) => void;
   setIncludeInLearningCorpus: (include: boolean) => void;

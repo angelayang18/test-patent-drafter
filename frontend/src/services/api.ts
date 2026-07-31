@@ -163,19 +163,38 @@ export function extractionNotesFromSources(sources: {
   };
 }
 
+export interface ExtractionResult<T> {
+  details: T;
+  citations: Record<string, SectionCitation[]>;
+}
+
+function splitExtractionResponse<T extends object>(
+  raw: T & { citations?: Record<string, SectionCitation[]> },
+): ExtractionResult<T> {
+  const { citations = {}, ...rest } = raw;
+  return {
+    details: rest as T,
+    citations,
+  };
+}
+
 export async function extractInvention(
   combinedText: string,
   notes?: ExtractionNotes,
-): Promise<InventionDetails> {
-  return requestJson<InventionDetails>("/extract", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      combined_text: combinedText,
-      relevant_notes: notes?.relevantNotes?.trim() ?? "",
-      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
-    }),
-  });
+): Promise<ExtractionResult<InventionDetails>> {
+  const raw = await requestJson<InventionDetails & { citations?: Record<string, SectionCitation[]> }>(
+    "/extract",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        combined_text: combinedText,
+        relevant_notes: notes?.relevantNotes?.trim() ?? "",
+        irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+      }),
+    },
+  );
+  return splitExtractionResponse(raw);
 }
 
 export type ExtractableInventionField = keyof InventionDetails;
@@ -185,8 +204,10 @@ export async function extractInventionField(
   field: ExtractableInventionField,
   current?: InventionDetails,
   notes?: ExtractionNotes,
-): Promise<Partial<InventionDetails>> {
-  return requestJson<Partial<InventionDetails>>("/extract/field", {
+): Promise<ExtractionResult<Partial<InventionDetails>>> {
+  const raw = await requestJson<
+    Partial<InventionDetails> & { citations?: Record<string, SectionCitation[]> }
+  >("/extract/field", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -197,21 +218,26 @@ export async function extractInventionField(
       irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
     }),
   });
+  return splitExtractionResponse(raw);
 }
 
 export async function extractGrant(
   combinedText: string,
   notes?: ExtractionNotes,
-): Promise<GrantDetails> {
-  return requestJson<GrantDetails>("/extract/grant", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      combined_text: combinedText,
-      relevant_notes: notes?.relevantNotes?.trim() ?? "",
-      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
-    }),
-  });
+): Promise<ExtractionResult<GrantDetails>> {
+  const raw = await requestJson<GrantDetails & { citations?: Record<string, SectionCitation[]> }>(
+    "/extract/grant",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        combined_text: combinedText,
+        relevant_notes: notes?.relevantNotes?.trim() ?? "",
+        irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+      }),
+    },
+  );
+  return splitExtractionResponse(raw);
 }
 
 export type ExtractableGrantField = keyof GrantDetails;
@@ -221,8 +247,10 @@ export async function extractGrantField(
   field: ExtractableGrantField,
   current?: GrantDetails,
   notes?: ExtractionNotes,
-): Promise<Partial<GrantDetails>> {
-  return requestJson<Partial<GrantDetails>>("/extract/grant/field", {
+): Promise<ExtractionResult<Partial<GrantDetails>>> {
+  const raw = await requestJson<
+    Partial<GrantDetails> & { citations?: Record<string, SectionCitation[]> }
+  >("/extract/grant/field", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -233,21 +261,26 @@ export async function extractGrantField(
       irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
     }),
   });
+  return splitExtractionResponse(raw);
 }
 
 export async function extractSow(
   combinedText: string,
   notes?: ExtractionNotes,
-): Promise<SOWDetails> {
-  return requestJson<SOWDetails>("/extract/sow", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      combined_text: combinedText,
-      relevant_notes: notes?.relevantNotes?.trim() ?? "",
-      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
-    }),
-  });
+): Promise<ExtractionResult<SOWDetails>> {
+  const raw = await requestJson<SOWDetails & { citations?: Record<string, SectionCitation[]> }>(
+    "/extract/sow",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        combined_text: combinedText,
+        relevant_notes: notes?.relevantNotes?.trim() ?? "",
+        irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+      }),
+    },
+  );
+  return splitExtractionResponse(raw);
 }
 
 export type ExtractableSowField = keyof SOWDetails;
@@ -257,8 +290,10 @@ export async function extractSowField(
   field: ExtractableSowField,
   current?: SOWDetails,
   notes?: ExtractionNotes,
-): Promise<Partial<SOWDetails>> {
-  return requestJson<Partial<SOWDetails>>("/extract/sow/field", {
+): Promise<ExtractionResult<Partial<SOWDetails>>> {
+  const raw = await requestJson<
+    Partial<SOWDetails> & { citations?: Record<string, SectionCitation[]> }
+  >("/extract/sow/field", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -269,21 +304,26 @@ export async function extractSowField(
       irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
     }),
   });
+  return splitExtractionResponse(raw);
 }
 
 export async function extractAda(
   combinedText: string,
   notes?: ExtractionNotes,
-): Promise<ADADetails> {
-  return requestJson<ADADetails>("/extract/ada", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      combined_text: combinedText,
-      relevant_notes: notes?.relevantNotes?.trim() ?? "",
-      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
-    }),
-  });
+): Promise<ExtractionResult<ADADetails>> {
+  const raw = await requestJson<ADADetails & { citations?: Record<string, SectionCitation[]> }>(
+    "/extract/ada",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        combined_text: combinedText,
+        relevant_notes: notes?.relevantNotes?.trim() ?? "",
+        irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+      }),
+    },
+  );
+  return splitExtractionResponse(raw);
 }
 
 export type ExtractableAdaField = keyof ADADetails;
@@ -293,8 +333,10 @@ export async function extractAdaField(
   field: ExtractableAdaField,
   current?: ADADetails,
   notes?: ExtractionNotes,
-): Promise<Partial<ADADetails>> {
-  return requestJson<Partial<ADADetails>>("/extract/ada/field", {
+): Promise<ExtractionResult<Partial<ADADetails>>> {
+  const raw = await requestJson<
+    Partial<ADADetails> & { citations?: Record<string, SectionCitation[]> }
+  >("/extract/ada/field", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -305,6 +347,7 @@ export async function extractAdaField(
       irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
     }),
   });
+  return splitExtractionResponse(raw);
 }
 
 export async function suggestTitles(
