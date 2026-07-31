@@ -1,24 +1,31 @@
 import { useId, useMemo, useState } from "react";
-import { PATENT_SECTION_IDS, type PatentSectionId } from "../types/patent";
 
 interface AttorneyFeedbackSummaryPanelProps {
-  attorneyFeedback: Record<PatentSectionId, string>;
-  sectionLabels: Record<PatentSectionId, string>;
+  sectionIds: string[];
+  feedback: Record<string, string>;
+  sectionLabels: Record<string, string>;
+  heading?: string;
+  emptyStateText?: string;
 }
 
 export function AttorneyFeedbackSummaryPanel({
-  attorneyFeedback,
+  sectionIds,
+  feedback,
   sectionLabels,
+  heading = "All Patent Professional Notes",
+  emptyStateText = "No patent professional notes added yet. Add feedback in each section of the Draft page.",
 }: AttorneyFeedbackSummaryPanelProps) {
   const panelId = useId();
   const entriesWithFeedback = useMemo(
     () =>
-      PATENT_SECTION_IDS.map((id) => ({
-        id,
-        label: sectionLabels[id],
-        feedback: attorneyFeedback[id]?.trim() ?? "",
-      })).filter((entry) => entry.feedback.length > 0),
-    [attorneyFeedback, sectionLabels],
+      sectionIds
+        .map((id) => ({
+          id,
+          label: sectionLabels[id] ?? id,
+          feedback: feedback[id]?.trim() ?? "",
+        }))
+        .filter((entry) => entry.feedback.length > 0),
+    [sectionIds, feedback, sectionLabels],
   );
   const hasFeedback = entriesWithFeedback.length > 0;
   const [expanded, setExpanded] = useState(hasFeedback);
@@ -37,9 +44,7 @@ export function AttorneyFeedbackSummaryPanel({
             rate_review
           </span>
           <div className="min-w-0">
-            <h2 className="font-label-md text-label-md text-on-surface">
-              All Patent Professional Notes
-            </h2>
+            <h2 className="font-label-md text-label-md text-on-surface">{heading}</h2>
           </div>
         </div>
         <span className="material-symbols-outlined text-on-surface-variant shrink-0">
@@ -54,8 +59,7 @@ export function AttorneyFeedbackSummaryPanel({
         >
           {!hasFeedback ? (
             <p className="mt-3 font-body-sm text-body-sm text-on-surface-variant">
-              No patent professional notes added yet. Add feedback in each section of the Draft
-              page.
+              {emptyStateText}
             </p>
           ) : (
             <ul className="mt-3 space-y-4">

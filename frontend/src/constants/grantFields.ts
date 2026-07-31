@@ -47,6 +47,11 @@ export const GRANT_REVIEW_FIELDS: {
   },
 ];
 
+/** key → label map for import fallbacks from extracted grant details. */
+export const GRANT_DETAIL_FIELD_LABELS: Record<string, string> = Object.fromEntries(
+  GRANT_REVIEW_FIELDS.map((field) => [field.key, field.label]),
+);
+
 export const GRANT_CORE_FIELD_KEYS: ExtractableGrantField[] = [
   "project_title",
   "problem_statement",

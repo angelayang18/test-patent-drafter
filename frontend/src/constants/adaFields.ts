@@ -57,6 +57,11 @@ export const ADA_REVIEW_FIELDS: {
   },
 ];
 
+/** key → label map for import fallbacks from extracted ADA details. */
+export const ADA_DETAIL_FIELD_LABELS: Record<string, string> = Object.fromEntries(
+  ADA_REVIEW_FIELDS.map((field) => [field.key, field.label]),
+);
+
 export const ADA_CORE_FIELD_KEYS: ExtractableAdaField[] = [
   "study_title",
   "study_objective",

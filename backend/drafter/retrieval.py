@@ -499,6 +499,23 @@ def citations_for_fields(
     return citations_by_field
 
 
+def citations_for_generic_title(
+    combined_text: str,
+    document_type_label: str,
+    title: str,
+) -> list[dict]:
+    """Citations for a custom type's title, using the label + current title as query vocabulary.
+
+    No LLM call — pure retrieval, safe to run on every title change, not just on suggestion.
+    """
+    chunks = parse_source_chunks(combined_text)
+    if not chunks:
+        return []
+    description = f"{document_type_label} title {title}".strip()
+    excerpts, query_terms = retrieve_relevant_excerpts(description, {}, chunks, [])
+    return citations_from_excerpts(excerpts, query_terms)
+
+
 def with_field_citations(
     combined_text: str,
     details: dict,

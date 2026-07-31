@@ -41,6 +41,18 @@ def test_format_prior_draft_context_includes_feedback():
     assert "SAME-DRAFT REFINEMENT CONTEXT" in block
     assert "Old claims text." in block
     assert "Tighten claim 1 scope." in block
+    assert "Patent professional feedback for this section:" in block
+
+
+def test_format_prior_draft_context_custom_feedback_label():
+    block = format_prior_draft_context(
+        prior_draft="Old summary.",
+        attorney_feedback="Make it more concise.",
+        feedback_label="Grant reviewer feedback",
+    )
+    assert "Grant reviewer feedback for this section:" in block
+    assert "Patent professional feedback for this section:" not in block
+    assert "Make it more concise." in block
 
 
 def test_format_prior_draft_context_empty_when_no_inputs():

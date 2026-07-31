@@ -375,19 +375,42 @@ export async function suggestGenericTitles(
   documentTypeLabel: string,
   current?: string,
   notes?: ExtractionNotes,
-): Promise<string[]> {
-  const data = await requestJson<{ titles: string[] }>("/extract/titles/generic", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      combined_text: combinedText,
-      document_type_label: documentTypeLabel,
-      current: current?.trim() ? current.trim() : null,
-      relevant_notes: notes?.relevantNotes?.trim() ?? "",
-      irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
-    }),
-  });
-  return data.titles;
+): Promise<{ titles: string[]; citations: SectionCitation[] }> {
+  const data = await requestJson<{ titles: string[]; citations?: SectionCitation[] }>(
+    "/extract/titles/generic",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        combined_text: combinedText,
+        document_type_label: documentTypeLabel,
+        current: current?.trim() ? current.trim() : null,
+        relevant_notes: notes?.relevantNotes?.trim() ?? "",
+        irrelevant_notes: notes?.irrelevantNotes?.trim() ?? "",
+      }),
+    },
+  );
+  return { titles: data.titles, citations: data.citations ?? [] };
+}
+
+export async function getGenericTitleCitations(
+  combinedText: string,
+  documentTypeLabel: string,
+  title: string,
+): Promise<SectionCitation[]> {
+  const data = await requestJson<{ citations?: SectionCitation[] }>(
+    "/extract/titles/generic/citations",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        combined_text: combinedText,
+        document_type_label: documentTypeLabel,
+        title: title.trim(),
+      }),
+    },
+  );
+  return data.citations ?? [];
 }
 
 export async function regenerateSelection(
@@ -490,6 +513,7 @@ export async function draftGrantSection(
       ...grant,
       section,
       prior_draft: options?.priorDraft?.trim() ?? "",
+      attorney_feedback: options?.attorneyFeedback?.trim() ?? "",
       combined_text: options?.combinedText ?? "",
       custom_sections: options?.customSections ?? {},
     }),
@@ -503,6 +527,7 @@ export async function draftAllGrantSections(
   sections?: string[],
   combinedText?: string,
   customSections?: CustomSectionsPayload,
+  reviewerFeedback?: Record<string, string>,
 ): Promise<{
   sections: Record<string, string>;
   citations: Record<string, SectionCitation[]>;
@@ -516,6 +541,7 @@ export async function draftAllGrantSections(
     body: JSON.stringify({
       ...grant,
       ...(sections?.length ? { sections } : {}),
+      attorney_feedback: reviewerFeedback ?? {},
       combined_text: combinedText ?? "",
       custom_sections: customSections ?? {},
     }),
@@ -540,6 +566,7 @@ export async function draftSowSection(
       ...sow,
       section,
       prior_draft: options?.priorDraft?.trim() ?? "",
+      attorney_feedback: options?.attorneyFeedback?.trim() ?? "",
       combined_text: options?.combinedText ?? "",
       custom_sections: options?.customSections ?? {},
     }),
@@ -553,6 +580,7 @@ export async function draftAllSowSections(
   sections?: string[],
   combinedText?: string,
   customSections?: CustomSectionsPayload,
+  reviewerFeedback?: Record<string, string>,
 ): Promise<{
   sections: Record<string, string>;
   citations: Record<string, SectionCitation[]>;
@@ -566,6 +594,7 @@ export async function draftAllSowSections(
     body: JSON.stringify({
       ...sow,
       ...(sections?.length ? { sections } : {}),
+      attorney_feedback: reviewerFeedback ?? {},
       combined_text: combinedText ?? "",
       custom_sections: customSections ?? {},
     }),
@@ -590,6 +619,7 @@ export async function draftAdaSection(
       ...ada,
       section,
       prior_draft: options?.priorDraft?.trim() ?? "",
+      attorney_feedback: options?.attorneyFeedback?.trim() ?? "",
       combined_text: options?.combinedText ?? "",
       custom_sections: options?.customSections ?? {},
     }),
@@ -603,6 +633,7 @@ export async function draftAllAdaSections(
   sections?: string[],
   combinedText?: string,
   customSections?: CustomSectionsPayload,
+  reviewerFeedback?: Record<string, string>,
 ): Promise<{
   sections: Record<string, string>;
   citations: Record<string, SectionCitation[]>;
@@ -616,6 +647,7 @@ export async function draftAllAdaSections(
     body: JSON.stringify({
       ...ada,
       ...(sections?.length ? { sections } : {}),
+      attorney_feedback: reviewerFeedback ?? {},
       combined_text: combinedText ?? "",
       custom_sections: customSections ?? {},
     }),
@@ -942,7 +974,7 @@ export interface GenericSectionDefPayload {
 export async function draftGenericSection(
   documentTitle: string,
   section: GenericSectionDefPayload,
-  options?: { priorDraft?: string; combinedText?: string },
+  options?: { priorDraft?: string; attorneyFeedback?: string; combinedText?: string },
 ): Promise<{ content: string; citations: SectionCitation[] }> {
   const data = await requestJson<{
     section: string;
@@ -957,6 +989,7 @@ export async function draftGenericSection(
       name: section.name,
       description: section.description ?? "",
       prior_draft: options?.priorDraft?.trim() ?? "",
+      attorney_feedback: options?.attorneyFeedback?.trim() ?? "",
       combined_text: options?.combinedText ?? "",
     }),
   });
@@ -968,6 +1001,7 @@ export async function draftAllGenericSections(
   documentTitle: string,
   sections: GenericSectionDefPayload[],
   combinedText?: string,
+  reviewerFeedback?: Record<string, string>,
 ): Promise<{
   sections: Record<string, string>;
   citations: Record<string, SectionCitation[]>;
@@ -985,6 +1019,7 @@ export async function draftAllGenericSections(
         name: section.name,
         description: section.description ?? "",
       })),
+      attorney_feedback: reviewerFeedback ?? {},
       combined_text: combinedText ?? "",
     }),
   });

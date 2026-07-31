@@ -113,3 +113,39 @@ def test_draft_all_mix_canonical_and_custom():
     assert sections["executive_summary"] == "Canonical executive summary body."
     assert sections["sustainability"] == "Custom sustainability body."
     assert set(citations) == {"executive_summary", "sustainability"}
+
+
+def test_draft_single_grant_section_includes_reviewer_feedback():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Revised executive summary."
+
+    with patch("drafter.grant_sections.generate_text", side_effect=_fake_generate):
+        draft_single_grant_section(
+            _sample_grant(),
+            "executive_summary",
+            prior_draft="Old summary text.",
+            attorney_feedback="Lead with the measurable impact.",
+        )
+
+    assert captured
+    assert "Grant reviewer feedback for this section:" in captured[0]
+    assert "Lead with the measurable impact." in captured[0]
+    assert "Old summary text." in captured[0]
+
+
+def test_draft_single_grant_section_omits_feedback_block_when_empty():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Fresh executive summary."
+
+    with patch("drafter.grant_sections.generate_text", side_effect=_fake_generate):
+        draft_single_grant_section(_sample_grant(), "executive_summary")
+
+    assert captured
+    assert "Grant reviewer feedback for this section:" not in captured[0]
+    assert "SAME-DRAFT REFINEMENT CONTEXT" not in captured[0]

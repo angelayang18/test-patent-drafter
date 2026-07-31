@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AttorneyFeedbackPanel } from "../../components/AttorneyFeedbackPanel";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { CopyToClipboardButton } from "../../components/CopyToClipboardButton";
 import { DocumentPreviewModal } from "../../components/DocumentPreviewModal";
 import { AdaAppShell } from "../../components/AdaAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { PatentNotesSidebar } from "../../components/PatentNotesSidebar";
 import { SelectionRegeneratePopover } from "../../components/SelectionRegeneratePopover";
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SectionManagerModal } from "../../components/SectionManagerModal";
@@ -42,10 +44,12 @@ export default function AdaDraft() {
     adaDetails,
     sections,
     sectionCitations,
+    reviewerFeedback,
     sectionSettings,
     setSection,
     setSections,
     setSectionCitations,
+    setReviewerFeedback,
     setSectionSettings,
     saveToStorage,
     markStepComplete,
@@ -136,6 +140,7 @@ export default function AdaDraft() {
           ids,
           combined,
           customSectionsPayload,
+          reviewerFeedback,
         );
         setSections({ ...sectionsRef.current, ...drafted });
         setSectionCitations(citations);
@@ -154,6 +159,7 @@ export default function AdaDraft() {
       adaDetails,
       gatherSourceText,
       customSectionsPayload,
+      reviewerFeedback,
       setSections,
       setSectionCitations,
       saveToStorage,
@@ -203,6 +209,7 @@ export default function AdaDraft() {
         const { combined } = await gatherSourceText();
         const { content, citations } = await draftAdaSection(adaDetails, activeSection, {
           priorDraft: draftText,
+          attorneyFeedback: reviewerFeedback[activeSection] ?? "",
           combinedText: combined,
           customSections: customSectionsPayload,
         });
@@ -458,6 +465,17 @@ export default function AdaDraft() {
               </button>
             </div>
 
+            <AttorneyFeedbackPanel
+              sectionId={activeSection}
+              sectionLabel={activeSectionLabel}
+              panelTitle="Bioanalytical reviewer feedback"
+              panelDescription={`Notes for ${activeSectionLabel.toLowerCase()} — applied when regenerating this section.`}
+              showApprove={false}
+              value={reviewerFeedback[activeSection] ?? ""}
+              onChange={(comment) => setReviewerFeedback(activeSection, comment)}
+              disabled={isGenerating}
+            />
+
             <div className="relative bg-surface-container-lowest border border-outline-variant rounded-lg p-8 min-h-[400px]">
               {regenerating.has(activeSection) && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface-container-lowest/90 rounded-lg">
@@ -484,6 +502,14 @@ export default function AdaDraft() {
           </div>
           </div>{/* end p-8 */}
         </div>
+
+        <PatentNotesSidebar
+          sectionIds={sectionIds}
+          feedback={reviewerFeedback}
+          sectionLabels={resolvedSectionLabels}
+          heading="All ADA Reviewer Notes"
+          emptyStateText="No ADA reviewer notes added yet. Add feedback in each section of the Draft page."
+        />
       </div>
 
       <DocumentPreviewModal

@@ -229,3 +229,39 @@ def test_deliverables_and_data_protection_select_different_excerpts():
     )
     assert deliverables and data_protection
     assert deliverables[0].label != data_protection[0].label
+
+
+def test_draft_single_sow_section_includes_reviewer_feedback():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Revised purpose section."
+
+    with patch("drafter.sow_sections.generate_text", side_effect=_fake_generate):
+        draft_single_sow_section(
+            _sample_sow(),
+            "purpose",
+            prior_draft="Old purpose text.",
+            attorney_feedback="Clarify client and vendor roles in the first paragraph.",
+        )
+
+    assert captured
+    assert "Contract reviewer feedback for this section:" in captured[0]
+    assert "Clarify client and vendor roles" in captured[0]
+    assert "Old purpose text." in captured[0]
+
+
+def test_draft_single_sow_section_omits_feedback_block_when_empty():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Fresh purpose section."
+
+    with patch("drafter.sow_sections.generate_text", side_effect=_fake_generate):
+        draft_single_sow_section(_sample_sow(), "purpose")
+
+    assert captured
+    assert "Contract reviewer feedback for this section:" not in captured[0]
+    assert "SAME-DRAFT REFINEMENT CONTEXT" not in captured[0]

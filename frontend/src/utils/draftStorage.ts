@@ -1,3 +1,7 @@
+import { ADA_DETAIL_FIELD_LABELS } from "../constants/adaFields";
+import { GRANT_DETAIL_FIELD_LABELS } from "../constants/grantFields";
+import { PATENT_DETAIL_FIELD_LABELS } from "../constants/patentFields";
+import { SOW_DETAIL_FIELD_LABELS } from "../constants/sowFields";
 import type {
   FilingInfo,
   PatentFigure,
@@ -24,14 +28,12 @@ import type { InputSources, UploadedSourceFile } from "../context/PatentWorkflow
 import type { CachedRemoteSources } from "./gatherSourceText";
 import type { GrantDetails, InventionDetails } from "../types/patent";
 import {
-  hasAdaDraftSections,
   listSavedAdaDrafts,
   type SavedAdaDraftRecord,
 } from "./adaStorage";
 import type { DocumentTypeTemplate } from "./documentTypeTemplates";
 import { listDocumentTypeTemplates } from "./documentTypeTemplates";
 import {
-  hasGrantDraftSections,
   listSavedGrantDrafts,
   type SavedGrantDraftRecord,
 } from "./grantStorage";
@@ -50,7 +52,6 @@ import {
   type SectionSettingsMap,
 } from "./sectionSettings";
 import {
-  hasSowDraftSections,
   listSavedSowDrafts,
   type SavedSowDraftRecord,
 } from "./sowStorage";
@@ -539,6 +540,8 @@ export interface OtherWorkflowDraftSectionPreview {
   preview: string;
 }
 
+export type ImportSummaryContentSource = "sections" | "details";
+
 export interface SavedDraftImportSummary {
   id: string;
   title: string;
@@ -547,6 +550,8 @@ export interface SavedDraftImportSummary {
   savedAt: string;
   sections: OtherWorkflowDraftSectionPreview[];
   serializedText: string;
+  /** Whether the summary was built from drafted sections or extracted Review details. */
+  contentSource: ImportSummaryContentSource;
 }
 
 function truncatePreview(text: string, maxChars = PREVIEW_MAX_CHARS): string {
@@ -632,6 +637,44 @@ function buildImportSummaryFromSections(params: {
     savedAt: params.savedAt,
     sections: sectionPreviews,
     serializedText: wrapImportedDraftBlock(params.id, body),
+    contentSource: "sections",
+  };
+}
+
+/**
+ * Fallback import summary built from extracted Review-step details when no
+ * drafted section text has been saved yet.
+ */
+function buildImportSummaryFromDetails(params: {
+  id: string;
+  savedAt: string;
+  kind: ImportableDraftKind;
+  title: string;
+  details: Record<string, unknown>;
+  fieldLabels: Record<string, string>;
+}): SavedDraftImportSummary | null {
+  const parts: string[] = [];
+  const previews: OtherWorkflowDraftSectionPreview[] = [];
+  for (const [key, label] of Object.entries(params.fieldLabels)) {
+    const value = params.details[key];
+    const text = Array.isArray(value)
+      ? value.map((item) => String(item).trim()).filter(Boolean).join(", ")
+      : String(value ?? "").trim();
+    if (!text) continue;
+    parts.push(`## ${label}\n\n${text}`);
+    previews.push({ id: key, label, preview: truncatePreview(text) });
+  }
+  if (parts.length === 0) return null;
+  const kindLabel = KIND_LABELS[params.kind];
+  return {
+    id: params.id,
+    title: params.title,
+    displayLabel: `${kindLabel} — ${params.title} (details only, not yet drafted)`,
+    kind: params.kind,
+    savedAt: params.savedAt,
+    sections: previews,
+    serializedText: wrapImportedDraftBlock(params.id, parts.join("\n\n")),
+    contentSource: "details",
   };
 }
 
@@ -662,21 +705,19 @@ export function stripImportedDraftBlock(
 
 /**
  * Build an importable summary for a patent-library SavedDraftRecord.
- * Returns null when the record has no non-empty draft sections.
+ * Prefers drafted sections; falls back to extracted invention/grant details.
+ * Returns null only when both are empty.
  */
 export function getSavedDraftImportSummary(
   record: SavedDraftRecord,
 ): SavedDraftImportSummary | null {
   const mode = record.workflow.workflowMode === "grant" ? "grant" : "patent";
   if (mode === "grant") {
-    if (!hasGrantDraftSections(record.workflow.sections)) {
-      return null;
-    }
     const title =
       record.workflow.grantDetails?.project_title?.trim() ||
       record.name.trim() ||
       "Untitled grant application";
-    return buildImportSummaryFromSections({
+    const fromSections = buildImportSummaryFromSections({
       id: record.id,
       savedAt: record.savedAt,
       kind: "grant",
@@ -685,16 +726,23 @@ export function getSavedDraftImportSummary(
       orderedIds: GRANT_SECTION_IDS,
       labels: GRANT_SECTION_LABELS,
     });
+    if (fromSections) return fromSections;
+    if (!record.workflow.grantDetails) return null;
+    return buildImportSummaryFromDetails({
+      id: record.id,
+      savedAt: record.savedAt,
+      kind: "grant",
+      title,
+      details: record.workflow.grantDetails as unknown as Record<string, unknown>,
+      fieldLabels: GRANT_DETAIL_FIELD_LABELS,
+    });
   }
 
-  if (!hasDraftSections(record.workflow.sections)) {
-    return null;
-  }
   const title =
     record.workflow.invention?.invention_title?.trim() ||
     record.name.trim() ||
     "Untitled patent draft";
-  return buildImportSummaryFromSections({
+  const fromSections = buildImportSummaryFromSections({
     id: record.id,
     savedAt: record.savedAt,
     kind: "patent",
@@ -703,23 +751,31 @@ export function getSavedDraftImportSummary(
     orderedIds: PATENT_SECTION_IDS,
     labels: SECTION_LABELS,
   });
+  if (fromSections) return fromSections;
+  if (!record.workflow.invention) return null;
+  return buildImportSummaryFromDetails({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "patent",
+    title,
+    details: record.workflow.invention as unknown as Record<string, unknown>,
+    fieldLabels: PATENT_DETAIL_FIELD_LABELS,
+  });
 }
 
 /**
  * Build an importable summary for a grant-library SavedGrantDraftRecord.
- * Returns null when the record has no non-empty draft sections.
+ * Prefers drafted sections; falls back to extracted grant details.
+ * Returns null only when both are empty.
  */
 export function getSavedGrantDraftImportSummary(
   record: SavedGrantDraftRecord,
 ): SavedDraftImportSummary | null {
-  if (!hasGrantDraftSections(record.workflow.sections)) {
-    return null;
-  }
   const title =
     record.workflow.grantDetails?.project_title?.trim() ||
     record.name.trim() ||
     "Untitled grant application";
-  return buildImportSummaryFromSections({
+  const fromSections = buildImportSummaryFromSections({
     id: record.id,
     savedAt: record.savedAt,
     kind: "grant",
@@ -728,21 +784,31 @@ export function getSavedGrantDraftImportSummary(
     orderedIds: GRANT_SECTION_IDS,
     labels: GRANT_SECTION_LABELS,
   });
+  if (fromSections) return fromSections;
+  if (!record.workflow.grantDetails) return null;
+  return buildImportSummaryFromDetails({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "grant",
+    title,
+    details: record.workflow.grantDetails as unknown as Record<string, unknown>,
+    fieldLabels: GRANT_DETAIL_FIELD_LABELS,
+  });
 }
 
 /**
  * Build an importable summary for a SOW-library SavedSowDraftRecord.
- * Returns null when the record has no non-empty draft sections.
+ * Prefers drafted sections; falls back to extracted SOW details.
+ * Returns null only when both are empty.
  */
 export function getSavedSowDraftImportSummary(
   record: SavedSowDraftRecord,
 ): SavedDraftImportSummary | null {
-  if (!hasSowDraftSections(record.workflow.sections)) return null;
   const title =
     record.workflow.sowDetails?.engagement_title?.trim() ||
     record.name.trim() ||
     "Untitled SOW";
-  return buildImportSummaryFromSections({
+  const fromSections = buildImportSummaryFromSections({
     id: record.id,
     savedAt: record.savedAt,
     kind: "sow",
@@ -751,21 +817,31 @@ export function getSavedSowDraftImportSummary(
     orderedIds: SOW_SECTION_IDS,
     labels: SOW_SECTION_LABELS,
   });
+  if (fromSections) return fromSections;
+  if (!record.workflow.sowDetails) return null;
+  return buildImportSummaryFromDetails({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "sow",
+    title,
+    details: record.workflow.sowDetails as unknown as Record<string, unknown>,
+    fieldLabels: SOW_DETAIL_FIELD_LABELS,
+  });
 }
 
 /**
  * Build an importable summary for an ADA-library SavedAdaDraftRecord.
- * Returns null when the record has no non-empty draft sections.
+ * Prefers drafted sections; falls back to extracted ADA details.
+ * Returns null only when both are empty.
  */
 export function getSavedAdaDraftImportSummary(
   record: SavedAdaDraftRecord,
 ): SavedDraftImportSummary | null {
-  if (!hasAdaDraftSections(record.workflow.sections)) return null;
   const title =
     record.workflow.adaDetails?.study_title?.trim() ||
     record.name.trim() ||
     "Untitled ADA report";
-  return buildImportSummaryFromSections({
+  const fromSections = buildImportSummaryFromSections({
     id: record.id,
     savedAt: record.savedAt,
     kind: "ada",
@@ -773,6 +849,16 @@ export function getSavedAdaDraftImportSummary(
     sections: record.workflow.sections,
     orderedIds: ADA_SECTION_IDS,
     labels: ADA_SECTION_LABELS,
+  });
+  if (fromSections) return fromSections;
+  if (!record.workflow.adaDetails) return null;
+  return buildImportSummaryFromDetails({
+    id: record.id,
+    savedAt: record.savedAt,
+    kind: "ada",
+    title,
+    details: record.workflow.adaDetails as unknown as Record<string, unknown>,
+    fieldLabels: ADA_DETAIL_FIELD_LABELS,
   });
 }
 

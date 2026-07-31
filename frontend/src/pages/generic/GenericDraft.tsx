@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { AttorneyFeedbackPanel } from "../../components/AttorneyFeedbackPanel";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { CopyToClipboardButton } from "../../components/CopyToClipboardButton";
 import { DocumentPreviewModal } from "../../components/DocumentPreviewModal";
 import { GenericAppShell } from "../../components/GenericAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { PatentNotesSidebar } from "../../components/PatentNotesSidebar";
 import { SelectionRegeneratePopover } from "../../components/SelectionRegeneratePopover";
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SectionManagerModal } from "../../components/SectionManagerModal";
@@ -38,10 +40,12 @@ export default function GenericDraft() {
     details,
     sections,
     sectionCitations,
+    reviewerFeedback,
     sectionSettings,
     setSection,
     setSections,
     setSectionCitations,
+    setReviewerFeedback,
     setSectionSettings,
     saveToStorage,
     markStepComplete,
@@ -166,6 +170,7 @@ export default function GenericDraft() {
           details.title,
           payload,
           combined,
+          reviewerFeedback,
         );
         setSections({ ...sectionsRef.current, ...drafted });
         setSectionCitations(citations);
@@ -186,6 +191,7 @@ export default function GenericDraft() {
       sectionSettings,
       defaultLabels,
       defaultDescriptions,
+      reviewerFeedback,
       setSections,
       setSectionCitations,
       saveToStorage,
@@ -250,6 +256,7 @@ export default function GenericDraft() {
         };
         const { content, citations } = await draftGenericSection(details.title, meta, {
           priorDraft: draftText,
+          attorneyFeedback: reviewerFeedback[activeSection] ?? "",
           combinedText: combined,
         });
         setDraftText(content);
@@ -511,6 +518,17 @@ export default function GenericDraft() {
                   </button>
                 </div>
 
+                <AttorneyFeedbackPanel
+                  sectionId={activeSection}
+                  sectionLabel={activeSectionLabel}
+                  panelTitle="Reviewer feedback"
+                  panelDescription={`Notes for ${activeSectionLabel.toLowerCase()} — applied when regenerating this section.`}
+                  showApprove={false}
+                  value={reviewerFeedback[activeSection] ?? ""}
+                  onChange={(comment) => setReviewerFeedback(activeSection, comment)}
+                  disabled={isGenerating}
+                />
+
                 <div className="relative bg-surface-container-lowest border border-outline-variant rounded-lg p-8 min-h-[400px]">
                   {regenerating.has(activeSection) && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-surface-container-lowest/90 rounded-lg">
@@ -538,6 +556,14 @@ export default function GenericDraft() {
             )}
           </div>
         </div>
+
+        <PatentNotesSidebar
+          sectionIds={sectionIds}
+          feedback={reviewerFeedback}
+          sectionLabels={resolvedSectionLabels}
+          heading="All Reviewer Notes"
+          emptyStateText="No reviewer notes added yet. Add feedback in each section of the Draft page."
+        />
       </div>
 
       <DocumentPreviewModal

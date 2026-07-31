@@ -85,6 +85,12 @@ function GenericWorkflowProviderInner({
   const [sectionCitations, setSectionCitationsState] = useState<
     Record<string, SectionCitation[]>
   >(initial.sectionCitations ?? {});
+  const [titleCitations, setTitleCitationsState] = useState<SectionCitation[]>(
+    initial.titleCitations ?? [],
+  );
+  const [reviewerFeedback, setReviewerFeedbackState] = useState<Record<string, string>>(
+    initial.reviewerFeedback ?? {},
+  );
   const [sectionSettings, setSectionSettingsState] = useState<SectionSettingsMap>(
     initial.sectionSettings ?? defaultSectionSettings(templateSectionIds),
   );
@@ -185,6 +191,8 @@ function GenericWorkflowProviderInner({
       setDetailsState(next.details);
       setSectionsState(next.sections);
       setSectionCitationsState(next.sectionCitations ?? {});
+      setTitleCitationsState(next.titleCitations ?? []);
+      setReviewerFeedbackState(next.reviewerFeedback ?? {});
       setSectionSettingsState(
         next.sectionSettings ?? defaultSectionSettings(templateSectionIds),
       );
@@ -204,6 +212,8 @@ function GenericWorkflowProviderInner({
       details,
       sections,
       sectionCitations,
+      titleCitations,
+      reviewerFeedback,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -217,6 +227,8 @@ function GenericWorkflowProviderInner({
       details,
       sections,
       sectionCitations,
+      titleCitations,
+      reviewerFeedback,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -239,6 +251,8 @@ function GenericWorkflowProviderInner({
     details,
     sections,
     sectionCitations,
+    titleCitations,
+    reviewerFeedback,
     sectionSettings,
     uploadedFiles,
     inputSources,
@@ -333,6 +347,14 @@ function GenericWorkflowProviderInner({
     },
     [],
   );
+
+  const setTitleCitations = useCallback((citations: SectionCitation[]) => {
+    setTitleCitationsState(citations);
+  }, []);
+
+  const setReviewerFeedback = useCallback((sectionId: string, comment: string) => {
+    setReviewerFeedbackState((prev) => ({ ...prev, [sectionId]: comment }));
+  }, []);
 
   const setSectionSettings = useCallback((settings: SectionSettingsMap) => {
     setSectionSettingsState(settings);
@@ -450,6 +472,8 @@ function GenericWorkflowProviderInner({
       details,
       sections,
       sectionCitations,
+      titleCitations,
+      reviewerFeedback,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -462,6 +486,8 @@ function GenericWorkflowProviderInner({
       setSection,
       setSections,
       setSectionCitations,
+      setTitleCitations,
+      setReviewerFeedback,
       setSectionSettings,
       setUploadedFiles,
       addUploadedFilesAndPersist,
@@ -489,6 +515,8 @@ function GenericWorkflowProviderInner({
       details,
       sections,
       sectionCitations,
+      titleCitations,
+      reviewerFeedback,
       sectionSettings,
       uploadedFiles,
       inputSources,
@@ -501,6 +529,8 @@ function GenericWorkflowProviderInner({
       setSection,
       setSections,
       setSectionCitations,
+      setTitleCitations,
+      setReviewerFeedback,
       setSectionSettings,
       setUploadedFiles,
       addUploadedFilesAndPersist,

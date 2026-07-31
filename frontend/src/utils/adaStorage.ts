@@ -21,6 +21,8 @@ export interface AdaWorkflowSnapshot {
   adaDetails: ADADetails | null;
   sections: Record<string, string>;
   sectionCitations?: Record<string, SectionCitation[]>;
+  /** Per-section ADA reviewer notes (ADA-only; never shared with other doc types). */
+  reviewerFeedback?: Record<string, string>;
   /** Citations keyed by extracted Review field id (not draft section id). */
   fieldCitations?: Record<string, SectionCitation[]>;
   sectionSettings?: SectionSettingsMap;
@@ -123,6 +125,7 @@ export function normalizeAdaWorkflow(
       : null,
     sections: raw?.sections ?? {},
     sectionCitations: raw?.sectionCitations ?? {},
+    reviewerFeedback: raw?.reviewerFeedback ?? {},
     fieldCitations: raw?.fieldCitations ?? {},
     sectionSettings: raw?.sectionSettings,
     uploadedFiles: raw?.uploadedFiles ?? [],

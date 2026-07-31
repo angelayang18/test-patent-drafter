@@ -239,3 +239,39 @@ def test_sensitivity_and_stability_select_different_excerpts():
     )
     assert sensitivity and stability
     assert sensitivity[0].label != stability[0].label
+
+
+def test_draft_single_ada_section_includes_reviewer_feedback():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Revised study overview."
+
+    with patch("drafter.ada_sections.generate_text", side_effect=_fake_generate):
+        draft_single_ada_section(
+            _sample_ada(),
+            "study_overview",
+            prior_draft="Old overview text.",
+            attorney_feedback="State the assay platform in the opening sentence.",
+        )
+
+    assert captured
+    assert "Bioanalytical reviewer feedback for this section:" in captured[0]
+    assert "State the assay platform" in captured[0]
+    assert "Old overview text." in captured[0]
+
+
+def test_draft_single_ada_section_omits_feedback_block_when_empty():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Fresh study overview."
+
+    with patch("drafter.ada_sections.generate_text", side_effect=_fake_generate):
+        draft_single_ada_section(_sample_ada(), "study_overview")
+
+    assert captured
+    assert "Bioanalytical reviewer feedback for this section:" not in captured[0]
+    assert "SAME-DRAFT REFINEMENT CONTEXT" not in captured[0]

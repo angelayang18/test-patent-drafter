@@ -61,10 +61,6 @@ export function ImportSavedDraftsCard({
     return () => window.removeEventListener(DRAFTS_CHANGED_EVENT, refresh);
   }, [excludeDraftId]);
 
-  if (drafts.length === 0) {
-    return null;
-  }
-
   const handleToggle = (draft: SavedDraftImportSummary, checked: boolean) => {
     if (checked) {
       onPastedTextChange(
@@ -122,76 +118,93 @@ export function ImportSavedDraftsCard({
         Include one or more prior drafts as source material
       </p>
 
-      <ul className="space-y-5">
-        {drafts.map((draft) => {
-          const checkboxId = `${baseId}-${draft.id}`;
-          const included = pastedTextHasImportedDraft(pastedText, draft.id);
-          const sectionsOpen = expandedIds.has(draft.id);
-          const modeLabel = KIND_BADGE_LABELS[draft.kind];
+      {drafts.length === 0 ? (
+        <p className="font-body-sm text-body-sm text-on-surface-variant">
+          No saved drafts with content yet. Once you finish drafting sections in
+          another document, they'll show up here as sources you can include.
+        </p>
+      ) : (
+        <ul className="space-y-5">
+          {drafts.map((draft) => {
+            const checkboxId = `${baseId}-${draft.id}`;
+            const included = pastedTextHasImportedDraft(pastedText, draft.id);
+            const sectionsOpen = expandedIds.has(draft.id);
+            const modeLabel = KIND_BADGE_LABELS[draft.kind];
 
-          return (
-            <li
-              key={draft.id}
-              className="border border-outline-variant rounded-lg bg-surface-container-low p-4"
-            >
-              <label
-                htmlFor={checkboxId}
-                className="flex items-start gap-3 cursor-pointer select-none"
+            return (
+              <li
+                key={draft.id}
+                className="border border-outline-variant rounded-lg bg-surface-container-low p-4"
               >
-                <input
-                  id={checkboxId}
-                  type="checkbox"
-                  checked={included}
-                  onChange={(e) => handleToggle(draft, e.target.checked)}
-                  className="mt-1 size-4 rounded border-outline-variant text-secondary focus:ring-secondary/30"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-body-md text-body-md text-on-surface">
-                      {draft.title}
-                    </span>
-                    <span className="font-label-md text-label-md text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded">
-                      {modeLabel}
-                    </span>
-                  </span>
-                  <span className="block font-body-sm text-body-sm text-on-surface-variant mt-0.5">
-                    Saved {formatSavedAt(draft.savedAt)}
-                  </span>
-                </span>
-              </label>
-
-              <div className="mt-3 ml-7">
-                <button
-                  type="button"
-                  onClick={() => toggleSections(draft.id)}
-                  className="flex items-center gap-1 font-label-md text-label-md text-secondary hover:text-secondary/80 transition-colors"
-                  aria-expanded={sectionsOpen}
+                <label
+                  htmlFor={checkboxId}
+                  className="flex items-start gap-3 cursor-pointer select-none"
                 >
-                  <span className="material-symbols-outlined text-[18px]">
-                    {sectionsOpen ? "expand_less" : "expand_more"}
+                  <input
+                    id={checkboxId}
+                    type="checkbox"
+                    checked={included}
+                    onChange={(e) => handleToggle(draft, e.target.checked)}
+                    className="mt-1 size-4 rounded border-outline-variant text-secondary focus:ring-secondary/30"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className="font-body-md text-body-md text-on-surface">
+                        {draft.title}
+                      </span>
+                      <span className="font-label-md text-label-md text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded">
+                        {modeLabel}
+                      </span>
+                      {draft.contentSource === "details" && (
+                        <span className="font-label-md text-label-md text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded">
+                          Details only
+                        </span>
+                      )}
+                    </span>
+                    <span className="block font-body-sm text-body-sm text-on-surface-variant mt-0.5">
+                      Saved {formatSavedAt(draft.savedAt)}
+                      {draft.contentSource === "details"
+                        ? " · Not yet drafted"
+                        : ""}
+                    </span>
                   </span>
-                  View sections
-                </button>
+                </label>
 
-                {sectionsOpen && (
-                  <ul className="mt-3 space-y-3 border border-outline-variant rounded-lg bg-surface-container-lowest p-4">
-                    {draft.sections.map((section) => (
-                      <li key={section.id}>
-                        <p className="font-label-md text-label-md text-on-surface">
-                          {section.label}
-                        </p>
-                        <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5 line-clamp-2">
-                          {section.preview}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+                <div className="mt-3 ml-7">
+                  <button
+                    type="button"
+                    onClick={() => toggleSections(draft.id)}
+                    className="flex items-center gap-1 font-label-md text-label-md text-secondary hover:text-secondary/80 transition-colors"
+                    aria-expanded={sectionsOpen}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {sectionsOpen ? "expand_less" : "expand_more"}
+                    </span>
+                    {draft.contentSource === "details"
+                      ? "View details"
+                      : "View sections"}
+                  </button>
+
+                  {sectionsOpen && (
+                    <ul className="mt-3 space-y-3 border border-outline-variant rounded-lg bg-surface-container-lowest p-4">
+                      {draft.sections.map((section) => (
+                        <li key={section.id}>
+                          <p className="font-label-md text-label-md text-on-surface">
+                            {section.label}
+                          </p>
+                          <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5 line-clamp-2">
+                            {section.preview}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </section>
   );
 }

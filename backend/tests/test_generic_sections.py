@@ -200,3 +200,46 @@ def test_export_pdf_produces_bytes_with_title_and_headings():
     data = buffer.getvalue()
     assert data.startswith(b"%PDF")
     assert len(data) > 100
+
+
+def test_draft_generic_section_includes_reviewer_feedback():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Revised custom section."
+
+    with patch("drafter.generic_sections.generate_text", side_effect=_fake_generate):
+        draft_generic_section(
+            "Strategy Brief",
+            "exec_summary",
+            "Executive Summary",
+            "Summarize market opportunity.",
+            prior_draft="Old summary text.",
+            attorney_feedback="Use shorter sentences throughout.",
+        )
+
+    assert captured
+    assert "Reviewer feedback for this section:" in captured[0]
+    assert "Use shorter sentences throughout." in captured[0]
+    assert "Old summary text." in captured[0]
+
+
+def test_draft_generic_section_omits_feedback_block_when_empty():
+    captured: list[str] = []
+
+    def _fake_generate(system: str, user: str) -> str:
+        captured.append(user)
+        return "Fresh custom section."
+
+    with patch("drafter.generic_sections.generate_text", side_effect=_fake_generate):
+        draft_generic_section(
+            "Strategy Brief",
+            "exec_summary",
+            "Executive Summary",
+            "Summarize market opportunity.",
+        )
+
+    assert captured
+    assert "Reviewer feedback for this section:" not in captured[0]
+    assert "SAME-DRAFT REFINEMENT CONTEXT" not in captured[0]

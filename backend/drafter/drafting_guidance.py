@@ -51,9 +51,13 @@ def format_org_drafting_guidance(
 def format_prior_draft_context(
     prior_draft: str = "",
     attorney_feedback: str = "",
+    feedback_label: str = "Patent professional feedback",
 ) -> str:
     """
-    Build a block for same-draft regeneration using prior text and attorney notes.
+    Build a block for same-draft regeneration using prior text and reviewer notes.
+
+    ``feedback_label`` customizes the feedback heading for each document type
+    (e.g. "Grant reviewer feedback"). Defaults preserve Patent wording.
 
     Returns an empty string when both inputs are blank.
     """
@@ -69,7 +73,7 @@ def format_prior_draft_context(
         )
         lines.append(prior)
     if feedback:
-        lines.append("Patent professional feedback for this section:")
+        lines.append(f"{feedback_label} for this section:")
         lines.append(feedback)
     lines.append(
         "Apply the feedback and org guidelines. Output an improved version of this section only."

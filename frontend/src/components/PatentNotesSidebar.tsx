@@ -1,17 +1,22 @@
 import { useCallback, useRef, useState } from "react";
 import { AttorneyFeedbackSummaryPanel } from "./AttorneyFeedbackSummaryPanel";
 import { NotesSidebarCoachmark } from "./NotesSidebarCoachmark";
-import type { PatentSectionId } from "../types/patent";
 import { hasSeenNotesSidebarHint, markNotesSidebarHintSeen } from "../utils/uiHints";
 
 interface PatentNotesSidebarProps {
-  attorneyFeedback: Record<PatentSectionId, string>;
-  sectionLabels: Record<PatentSectionId, string>;
+  sectionIds: string[];
+  feedback: Record<string, string>;
+  sectionLabels: Record<string, string>;
+  heading?: string;
+  emptyStateText?: string;
 }
 
 export function PatentNotesSidebar({
-  attorneyFeedback,
+  sectionIds,
+  feedback,
   sectionLabels,
+  heading,
+  emptyStateText,
 }: PatentNotesSidebarProps) {
   const toggleRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -72,8 +77,11 @@ export function PatentNotesSidebar({
         </div>
         <div className="flex-1 overflow-y-auto p-4 custom-scrollbar min-h-0">
           <AttorneyFeedbackSummaryPanel
-            attorneyFeedback={attorneyFeedback}
+            sectionIds={sectionIds}
+            feedback={feedback}
             sectionLabels={sectionLabels}
+            heading={heading}
+            emptyStateText={emptyStateText}
           />
         </div>
       </aside>

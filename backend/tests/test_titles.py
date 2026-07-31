@@ -108,7 +108,9 @@ def test_suggest_generic_titles_returns_five():
             current="Old Brief Title",
         )
 
-    assert result == expected
+    assert result["titles"] == expected
+    assert "citations" in result
+    assert isinstance(result["citations"], list)
     system_arg = mock_json.call_args[0][0]
     user_arg = mock_json.call_args[0][1]
     assert "Internal Brief" in system_arg
@@ -216,8 +218,18 @@ def test_extract_generic_titles_route_returns_titles():
         "Delta Title",
         "Epsilon Title",
     )
+    payload = {
+        "titles": expected,
+        "citations": [
+            {
+                "label": "brief.pdf",
+                "location": "Paragraph 1",
+                "excerpt": "Existing Title overview.",
+            }
+        ],
+    }
 
-    with patch("main.suggest_generic_titles", return_value=expected):
+    with patch("main.suggest_generic_titles", return_value=payload):
         response = client.post(
             "/extract/titles/generic",
             json={
@@ -228,7 +240,7 @@ def test_extract_generic_titles_route_returns_titles():
         )
 
     assert response.status_code == 200
-    assert response.json() == {"titles": expected}
+    assert response.json() == payload
 
 
 def test_extract_generic_titles_route_returns_400_for_empty_combined_text():
@@ -236,6 +248,42 @@ def test_extract_generic_titles_route_returns_400_for_empty_combined_text():
     response = client.post(
         "/extract/titles/generic",
         json={"combined_text": "   ", "document_type_label": "Memo"},
+    )
+    assert response.status_code == 400
+    assert "combined_text" in response.json()["detail"]
+
+
+def test_extract_generic_title_citations_route_returns_citations():
+    client = TestClient(app)
+    combined = (
+        "--- whitepaper.pdf ---\n"
+        "The Adaptive Workflow Orchestrator coordinates multi-team handoffs "
+        "across quarterly planning cycles and operational readiness reviews.\n"
+    )
+    response = client.post(
+        "/extract/titles/generic/citations",
+        json={
+            "combined_text": combined,
+            "document_type_label": "White Paper",
+            "title": "Adaptive Workflow Orchestrator Brief",
+        },
+    )
+    assert response.status_code == 200
+    citations = response.json()["citations"]
+    assert citations
+    assert citations[0]["label"] == "whitepaper.pdf"
+    assert "orchestrator" in citations[0]["excerpt"].lower()
+
+
+def test_extract_generic_title_citations_route_returns_400_for_empty_combined_text():
+    client = TestClient(app)
+    response = client.post(
+        "/extract/titles/generic/citations",
+        json={
+            "combined_text": "   ",
+            "document_type_label": "Memo",
+            "title": "Some Title",
+        },
     )
     assert response.status_code == 400
     assert "combined_text" in response.json()["detail"]

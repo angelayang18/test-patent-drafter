@@ -19,6 +19,14 @@ import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWor
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { useTextareaSelectionRegenerate } from "../hooks/useTextareaSelectionRegenerate";
 import {
+  GRANT_CORE_FIELD_KEYS,
+  GRANT_REVIEW_FIELDS as GRANT_REVIEW_FIELD_DEFS,
+} from "../constants/grantFields";
+import {
+  PATENT_CORE_FIELD_KEYS,
+  PATENT_REVIEW_FIELDS as PATENT_REVIEW_FIELD_DEFS,
+} from "../constants/patentFields";
+import {
   ApiError,
   extractionNotesFromSources,
   extractGrant,
@@ -43,125 +51,27 @@ import {
 import { SourceGatherError } from "../utils/gatherSourceText";
 import "../styles/patent-drafter.css";
 
-type ReviewFieldKey = ExtractableInventionField;
-
 const TITLE_MAX_LENGTH = 500;
-
-const CORE_REVIEW_FIELD_KEYS = [
-  "invention_title",
-  "problem_being_solved",
-  "core_technical_solution",
-  "novel_mechanism",
-] as const satisfies readonly ReviewFieldKey[];
 
 function hasCoreReviewFieldContent(
   details: InventionDetails,
-  key: (typeof CORE_REVIEW_FIELD_KEYS)[number],
+  key: (typeof PATENT_CORE_FIELD_KEYS)[number],
 ): boolean {
   const value = details[key];
   return typeof value === "string" && value.trim().length > 0;
 }
 
-const REVIEW_FIELDS: {
-  key: ReviewFieldKey;
-  label: string;
-  hint: string;
-  multiline: boolean;
-}[] = [
-  {
-    key: "invention_title",
-    label: "Invention Title",
-    hint: "Short, specific title for the patent cover sheet (maximum 15 words; no marketing language).",
-    multiline: true,
-  },
-  {
-    key: "problem_being_solved",
-    label: "Technical Problem Being Solved",
-    hint: "The gap or limitation in existing technology that your invention addresses.",
-    multiline: true,
-  },
-  {
-    key: "core_technical_solution",
-    label: "Technical Solution / Core Mechanism",
-    hint: "How the invention works—the main components and steps that solve the problem.",
-    multiline: true,
-  },
-  {
-    key: "novel_mechanism",
-    label: "What Makes It Novel",
-    hint: "The distinguishing feature compared to prior art—not merely an improvement.",
-    multiline: true,
-  },
-  {
-    key: "alternative_embodiments",
-    label: "Alternative Embodiments",
-    hint: "Other ways the invention could be built or deployed (one per line).",
-    multiline: true,
-  },
-];
+/** Review fields with multiline flag for the patent Review UI. */
+const REVIEW_FIELDS = PATENT_REVIEW_FIELD_DEFS.map((field) => ({
+  ...field,
+  multiline: true as const,
+}));
 
-const GRANT_CORE_REVIEW_FIELD_KEYS = [
-  "project_title",
-  "problem_statement",
-  "proposed_solution",
-  "innovation_and_impact",
-] as const satisfies readonly ExtractableGrantField[];
-
-const GRANT_REVIEW_FIELDS: {
-  key: ExtractableGrantField;
-  label: string;
-  hint: string;
-  multiline: boolean;
-}[] = [
-  {
-    key: "project_title",
-    label: "Project Title",
-    hint: "Concise working title for the grant proposal.",
-    multiline: true,
-  },
-  {
-    key: "problem_statement",
-    label: "Problem Statement",
-    hint: "The need or gap the project addresses.",
-    multiline: true,
-  },
-  {
-    key: "proposed_solution",
-    label: "Proposed Solution",
-    hint: "What the project will do and how it addresses the problem.",
-    multiline: true,
-  },
-  {
-    key: "innovation_and_impact",
-    label: "Innovation & Impact",
-    hint: "What is novel and the expected outcomes or impact.",
-    multiline: true,
-  },
-  {
-    key: "target_population",
-    label: "Target Population",
-    hint: "Who benefits and at what scale.",
-    multiline: true,
-  },
-  {
-    key: "team_qualifications",
-    label: "Team Qualifications",
-    hint: "Relevant expertise and organizational capacity.",
-    multiline: true,
-  },
-  {
-    key: "budget_overview",
-    label: "Budget Overview",
-    hint: "High-level budget categories and rationale if available.",
-    multiline: true,
-  },
-  {
-    key: "evaluation_plan",
-    label: "Evaluation Plan",
-    hint: "How success will be measured.",
-    multiline: true,
-  },
-];
+/** Review fields with multiline flag for grant mode on the patent Review UI. */
+const GRANT_REVIEW_FIELDS = GRANT_REVIEW_FIELD_DEFS.map((field) => ({
+  ...field,
+  multiline: true as const,
+}));
 
 function RegenerateButton({
   onClick,
@@ -688,21 +598,21 @@ export default function Review() {
   const { allCoreFieldsEmpty, someCoreFieldsEmpty } = useMemo(() => {
     if (isGrant) {
       const grantForm = form as GrantDetails;
-      const filledCount = GRANT_CORE_REVIEW_FIELD_KEYS.filter(
+      const filledCount = GRANT_CORE_FIELD_KEYS.filter(
         (key) => typeof grantForm[key] === "string" && grantForm[key].trim().length > 0,
       ).length;
       return {
         allCoreFieldsEmpty: filledCount === 0,
-        someCoreFieldsEmpty: filledCount > 0 && filledCount < GRANT_CORE_REVIEW_FIELD_KEYS.length,
+        someCoreFieldsEmpty: filledCount > 0 && filledCount < GRANT_CORE_FIELD_KEYS.length,
       };
     }
     const patentForm = form as InventionDetails;
-    const filledCount = CORE_REVIEW_FIELD_KEYS.filter((key) =>
+    const filledCount = PATENT_CORE_FIELD_KEYS.filter((key) =>
       hasCoreReviewFieldContent(patentForm, key),
     ).length;
     return {
       allCoreFieldsEmpty: filledCount === 0,
-      someCoreFieldsEmpty: filledCount > 0 && filledCount < CORE_REVIEW_FIELD_KEYS.length,
+      someCoreFieldsEmpty: filledCount > 0 && filledCount < PATENT_CORE_FIELD_KEYS.length,
     };
   }, [form, isGrant]);
 

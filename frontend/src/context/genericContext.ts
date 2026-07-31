@@ -37,6 +37,9 @@ export interface GenericWorkflowContextValue {
   details: GenericDocumentDetails | null;
   sections: Record<string, string>;
   sectionCitations: Record<string, SectionCitation[]>;
+  /** Citations for the Review-page document title (per-template storage). */
+  titleCitations: SectionCitation[];
+  reviewerFeedback: Record<string, string>;
   sectionSettings: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
@@ -49,6 +52,8 @@ export interface GenericWorkflowContextValue {
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
   setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;
+  setTitleCitations: (citations: SectionCitation[]) => void;
+  setReviewerFeedback: (sectionId: string, comment: string) => void;
   setSectionSettings: (settings: SectionSettingsMap) => void;
   setUploadedFiles: (files: UploadedSourceFile[]) => void;
   addUploadedFilesAndPersist: (files: UploadedSourceFile[]) => void;

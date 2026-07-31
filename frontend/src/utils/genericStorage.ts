@@ -36,6 +36,10 @@ export interface GenericWorkflowSnapshot {
   details: GenericDocumentDetails | null;
   sections: Record<string, string>;
   sectionCitations?: Record<string, SectionCitation[]>;
+  /** Citations for the Review-page document title (scoped to this template's storage key). */
+  titleCitations?: SectionCitation[];
+  /** Per-section reviewer notes (scoped to this template's storage key only). */
+  reviewerFeedback?: Record<string, string>;
   sectionSettings?: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
@@ -142,6 +146,8 @@ export function normalizeGenericWorkflow(
     details: normalizeDetails(raw?.details),
     sections: raw?.sections ?? {},
     sectionCitations: raw?.sectionCitations ?? {},
+    titleCitations: Array.isArray(raw?.titleCitations) ? raw.titleCitations : [],
+    reviewerFeedback: raw?.reviewerFeedback ?? {},
     sectionSettings: raw?.sectionSettings,
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),

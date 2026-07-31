@@ -57,6 +57,11 @@ export const SOW_REVIEW_FIELDS: {
   },
 ];
 
+/** key → label map for import fallbacks from extracted SOW details. */
+export const SOW_DETAIL_FIELD_LABELS: Record<string, string> = Object.fromEntries(
+  SOW_REVIEW_FIELDS.map((field) => [field.key, field.label]),
+);
+
 export const SOW_CORE_FIELD_KEYS: ExtractableSowField[] = [
   "engagement_title",
   "purpose_and_background",

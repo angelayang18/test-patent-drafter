@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from exporter.text_format import sanitize_patent_prose
 
+from .drafting_guidance import format_prior_draft_context
 from .llm_client import generate_text
 from .retrieval import citations_from_excerpts, format_excerpts_block, retrieve_relevant_excerpts
 from .source_chunks import parse_source_chunks
@@ -39,17 +40,17 @@ def build_generic_user_prompt(
     description: str,
     *,
     prior_draft: str = "",
+    attorney_feedback: str = "",
     excerpts_block: str = "",
 ) -> str:
     """User prompt for a fully custom section — no canonical entity details block."""
     instructions = description.strip() or _DEFAULT_GENERIC_DESCRIPTION
     title_part = f' of "{document_title.strip()}"' if document_title.strip() else ""
-    prior_block = ""
-    if prior_draft.strip():
-        prior_block = (
-            f"\n\nPrior draft of this section (revise and improve; preserve accurate facts):\n"
-            f"{prior_draft.strip()}"
-        )
+    prior_block = format_prior_draft_context(
+        prior_draft,
+        attorney_feedback,
+        feedback_label="Reviewer feedback",
+    )
     return (
         f'Draft the "{name}" section{title_part}.\n\n'
         f"Instructions:\n{instructions}"
@@ -65,6 +66,7 @@ def draft_generic_section(
     description: str,
     *,
     prior_draft: str = "",
+    attorney_feedback: str = "",
     combined_text: str = "",
 ) -> tuple[str, list[dict]]:
     """Draft one fully-custom section. Retrieval seeds off ``description``, no field restriction.
@@ -101,6 +103,7 @@ def draft_generic_section(
         section_name,
         description,
         prior_draft=prior_draft,
+        attorney_feedback=attorney_feedback,
         excerpts_block=excerpts_block,
     )
     raw = generate_text(system, user_prompt)
@@ -112,6 +115,7 @@ def draft_generic_sections_parallel(
     document_title: str,
     sections: list[dict],
     *,
+    attorney_feedback: dict[str, str] | None = None,
     combined_text: str = "",
 ) -> tuple[dict[str, str], dict[str, list[dict]]]:
     """One isolated agent per section, run concurrently.
@@ -122,6 +126,7 @@ def draft_generic_sections_parallel(
     if not sections:
         return {}, {}
 
+    feedback_map = attorney_feedback or {}
     results: dict[str, str] = {}
     citations_by_section: dict[str, list[dict]] = {}
     max_workers = min(len(sections), 8)
@@ -134,6 +139,7 @@ def draft_generic_sections_parallel(
                 str(sec.get("name") or ""),
                 str(sec.get("description") or ""),
                 prior_draft="",
+                attorney_feedback=feedback_map.get(str(sec.get("id") or "").strip(), ""),
                 combined_text=combined_text,
             ): str(sec.get("id") or "").strip()
             for sec in sections

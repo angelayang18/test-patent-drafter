@@ -52,6 +52,9 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
   const [sectionCitations, setSectionCitationsState] = useState<
     Record<string, SectionCitation[]>
   >(initial.sectionCitations ?? {});
+  const [reviewerFeedback, setReviewerFeedbackState] = useState<Record<string, string>>(
+    initial.reviewerFeedback ?? {},
+  );
   const [fieldCitations, setFieldCitationsState] = useState<
     Record<string, SectionCitation[]>
   >(initial.fieldCitations ?? {});
@@ -151,6 +154,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     setGrantDetailsState(next.grantDetails);
     setSectionsState(next.sections);
     setSectionCitationsState(next.sectionCitations ?? {});
+    setReviewerFeedbackState(next.reviewerFeedback ?? {});
     setFieldCitationsState(next.fieldCitations ?? {});
     setSectionSettingsState(
       next.sectionSettings ?? defaultSectionSettings(GRANT_SECTION_IDS),
@@ -169,6 +173,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       grantDetails,
       sections,
       sectionCitations,
+      reviewerFeedback,
       fieldCitations,
       sectionSettings,
       uploadedFiles,
@@ -183,6 +188,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       grantDetails,
       sections,
       sectionCitations,
+      reviewerFeedback,
       fieldCitations,
       sectionSettings,
       uploadedFiles,
@@ -206,6 +212,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
     grantDetails,
     sections,
     sectionCitations,
+    reviewerFeedback,
     sectionSettings,
     uploadedFiles,
     inputSources,
@@ -288,6 +295,10 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setSectionCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
     setSectionCitationsState((prev) => ({ ...prev, ...citations }));
+  }, []);
+
+  const setReviewerFeedback = useCallback((sectionId: string, comment: string) => {
+    setReviewerFeedbackState((prev) => ({ ...prev, [sectionId]: comment }));
   }, []);
 
   const setFieldCitations = useCallback((citations: Record<string, SectionCitation[]>) => {
@@ -404,6 +415,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       grantDetails,
       sections,
       sectionCitations,
+      reviewerFeedback,
       fieldCitations,
       sectionSettings,
       uploadedFiles,
@@ -417,6 +429,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       setSection,
       setSections,
       setSectionCitations,
+      setReviewerFeedback,
       setFieldCitations,
       setSectionSettings,
       setUploadedFiles,
@@ -443,6 +456,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       grantDetails,
       sections,
       sectionCitations,
+      reviewerFeedback,
       fieldCitations,
       sectionSettings,
       uploadedFiles,
@@ -456,6 +470,7 @@ export function GrantWorkflowProvider({ children }: { children: ReactNode }) {
       setSection,
       setSections,
       setSectionCitations,
+      setReviewerFeedback,
       setFieldCitations,
       setSectionSettings,
       setUploadedFiles,

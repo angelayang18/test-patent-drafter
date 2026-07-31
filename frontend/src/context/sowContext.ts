@@ -25,6 +25,7 @@ export interface SowWorkflowContextValue {
   sowDetails: SOWDetails | null;
   sections: Record<string, string>;
   sectionCitations: Record<string, SectionCitation[]>;
+  reviewerFeedback: Record<string, string>;
   fieldCitations: Record<string, SectionCitation[]>;
   sectionSettings: SectionSettingsMap;
   uploadedFiles: UploadedSourceFile[];
@@ -38,6 +39,7 @@ export interface SowWorkflowContextValue {
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
   setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;
+  setReviewerFeedback: (sectionId: string, comment: string) => void;
   setFieldCitations: (citations: Record<string, SectionCitation[]>) => void;
   setSectionSettings: (settings: SectionSettingsMap) => void;
   setUploadedFiles: (files: UploadedSourceFile[]) => void;

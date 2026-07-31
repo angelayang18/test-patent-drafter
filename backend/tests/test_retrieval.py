@@ -11,6 +11,7 @@ from drafter.retrieval import (
     Excerpt,
     _citation_quote,
     citations_for_fields,
+    citations_for_generic_title,
     citations_from_excerpts,
     format_excerpts_block,
     retrieve_relevant_excerpts,
@@ -380,6 +381,31 @@ def test_field_citations_prefer_extracted_value_over_label_boilerplate():
     assert enriched["evaluation_plan"]
     assert enriched["evaluation_plan"][0]["label"] == "outcomes-framework.pdf"
     assert "kpi dashboards" in enriched["evaluation_plan"][0]["excerpt"].lower()
+
+
+def test_citations_for_generic_title_empty_source_returns_empty():
+    assert citations_for_generic_title("", "White Paper", "Some Title") == []
+    assert citations_for_generic_title("   \n  ", "Memo", "Brief") == []
+
+
+def test_citations_for_generic_title_returns_matching_paragraph():
+    combined = (
+        "--- ops-brief.pdf ---\n"
+        "The Adaptive Workflow Orchestrator coordinates multi-team handoffs "
+        "across quarterly planning cycles and operational readiness reviews "
+        "for cross-functional delivery.\n\n"
+        "--- admin-notes.pdf ---\n"
+        "Parking validation codes are posted near the lobby desk for visitors "
+        "attending the Thursday all-hands meeting in conference room B.\n"
+    )
+    citations = citations_for_generic_title(
+        combined,
+        "Internal Brief",
+        "Adaptive Workflow Orchestrator Brief",
+    )
+    assert citations
+    assert citations[0]["label"] == "ops-brief.pdf"
+    assert "orchestrator" in citations[0]["excerpt"].lower()
 
 
 def test_citation_quote_prefers_query_matching_sentence_window():

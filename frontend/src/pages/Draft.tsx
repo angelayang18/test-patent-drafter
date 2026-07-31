@@ -824,7 +824,8 @@ export default function Draft() {
 
         {!isGrant && (
           <PatentNotesSidebar
-            attorneyFeedback={attorneyFeedback}
+            sectionIds={[...PATENT_SECTION_IDS]}
+            feedback={attorneyFeedback}
             sectionLabels={SECTION_LABELS}
           />
         )}

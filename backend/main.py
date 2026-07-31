@@ -26,6 +26,7 @@ from drafter.sections import draft_all_sections_parallel, draft_section
 from drafter.sow_extractor import extract_sow_details, extract_sow_field
 from drafter.sow_sections import draft_all_sow_sections_parallel, draft_single_sow_section
 from drafter.generic_sections import draft_generic_section, draft_generic_sections_parallel
+from drafter.retrieval import citations_for_generic_title
 from drafter.titles import suggest_generic_titles, suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
@@ -159,15 +160,23 @@ class ExtractGenericTitlesRequest(BaseModel):
     irrelevant_notes: str = ""
 
 
+class ExtractGenericTitleCitationsRequest(BaseModel):
+    combined_text: str
+    document_type_label: str
+    title: str = ""
+
+
 class GrantDraftRequest(GrantDetails):
     section: str
     prior_draft: str = ""
+    attorney_feedback: str = ""
     combined_text: str = ""
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class GrantDraftAllRequest(GrantDetails):
     sections: Optional[List[str]] = None
+    attorney_feedback: dict[str, str] = Field(default_factory=dict)
     combined_text: str = ""
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
@@ -208,12 +217,14 @@ class ExtractSOWFieldRequest(BaseModel):
 class SOWDraftRequest(SOWDetails):
     section: str
     prior_draft: str = ""
+    attorney_feedback: str = ""
     combined_text: str = ""
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class SOWDraftAllRequest(SOWDetails):
     sections: Optional[List[str]] = None
+    attorney_feedback: dict[str, str] = Field(default_factory=dict)
     combined_text: str = ""
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
@@ -254,12 +265,14 @@ class ExtractADAFieldRequest(BaseModel):
 class ADADraftRequest(ADADetails):
     section: str
     prior_draft: str = ""
+    attorney_feedback: str = ""
     combined_text: str = ""
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class ADADraftAllRequest(ADADetails):
     sections: Optional[List[str]] = None
+    attorney_feedback: dict[str, str] = Field(default_factory=dict)
     combined_text: str = ""
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
@@ -282,12 +295,14 @@ class GenericDraftRequest(BaseModel):
     name: str
     description: str = ""
     prior_draft: str = ""
+    attorney_feedback: str = ""
     combined_text: str = ""
 
 
 class GenericDraftAllRequest(BaseModel):
     document_title: str = ""
     sections: list[GenericSectionDef]
+    attorney_feedback: dict[str, str] = Field(default_factory=dict)
     combined_text: str = ""
 
 
@@ -598,19 +613,22 @@ def extract_titles(body: ExtractTitlesRequest) -> dict:
 
 @app.post("/extract/titles/generic")
 def extract_generic_titles(body: ExtractGenericTitlesRequest) -> dict:
-    """Suggest candidate titles for a custom/generic document type."""
+    """Suggest candidate titles for a custom/generic document type.
+
+    Returns ``{"titles": [...], "citations": [...]}`` — citations come from
+    cheap keyword retrieval over the current title (no extra LLM call).
+    """
     if not body.combined_text.strip():
         raise HTTPException(status_code=400, detail="combined_text is required.")
 
     try:
-        titles = suggest_generic_titles(
+        return suggest_generic_titles(
             body.combined_text,
             body.document_type_label,
             current=body.current,
             relevant_notes=body.relevant_notes,
             irrelevant_notes=body.irrelevant_notes,
         )
-        return {"titles": titles}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except LLMUnavailableError:
@@ -621,6 +639,23 @@ def extract_generic_titles(body: ExtractGenericTitlesRequest) -> dict:
             status_code=502,
             detail=f"Failed to suggest titles: {exc}",
         ) from exc
+
+
+@app.post("/extract/titles/generic/citations")
+def extract_generic_title_citations(body: ExtractGenericTitleCitationsRequest) -> dict:
+    """Return cheap keyword-retrieval citations for a custom type's title.
+
+    No LLM call — safe to invoke on every title change.
+    """
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+
+    citations = citations_for_generic_title(
+        body.combined_text,
+        body.document_type_label,
+        body.title,
+    )
+    return {"citations": citations}
 
 
 @app.post("/extract")
@@ -928,7 +963,13 @@ def draft_grant_section(body: GrantDraftRequest) -> dict:
         raise HTTPException(status_code=400, detail="section is required.")
 
     grant = body.model_dump(
-        exclude={"section", "prior_draft", "combined_text", "custom_sections"},
+        exclude={
+            "section",
+            "prior_draft",
+            "attorney_feedback",
+            "combined_text",
+            "custom_sections",
+        },
     )
     section = body.section.strip()
     try:
@@ -936,6 +977,7 @@ def draft_grant_section(body: GrantDraftRequest) -> dict:
             grant,
             section,
             body.prior_draft,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
             custom_sections=body.custom_sections,
         )
@@ -960,7 +1002,9 @@ def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
     ``citations`` maps section id → list of :class:`SectionCitation` dicts
     (``label``, ``location``, ``excerpt``).
     """
-    grant = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
+    grant = body.model_dump(
+        exclude={"sections", "attorney_feedback", "combined_text", "custom_sections"},
+    )
     section_list = body.sections
     if section_list is not None:
         section_list = [s.strip() for s in section_list if s.strip()]
@@ -971,6 +1015,7 @@ def draft_all_grant_sections(body: GrantDraftAllRequest) -> dict:
         drafted, citations = draft_all_grant_sections_parallel(
             grant,
             section_list,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
             custom_sections=body.custom_sections,
         )
@@ -999,7 +1044,13 @@ def draft_sow_section(body: SOWDraftRequest) -> dict:
         raise HTTPException(status_code=400, detail="section is required.")
 
     sow = body.model_dump(
-        exclude={"section", "prior_draft", "combined_text", "custom_sections"},
+        exclude={
+            "section",
+            "prior_draft",
+            "attorney_feedback",
+            "combined_text",
+            "custom_sections",
+        },
     )
     section = body.section.strip()
     try:
@@ -1007,6 +1058,7 @@ def draft_sow_section(body: SOWDraftRequest) -> dict:
             sow,
             section,
             body.prior_draft,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
             custom_sections=body.custom_sections,
         )
@@ -1031,7 +1083,9 @@ def draft_all_sow_sections(body: SOWDraftAllRequest) -> dict:
     ``citations`` maps section id → list of :class:`SectionCitation` dicts
     (``label``, ``location``, ``excerpt``).
     """
-    sow = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
+    sow = body.model_dump(
+        exclude={"sections", "attorney_feedback", "combined_text", "custom_sections"},
+    )
     section_list = body.sections
     if section_list is not None:
         section_list = [s.strip() for s in section_list if s.strip()]
@@ -1042,6 +1096,7 @@ def draft_all_sow_sections(body: SOWDraftAllRequest) -> dict:
         drafted, citations = draft_all_sow_sections_parallel(
             sow,
             section_list,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
             custom_sections=body.custom_sections,
         )
@@ -1070,7 +1125,13 @@ def draft_ada_section(body: ADADraftRequest) -> dict:
         raise HTTPException(status_code=400, detail="section is required.")
 
     ada = body.model_dump(
-        exclude={"section", "prior_draft", "combined_text", "custom_sections"},
+        exclude={
+            "section",
+            "prior_draft",
+            "attorney_feedback",
+            "combined_text",
+            "custom_sections",
+        },
     )
     section = body.section.strip()
     try:
@@ -1078,6 +1139,7 @@ def draft_ada_section(body: ADADraftRequest) -> dict:
             ada,
             section,
             body.prior_draft,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
             custom_sections=body.custom_sections,
         )
@@ -1102,7 +1164,9 @@ def draft_all_ada_sections(body: ADADraftAllRequest) -> dict:
     ``citations`` maps section id → list of :class:`SectionCitation` dicts
     (``label``, ``location``, ``excerpt``).
     """
-    ada = body.model_dump(exclude={"sections", "combined_text", "custom_sections"})
+    ada = body.model_dump(
+        exclude={"sections", "attorney_feedback", "combined_text", "custom_sections"},
+    )
     section_list = body.sections
     if section_list is not None:
         section_list = [s.strip() for s in section_list if s.strip()]
@@ -1113,6 +1177,7 @@ def draft_all_ada_sections(body: ADADraftAllRequest) -> dict:
         drafted, citations = draft_all_ada_sections_parallel(
             ada,
             section_list,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
             custom_sections=body.custom_sections,
         )
@@ -1150,6 +1215,7 @@ def draft_generic_section_endpoint(body: GenericDraftRequest) -> dict:
             body.name,
             body.description,
             prior_draft=body.prior_draft,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
         )
     except ValueError as exc:
@@ -1181,6 +1247,7 @@ def draft_generic_all_endpoint(body: GenericDraftAllRequest) -> dict:
         drafted, citations = draft_generic_sections_parallel(
             body.document_title,
             section_dicts,
+            attorney_feedback=body.attorney_feedback,
             combined_text=body.combined_text,
         )
     except ValueError as exc:

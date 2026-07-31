@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GenericAppShell } from "../../components/GenericAppShell";
+import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
@@ -8,6 +9,7 @@ import { useGenericWorkflow } from "../../context/GenericWorkflowContext";
 import {
   ApiError,
   extractionNotesFromSources,
+  getGenericTitleCitations,
   suggestGenericTitles,
 } from "../../services/api";
 import { GENERIC_STEP_PATHS } from "../../utils/genericStorage";
@@ -27,6 +29,8 @@ export default function GenericReview() {
     saveToStorage,
     markStepComplete,
     requestAutoDraft,
+    titleCitations,
+    setTitleCitations,
   } = useGenericWorkflow();
 
   const paths = GENERIC_STEP_PATHS(templateId);
@@ -60,6 +64,45 @@ export default function GenericReview() {
   const titleTrimmed = title.trim();
   const extractionNotes = extractionNotesFromSources(inputSources);
 
+  // Cheap, LLM-free citation refresh whenever the title changes (debounced).
+  useEffect(() => {
+    if (!hasAnySource || !titleTrimmed) {
+      setTitleCitations([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const { combined } = await gatherSourceText();
+          if (cancelled || !combined.trim()) return;
+          const citations = await getGenericTitleCitations(
+            combined,
+            template.name,
+            titleTrimmed,
+          );
+          if (!cancelled) {
+            setTitleCitations(citations);
+          }
+        } catch {
+          // Citation refresh is best-effort; leave prior citations in place.
+        }
+      })();
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    titleTrimmed,
+    hasAnySource,
+    gatherSourceText,
+    template.name,
+    setTitleCitations,
+  ]);
+
   const handleSuggestTitles = () => {
     if (suggestingTitles || !hasAnySource) return;
     setError(null);
@@ -72,13 +115,14 @@ export default function GenericReview() {
           setError("No source material available. Go back to Input and add at least one source.");
           return;
         }
-        const titles = await suggestGenericTitles(
+        const { titles, citations } = await suggestGenericTitles(
           combined,
           template.name,
           title,
           extractionNotes,
         );
         setTitleSuggestions(titles);
+        setTitleCitations(citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Title suggestion failed.");
       } finally {
@@ -162,6 +206,7 @@ export default function GenericReview() {
               disabled={!hasAnySource}
             />
           </div>
+          <SectionCitationsPanel citations={titleCitations} uploadedFiles={uploadedFiles} />
         </div>
 
         <div className="space-y-4">

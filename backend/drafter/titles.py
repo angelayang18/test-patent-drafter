@@ -9,6 +9,7 @@ from drafter.grant_extractor import EXTRACT_GRANT_SYSTEM
 from drafter.llm_client import generate_json
 from drafter.prompts import EXTRACT_INVENTION_SYSTEM
 from drafter.relevance import extraction_system_prompt, format_relevance_guidance
+from drafter.retrieval import citations_for_generic_title
 from drafter.source_text import prepare_source_text
 from drafter.sow_extractor import EXTRACT_SOW_SYSTEM
 
@@ -140,12 +141,15 @@ def suggest_generic_titles(
     current: Optional[str] = None,
     relevant_notes: str = "",
     irrelevant_notes: str = "",
-) -> list[str]:
+) -> dict:
     """
     Suggest exactly five distinct candidate titles for a custom/generic document type.
 
     Uses a minimal inline system prompt keyed off ``document_type_label`` rather than
     a fixed extractor system (custom types have no EXTRACT_*_SYSTEM).
+
+    Returns ``{"titles": [...], "citations": [...]}`` where citations are cheap
+    keyword-retrieval hits for the current title (no extra LLM call).
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
@@ -187,4 +191,6 @@ Documentation:
     parsed = generate_json(system, user)
     if "titles" not in parsed:
         raise ValueError("Model response missing field 'titles'.")
-    return _normalize_titles(parsed["titles"])
+    titles = _normalize_titles(parsed["titles"])
+    citations = citations_for_generic_title(combined_text, label, current_title)
+    return {"titles": titles, "citations": citations}

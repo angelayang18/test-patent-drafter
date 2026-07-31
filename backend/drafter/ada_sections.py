@@ -5,6 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable
 
+from .drafting_guidance import format_prior_draft_context
 from .llm_client import generate_text
 from .retrieval import citations_from_excerpts, format_excerpts_block, retrieve_relevant_excerpts
 from .source_chunks import parse_source_chunks
@@ -195,6 +196,7 @@ def _build_user_prompt(
     ada: dict,
     *,
     prior_draft: str = "",
+    attorney_feedback: str = "",
     excerpts_block: str = "",
     label: str | None = None,
     instructions: str | None = None,
@@ -203,12 +205,11 @@ def _build_user_prompt(
     resolved_label = label or _SECTION_LABELS.get(section, section)
     resolved_instructions = instructions or _section_instructions(section)
     details = _format_ada_details(ada)
-    prior_block = ""
-    if prior_draft.strip():
-        prior_block = (
-            f"\n\nPrior draft of this section (revise and improve; preserve accurate facts):\n"
-            f"{prior_draft.strip()}"
-        )
+    prior_block = format_prior_draft_context(
+        prior_draft,
+        attorney_feedback,
+        feedback_label="Bioanalytical reviewer feedback",
+    )
 
     return f"""\
 Draft the "{resolved_label}" section of an ADA bioanalytical report.
@@ -240,6 +241,7 @@ def draft_single_ada_section(
     section_name: str,
     prior_draft: str = "",
     *,
+    attorney_feedback: str = "",
     combined_text: str = "",
     custom_sections: dict[str, dict[str, str]] | None = None,
 ) -> tuple[str, list[dict]]:
@@ -290,6 +292,7 @@ def draft_single_ada_section(
             section,
             ada,
             prior_draft=prior_draft,
+            attorney_feedback=attorney_feedback,
             excerpts_block=excerpts_block,
             label=name,
             instructions=description.strip() or _DEFAULT_CUSTOM_DESCRIPTION,
@@ -300,6 +303,7 @@ def draft_single_ada_section(
             section,
             ada,
             prior_draft=prior_draft,
+            attorney_feedback=attorney_feedback,
             excerpts_block=excerpts_block,
         )
     content = generate_text(system, user_prompt).strip()
@@ -310,6 +314,7 @@ def draft_all_ada_sections_parallel(
     ada: dict,
     section_names: Iterable[str] | None = None,
     *,
+    attorney_feedback: dict[str, str] | None = None,
     combined_text: str = "",
     custom_sections: dict[str, dict[str, str]] | None = None,
 ) -> tuple[dict[str, str], dict[str, list[dict]]]:
@@ -327,6 +332,7 @@ def draft_all_ada_sections_parallel(
     if not names:
         return {}, {}
 
+    feedback_map = attorney_feedback or {}
     results: dict[str, str] = {}
     citations_by_section: dict[str, list[dict]] = {}
     max_workers = min(len(names), 10)
@@ -337,6 +343,7 @@ def draft_all_ada_sections_parallel(
                 ada,
                 name,
                 "",
+                attorney_feedback=feedback_map.get(name, ""),
                 combined_text=combined_text,
                 custom_sections=custom,
             ): name
