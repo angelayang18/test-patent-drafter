@@ -67,7 +67,6 @@ export default function InputPage() {
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
-  const [importCardDismissed, setImportCardDismissed] = useState(false);
   const loadedFromDraftId = getWorkflowSnapshot().loadedFromDraftId;
 
   const websiteUrlErrors = inputSources.websiteUrls.map((url) => getWebsiteUrlError(url));
@@ -266,14 +265,11 @@ export default function InputPage() {
       )}
 
       <div className="flex flex-col gap-10">
-        {!importCardDismissed && (
-          <ImportSavedDraftsCard
-            excludeDraftId={loadedFromDraftId}
-            pastedText={inputSources.pastedText}
-            onPastedTextChange={(value) => setInputSources({ pastedText: value })}
-            onDismiss={() => setImportCardDismissed(true)}
-          />
-        )}
+        <ImportSavedDraftsCard
+          excludeDraftId={loadedFromDraftId}
+          pastedText={inputSources.pastedText}
+          onPastedTextChange={(value) => setInputSources({ pastedText: value })}
+        />
 
         <div>
           <h2 className="font-headline-md text-headline-md text-primary">Add source material</h2>

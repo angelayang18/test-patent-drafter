@@ -40,7 +40,6 @@ export default function AdaInput() {
   const [error, setError] = useState<string | null>(null);
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
-  const [importCardDismissed, setImportCardDismissed] = useState(false);
   const loadedFromDraftId = getWorkflowSnapshot().loadedFromDraftId;
 
   const websiteUrlError =
@@ -177,14 +176,11 @@ export default function AdaInput() {
       )}
 
       <div className="flex flex-col gap-10">
-        {!importCardDismissed && (
-          <ImportSavedDraftsCard
-            excludeDraftId={loadedFromDraftId}
-            pastedText={inputSources.pastedText}
-            onPastedTextChange={(value) => setInputSources({ pastedText: value })}
-            onDismiss={() => setImportCardDismissed(true)}
-          />
-        )}
+        <ImportSavedDraftsCard
+          excludeDraftId={loadedFromDraftId}
+          pastedText={inputSources.pastedText}
+          onPastedTextChange={(value) => setInputSources({ pastedText: value })}
+        />
         <UploadPanel
           inputSources={inputSources}
           onInputSourcesChange={setInputSources}

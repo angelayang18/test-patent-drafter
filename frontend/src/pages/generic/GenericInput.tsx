@@ -42,7 +42,6 @@ export default function GenericInput() {
   const [error, setError] = useState<string | null>(null);
   const [confluenceError, setConfluenceError] = useState<string | null>(null);
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
-  const [importCardDismissed, setImportCardDismissed] = useState(false);
   const loadedFromDraftId = getWorkflowSnapshot().loadedFromDraftId;
   const paths = GENERIC_STEP_PATHS(templateId);
 
@@ -214,14 +213,11 @@ export default function GenericInput() {
           />
         </div>
 
-        {!importCardDismissed && (
-          <ImportSavedDraftsCard
-            excludeDraftId={loadedFromDraftId}
-            pastedText={inputSources.pastedText}
-            onPastedTextChange={(value) => setInputSources({ pastedText: value })}
-            onDismiss={() => setImportCardDismissed(true)}
-          />
-        )}
+        <ImportSavedDraftsCard
+          excludeDraftId={loadedFromDraftId}
+          pastedText={inputSources.pastedText}
+          onPastedTextChange={(value) => setInputSources({ pastedText: value })}
+        />
         <UploadPanel
           inputSources={inputSources}
           onInputSourcesChange={setInputSources}
