@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type RefObject } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 interface NotesSidebarCoachmarkProps {
   anchorRef: RefObject<HTMLElement>;
@@ -31,21 +31,46 @@ export function NotesSidebarCoachmark({ anchorRef, onDismiss }: NotesSidebarCoac
   const buttonRef = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const updatePosition = () => {
       const anchor = anchorRef.current;
       const card = cardRef.current;
-      if (!anchor) return;
+      if (!anchor || !card) return;
 
       const rect = anchor.getBoundingClientRect();
-      const cardWidth = card?.offsetWidth ?? 280;
-      const cardHeight = card?.offsetHeight ?? 120;
+      const cardWidth = card.offsetWidth;
+      const cardHeight = card.offsetHeight;
+      if (cardWidth === 0 || cardHeight === 0) return;
+
       setPosition(computePosition(rect, cardWidth, cardHeight));
     };
 
     updatePosition();
+
+    // Re-measure after paint so we use the real rendered card size, not fallbacks.
+    const rafId = requestAnimationFrame(() => {
+      updatePosition();
+    });
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined" && cardRef.current
+        ? new ResizeObserver(() => {
+            updatePosition();
+          })
+        : null;
+    if (cardRef.current && resizeObserver) {
+      resizeObserver.observe(cardRef.current);
+    }
+
     window.addEventListener("resize", updatePosition);
-    return () => window.removeEventListener("resize", updatePosition);
+    // Capture phase so scrollable ancestors (not just window) trigger reclamping.
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      cancelAnimationFrame(rafId);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
   }, [anchorRef]);
 
   useEffect(() => {

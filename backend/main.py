@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -18,13 +18,22 @@ from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.ada_extractor import extract_ada_details, extract_ada_field
 from drafter.ada_sections import draft_all_ada_sections_parallel, draft_single_ada_section
 from drafter.grant_extractor import extract_grant_details, extract_grant_field
-from drafter.grant_sections import draft_all_grant_sections_parallel, draft_single_grant_section
+from drafter.grant_sections import (
+    GRANT_SECTIONS,
+    draft_all_grant_sections_parallel,
+    draft_single_grant_section,
+)
 from drafter.figures import generate_patent_figures, regenerate_patent_figure
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
+from drafter.prompts import PATENT_SECTIONS
 from drafter.selection_regenerate import regenerate_selection
 from drafter.sections import draft_all_sections_parallel, draft_section
 from drafter.sow_extractor import extract_sow_details, extract_sow_field
-from drafter.sow_sections import draft_all_sow_sections_parallel, draft_single_sow_section
+from drafter.sow_sections import (
+    SOW_SECTIONS,
+    draft_all_sow_sections_parallel,
+    draft_single_sow_section,
+)
 from drafter.generic_sections import draft_generic_section, draft_generic_sections_parallel
 from drafter.retrieval import citations_for_generic_title
 from drafter.titles import suggest_generic_titles, suggest_titles
@@ -48,6 +57,17 @@ from parsers.pptx_parser import extract_text_from_pptx
 from parsers.web_scraper import scrape_url
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# force=True so INFO app logs appear even when uvicorn already configured logging.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
+# Keep common HTTP client loggers quiet unless they warn.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
 
 log = logging.getLogger(__name__)
 
@@ -395,8 +415,22 @@ class QAReportRequest(BaseModel):
     invention: Optional[InventionDetails] = None
 
 
+class FormatQAReportRequest(BaseModel):
+    """Format-only QA for any document type (no invention-alignment checks)."""
+
+    sections: dict[str, str] = Field(default_factory=dict)
+    document_type: Literal["patent", "grant", "sow"] = "patent"
+
+
 class PrerenderFiguresRequest(BaseModel):
     figures: list[PatentFigureModel] = Field(default_factory=list)
+
+
+_FORMAT_QA_CANONICAL_SECTIONS: dict[str, list[str]] = {
+    "patent": list(PATENT_SECTIONS),
+    "grant": list(GRANT_SECTIONS),
+    "sow": list(SOW_SECTIONS),
+}
 
 
 def _confluence_base_url(url: str) -> str:
@@ -1445,13 +1479,35 @@ def prerender_figures(body: PrerenderFiguresRequest) -> dict:
 
 @app.post("/qa-report")
 def qa_report(body: QAReportRequest) -> List[Dict[str, Union[str, List[str]]]]:
-    """Return per-section format QA results for a patent draft."""
+    """Return per-section format QA results for a patent draft.
+
+    When ``invention`` is provided, also append patent invention-alignment checks.
+    Grant/SOW clients should prefer ``/format-qa-report`` instead.
+    """
     report = get_format_qa_report(body.sections)
     if body.invention is not None:
         report.extend(
             get_invention_alignment_qa_report(body.sections, body.invention.model_dump())
         )
     return report
+
+
+@app.post("/format-qa-report")
+def format_qa_report(
+    body: FormatQAReportRequest,
+) -> List[Dict[str, Union[str, List[str]]]]:
+    """Return format-only QA (empty sections, claim/abstract rules, insufficient source).
+
+    Uses ``document_type`` to select the canonical section list so Grant/SOW drafts
+    are not padded with patent section ids. Does not run invention-alignment checks.
+    """
+    canonical = _FORMAT_QA_CANONICAL_SECTIONS.get(body.document_type)
+    if canonical is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported document_type '{body.document_type}'.",
+        )
+    return get_format_qa_report(body.sections, canonical_sections=canonical)
 
 
 @app.post("/export/docx")

@@ -8,6 +8,8 @@ from drafter.grant_sections import (
     GRANT_SECTIONS,
     draft_all_grant_sections_parallel,
     draft_single_grant_section,
+    get_custom_grant_section_agent_system,
+    get_grant_section_agent_system,
 )
 
 
@@ -22,6 +24,55 @@ def _sample_grant() -> dict:
         "budget_overview": "Personnel, training materials, and evaluation.",
         "evaluation_plan": "Pre/post skills assessment and retention tracking.",
     }
+
+
+def test_grant_agent_conventions_forbid_bracket_placeholders():
+    """Regression: sparse project details must not produce [bracket] filler.
+
+    Grant conventions previously lacked Patent/ADA-style sparse-detail guidance,
+    so thin or N/A extracts yielded unfilled placeholders like [Client Name].
+    """
+    system = get_grant_section_agent_system("executive_summary")
+    custom_system = get_custom_grant_section_agent_system(
+        "Sustainability Plan",
+        "Describe how the project continues after grant funding ends.",
+    )
+    for prompt in (system, custom_system):
+        assert "largely missing" in prompt
+        assert "N/A" in prompt
+        assert "too sparse" in prompt
+        assert "sufficient detail" in prompt
+        assert "bracket placeholders" in prompt
+        assert "[Client Name]" in prompt
+        assert "[insert X]" in prompt
+
+    na_grant = {
+        "project_title": "N/A",
+        "problem_statement": "N/A",
+        "proposed_solution": "N/A",
+        "innovation_and_impact": "N/A",
+        "target_population": "N/A",
+        "team_qualifications": "N/A",
+        "budget_overview": "N/A",
+        "evaluation_plan": "N/A",
+    }
+
+    def _fake_generate(sys: str, user: str) -> str:
+        assert "bracket placeholders" in sys
+        assert "N/A" in user
+        return (
+            "The provided source material does not provide sufficient detail "
+            "to draft this section."
+        )
+
+    with patch("drafter.grant_sections.generate_text", side_effect=_fake_generate):
+        content, citations = draft_single_grant_section(
+            na_grant, "executive_summary"
+        )
+
+    assert "[" not in content
+    assert "sufficient detail" in content.lower()
+    assert citations == []
 
 
 def test_draft_single_grant_section_returns_content_and_citations_tuple():

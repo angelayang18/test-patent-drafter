@@ -11,10 +11,12 @@ import { SelectionRegeneratePopover } from "../../components/SelectionRegenerate
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SectionManagerModal } from "../../components/SectionManagerModal";
 import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
+import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { useGenericWorkflow } from "../../context/GenericWorkflowContext";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useUndoRedo } from "../../hooks/useUndoRedo";
 import { useTextareaSelectionRegenerate } from "../../hooks/useTextareaSelectionRegenerate";
 import {
   ApiError,
@@ -104,7 +106,16 @@ export default function GenericDraft() {
   );
 
   const [activeSection, setActiveSection] = useState<string>(sectionIds[0] ?? "");
-  const [draftText, setDraftText] = useState("");
+  const {
+    value: draftText,
+    replace: setDraftText,
+    push: pushDraftText,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset: resetDraftHistory,
+  } = useUndoRedo("");
   const [parallelDrafting, setParallelDrafting] = useState(false);
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +124,8 @@ export default function GenericDraft() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [manageSectionsOpen, setManageSectionsOpen] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
   const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
 
   const isGenerating = parallelDrafting || regenerating.size > 0 || regeneratingSelection;
@@ -125,6 +138,10 @@ export default function GenericDraft() {
   const autoDraftStarted = useRef(false);
   const sectionsRef = useRef(sections);
   const activeSectionRef = useRef(activeSection);
+  const saveToStorageRef = useRef(saveToStorage);
+  saveToStorageRef.current = saveToStorage;
+  const suppressSavedIndicator = useRef(true);
+  const prevActiveSectionRef = useRef(activeSection);
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -143,12 +160,29 @@ export default function GenericDraft() {
   useEffect(() => {
     if (sectionIds.length > 0 && !sectionIds.includes(activeSection)) {
       setActiveSection(sectionIds[0]);
+      resetDraftHistory(sectionsRef.current[sectionIds[0]] ?? "");
     }
-  }, [sectionIds, activeSection]);
+  }, [sectionIds, activeSection, resetDraftHistory]);
 
   useEffect(() => {
-    setDraftText(sections[activeSection] ?? "");
-  }, [activeSection, sections]);
+    resetDraftHistory(sectionsRef.current[activeSection] ?? "");
+    const timer = window.setTimeout(() => {
+      suppressSavedIndicator.current = false;
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // Load stored content for the initial section once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (prevActiveSectionRef.current === activeSection) return;
+    prevActiveSectionRef.current = activeSection;
+    suppressSavedIndicator.current = true;
+    const timer = window.setTimeout(() => {
+      suppressSavedIndicator.current = false;
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [activeSection]);
 
   const startParallelDraft = useCallback(
     async (ids: string[]) => {
@@ -175,7 +209,7 @@ export default function GenericDraft() {
         setSections({ ...sectionsRef.current, ...drafted });
         setSectionCitations(citations);
         if (ids.includes(activeSectionRef.current)) {
-          setDraftText(drafted[activeSectionRef.current] ?? "");
+          resetDraftHistory(drafted[activeSectionRef.current] ?? "");
         }
         saveToStorage();
         flashSaved();
@@ -194,6 +228,7 @@ export default function GenericDraft() {
       reviewerFeedback,
       setSections,
       setSectionCitations,
+      resetDraftHistory,
       saveToStorage,
       flashSaved,
     ],
@@ -218,8 +253,10 @@ export default function GenericDraft() {
   ]);
 
   const selectSection = (sectionId: string) => {
+    if (sectionId === activeSection) return;
     setSection(activeSection, draftText);
     setActiveSection(sectionId);
+    resetDraftHistory(sectionsRef.current[sectionId] ?? "");
   };
 
   const handleDraftTextChange = (text: string) => {
@@ -228,40 +265,53 @@ export default function GenericDraft() {
   };
 
   useEffect(() => {
-    const timer = window.setTimeout(() => saveToStorage(), 500);
+    if (!suppressSavedIndicator.current) {
+      flashSavedRef.current();
+    }
+  }, [draftText, activeSection]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSection(activeSection, draftText);
+      saveToStorageRef.current();
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [draftText, activeSection, saveToStorage]);
+  }, [draftText, activeSection, setSection]);
 
   const handleRegenerateSection = () => {
     if (!details?.title?.trim() || regenerating.has(activeSection) || parallelDrafting) {
       return;
     }
-    setRegenerating((prev) => new Set(prev).add(activeSection));
+    const sectionId = activeSection;
+    setRegenerating((prev) => new Set(prev).add(sectionId));
     setError(null);
+    pushDraftText(draftText);
     void (async () => {
       try {
         const { combined } = await gatherSourceText();
-        const meta = resolvedSectionsPayload.find((section) => section.id === activeSection) ?? {
-          id: activeSection,
+        const meta = resolvedSectionsPayload.find((section) => section.id === sectionId) ?? {
+          id: sectionId,
           name: resolveSectionLabel(
-            activeSection,
+            sectionId,
             sectionSettings,
-            defaultLabels[activeSection] ?? activeSection,
+            defaultLabels[sectionId] ?? sectionId,
           ),
           description: resolveSectionDescription(
-            activeSection,
+            sectionId,
             sectionSettings,
-            defaultDescriptions[activeSection] ?? "",
+            defaultDescriptions[sectionId] ?? "",
           ),
         };
         const { content, citations } = await draftGenericSection(details.title, meta, {
           priorDraft: draftText,
-          attorneyFeedback: reviewerFeedback[activeSection] ?? "",
+          attorneyFeedback: reviewerFeedback[sectionId] ?? "",
           combinedText: combined,
         });
-        setDraftText(content);
-        setSection(activeSection, content);
-        setSectionCitations({ [activeSection]: citations });
+        if (activeSectionRef.current === sectionId) {
+          pushDraftText(content);
+        }
+        setSection(sectionId, content);
+        setSectionCitations({ [sectionId]: citations });
         saveToStorage();
         flashSaved();
       } catch (err) {
@@ -269,7 +319,7 @@ export default function GenericDraft() {
       } finally {
         setRegenerating((prev) => {
           const next = new Set(prev);
-          next.delete(activeSection);
+          next.delete(sectionId);
           return next;
         });
       }
@@ -304,6 +354,7 @@ export default function GenericDraft() {
     if (!textareaSelection || !details?.title?.trim()) return;
     setError(null);
     setRegeneratingSelection(true);
+    pushDraftText(draftText);
     void (async () => {
       try {
         const replacement = await regenerateSelection(
@@ -316,7 +367,7 @@ export default function GenericDraft() {
           draftText.slice(0, textareaSelection.start) +
           replacement +
           draftText.slice(textareaSelection.end);
-        setDraftText(newText);
+        pushDraftText(newText);
         setSection(activeSection, newText);
         saveToStorage();
         flashSaved();
@@ -347,6 +398,12 @@ export default function GenericDraft() {
           right={
             <>
               <SavedIndicator visible={savedVisible} />
+              <UndoRedoToolbar
+                canUndo={canUndo && !isGenerating}
+                canRedo={canRedo && !isGenerating}
+                onUndo={undo}
+                onRedo={redo}
+              />
               <WorkflowNextLink
                 to={paths.export}
                 disabled={

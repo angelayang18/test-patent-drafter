@@ -3,11 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
+import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { GRANT_CORE_FIELD_KEYS, GRANT_REVIEW_FIELDS } from "../../constants/grantFields";
 import { useGrantWorkflow } from "../../context/GrantWorkflowContext";
+import { useUndoRedo } from "../../hooks/useUndoRedo";
 import {
   ApiError,
   extractionNotesFromSources,
@@ -33,11 +36,27 @@ export default function GrantReview() {
     requestAutoDraft,
   } = useGrantWorkflow();
 
-  const [form, setForm] = useState<GrantDetails>(grantDetails ?? defaultGrantDetails);
+  const {
+    value: form,
+    replace,
+    push,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset,
+  } = useUndoRedo<GrantDetails>(grantDetails ?? defaultGrantDetails);
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
+  const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
   const formRef = useRef(form);
+  const initialSynced = useRef(false);
+  const suppressSavedIndicator = useRef(true);
+  const hasDetailsRef = useRef(Boolean(grantDetails));
+  hasDetailsRef.current = Boolean(grantDetails);
 
   useEffect(() => {
     formRef.current = form;
@@ -48,14 +67,27 @@ export default function GrantReview() {
       navigate("/grant/input", { replace: true });
       return;
     }
-    setForm(grantDetails);
-  }, [grantDetails, navigate]);
+    if (!initialSynced.current) {
+      reset(grantDetails);
+      initialSynced.current = true;
+      window.setTimeout(() => {
+        suppressSavedIndicator.current = false;
+      }, 0);
+    }
+  }, [grantDetails, navigate, reset]);
 
   useEffect(() => {
     if (!grantDetails) return;
     setGrantDetails(form);
     saveToStorage();
   }, [form, grantDetails, setGrantDetails, saveToStorage]);
+
+  useEffect(() => {
+    if (!hasDetailsRef.current || suppressSavedIndicator.current) {
+      return;
+    }
+    flashSavedRef.current();
+  }, [form]);
 
   const extractionNotes = extractionNotesFromSources(inputSources);
   const isBusy = regenerating.size > 0;
@@ -66,13 +98,14 @@ export default function GrantReview() {
   const allCoreEmpty = coreFilled === 0;
 
   const updateField = (key: ExtractableGrantField, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    replace({ ...form, [key]: value });
   };
 
   const handleRegenerateField = (field: ExtractableGrantField) => {
     if (regenerating.has(field) || regenerating.has("all")) return;
     setRegenerating((prev) => new Set(prev).add(field));
     setError(null);
+    push(structuredClone(formRef.current));
 
     void (async () => {
       try {
@@ -87,7 +120,9 @@ export default function GrantReview() {
           formRef.current,
           extractionNotes,
         );
-        setForm((prev) => ({ ...prev, ...result.details }));
+        const next = { ...formRef.current, ...result.details };
+        formRef.current = next;
+        push(next);
         setFieldCitations(result.citations);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Re-extraction failed.");
@@ -104,6 +139,7 @@ export default function GrantReview() {
   const handleRegenerateAll = () => {
     setRegenerating((prev) => new Set(prev).add("all"));
     setError(null);
+    push(structuredClone(formRef.current));
     void (async () => {
       try {
         const { combined } = await gatherSourceText({ onProgress: setExtractPhase });
@@ -112,7 +148,7 @@ export default function GrantReview() {
           return;
         }
         const result = await extractGrant(combined, extractionNotes);
-        setForm(result.details);
+        push(result.details);
         setGrantDetails(result.details);
         setFieldCitations(result.citations);
       } catch (err) {
@@ -139,17 +175,26 @@ export default function GrantReview() {
         <WorkflowFooter
           left={<WorkflowBackLink to="/grant/input" />}
           right={
-            <WorkflowNextLink
-              to="/grant/draft"
-              disabled={allCoreEmpty || isBusy}
-              onClick={() => {
-                markStepComplete("review");
-                requestAutoDraft();
-                saveToStorage();
-              }}
-            >
-              Next: Draft
-            </WorkflowNextLink>
+            <>
+              <SavedIndicator visible={savedVisible} />
+              <UndoRedoToolbar
+                canUndo={canUndo && !isBusy}
+                canRedo={canRedo && !isBusy}
+                onUndo={undo}
+                onRedo={redo}
+              />
+              <WorkflowNextLink
+                to="/grant/draft"
+                disabled={allCoreEmpty || isBusy}
+                onClick={() => {
+                  markStepComplete("review");
+                  requestAutoDraft();
+                  saveToStorage();
+                }}
+              >
+                Next: Draft
+              </WorkflowNextLink>
+            </>
           }
         />
       }

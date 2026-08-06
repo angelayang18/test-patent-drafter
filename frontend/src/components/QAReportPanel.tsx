@@ -3,6 +3,9 @@ import type { QAReportEntry } from "../services/api";
 
 interface QAReportPanelProps {
   report: QAReportEntry[];
+  /** Optional section order for Grant/SOW (defaults to patent document order). */
+  sectionOrder?: readonly string[];
+  description?: string;
 }
 
 function statusIndicator(status: string): {
@@ -43,30 +46,42 @@ function statusIndicator(status: string): {
   }
 }
 
-function sortReport(report: QAReportEntry[]): QAReportEntry[] {
-  const order = [...DOCUMENT_SECTION_ORDER];
+const CATEGORY_SORT_ORDER = ["Format", "Alignment"];
+
+function sortReport(report: QAReportEntry[], sectionOrder: readonly string[]): QAReportEntry[] {
+  const order = [...sectionOrder];
   return [...report].sort((a, b) => {
-    const indexA = order.indexOf(a.section as (typeof DOCUMENT_SECTION_ORDER)[number]);
-    const indexB = order.indexOf(b.section as (typeof DOCUMENT_SECTION_ORDER)[number]);
+    const indexA = order.indexOf(a.section);
+    const indexB = order.indexOf(b.section);
     if (indexA === -1 && indexB === -1) {
-      return a.section.localeCompare(b.section);
-    }
-    if (indexA === -1) {
+      const sectionCmp = a.section.localeCompare(b.section);
+      if (sectionCmp !== 0) {
+        return sectionCmp;
+      }
+    } else if (indexA === -1) {
       return 1;
-    }
-    if (indexB === -1) {
+    } else if (indexB === -1) {
       return -1;
+    } else if (indexA !== indexB) {
+      return indexA - indexB;
     }
-    return indexA - indexB;
+
+    const categoryA = CATEGORY_SORT_ORDER.indexOf(a.category ?? "");
+    const categoryB = CATEGORY_SORT_ORDER.indexOf(b.category ?? "");
+    return (categoryA === -1 ? 99 : categoryA) - (categoryB === -1 ? 99 : categoryB);
   });
 }
 
-export function QAReportPanel({ report }: QAReportPanelProps) {
+export function QAReportPanel({
+  report,
+  sectionOrder = DOCUMENT_SECTION_ORDER,
+  description = "Automated checks for empty sections, claim numbering, and abstract length before export.",
+}: QAReportPanelProps) {
   if (report.length === 0) {
     return null;
   }
 
-  const sorted = sortReport(report);
+  const sorted = sortReport(report, sectionOrder);
 
   return (
     <section className="p-10 border-b border-outline-variant">
@@ -76,9 +91,7 @@ export function QAReportPanel({ report }: QAReportPanelProps) {
         </span>
         <div>
           <h2 className="font-title-lg text-title-lg text-primary mb-1">Format QA checklist</h2>
-          <p className="font-body-sm text-body-sm text-on-surface-variant">
-            Automated checks for empty sections, claim numbering, and abstract length before export.
-          </p>
+          <p className="font-body-sm text-body-sm text-on-surface-variant">{description}</p>
         </div>
       </div>
       <ul className="space-y-2">
@@ -86,7 +99,7 @@ export function QAReportPanel({ report }: QAReportPanelProps) {
           const indicator = statusIndicator(entry.status);
           return (
             <li
-              key={`${entry.section}-${index}`}
+              key={`${entry.category ?? "qa"}-${entry.section}-${index}`}
               className={`flex items-start gap-3 p-3 rounded-lg border ${indicator.rowClass}`}
             >
               <span
@@ -101,6 +114,11 @@ export function QAReportPanel({ report }: QAReportPanelProps) {
                   <p className="font-body-md text-body-md font-medium text-on-surface">
                     {sectionDisplayTitle(entry.section)}
                   </p>
+                  {entry.category && (
+                    <span className="font-label-sm text-label-sm px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant">
+                      {entry.category}
+                    </span>
+                  )}
                   <span className="font-label-sm text-label-sm text-on-surface-variant">
                     {indicator.label}
                   </span>

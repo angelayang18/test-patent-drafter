@@ -40,7 +40,13 @@ _GRANT_DRAFTER_SYSTEM = (
 _AGENT_CONVENTIONS = (
     "Write complete grant prose for your assigned section only. "
     "Do not include the section title in your output. "
-    "Ground claims in the project details provided; do not invent unsupported statistics."
+    "Ground claims in the project details provided; do not invent unsupported statistics. "
+    "If the project details are largely missing, marked 'N/A', or too sparse to describe "
+    "a real project, say so plainly in the section text (e.g., state that the source "
+    "material does not provide sufficient detail to draft this section) rather than "
+    "inventing placeholder values or generic filler. "
+    "Do not use bracket placeholders like [Client Name] or [insert X] — write complete "
+    "prose or state that the detail isn't available."
 )
 
 _DEFAULT_CUSTOM_DESCRIPTION = (

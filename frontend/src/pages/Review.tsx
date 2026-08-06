@@ -187,6 +187,8 @@ export default function Review() {
     content: string;
   } | null>(null);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
 
   const initialSynced = useRef(false);
   const suppressSavedIndicator = useRef(true);
@@ -231,6 +233,7 @@ export default function Review() {
     }
   }, [reviewData, navigate, workflowResetting]);
 
+  // Persist form → context/storage. May recreate reviewData/saveToStorage identities.
   useEffect(() => {
     if (workflowResetting || !reviewData) {
       return;
@@ -241,11 +244,19 @@ export default function Review() {
       setInvention(form as InventionDetails);
     }
     saveToStorage();
-    if (suppressSavedIndicator.current) return;
+  }, [form, reviewData, isGrant, setInvention, setGrantDetails, saveToStorage, workflowResetting]);
 
-    const timer = window.setTimeout(() => flashSaved(), 400);
-    return () => window.clearTimeout(timer);
-  }, [form, reviewData, isGrant, setInvention, setGrantDetails, saveToStorage, flashSaved, workflowResetting]);
+  // Flash immediately on form edits (each keystroke extends the 2s window via flash()).
+  // Do not debounce: a delayed flash leaves a gap where a prior hide timer can blank the
+  // indicator before the new flash runs — that was the vanishing-"Saved" flicker.
+  const hasReviewDataRef = useRef(Boolean(reviewData));
+  hasReviewDataRef.current = Boolean(reviewData);
+  useEffect(() => {
+    if (workflowResetting || !hasReviewDataRef.current || suppressSavedIndicator.current) {
+      return;
+    }
+    flashSavedRef.current();
+  }, [form, workflowResetting]);
 
   const extractionNotes = extractionNotesFromSources(inputSources);
 

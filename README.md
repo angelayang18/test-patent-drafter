@@ -145,7 +145,7 @@ Edit `.env` with your values:
 | `LLM_RETRY_BACKOFF_SECONDS` | Initial retry backoff; doubles each retry (default: `5`) |
 | `LLM_HEALTH_PROBE_TIMEOUT_SECONDS` | Timeout for `/health` LLM reachability probe (default: `10`) |
 | `EXTRACT_MODE` | Extraction strategy: `grouped` (default), `single`, or `parallel` |
-| `EXTRACT_MAX_SOURCE_CHARS` | Max source text sent to extraction LLM (default: `80000`) |
+| `EXTRACT_MAX_SOURCE_CHARS` | Short-doc ceiling for extraction (default: `80000`); longer sources use retrieve-then-extract |
 | `MMDC_PATH` | Optional path to `mmdc` if not on `PATH` |
 | `KROKI_BASE_URL` | Optional Kroki base URL for Mermaid PNG (default: `https://kroki.io`) |
 | `LEARNING_ENABLED` | Enable org-wide learning corpus and guideline retrieval (default: `true`) |

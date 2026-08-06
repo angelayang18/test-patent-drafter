@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SowAppShell } from "../../components/SowAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { QAReportPanel } from "../../components/QAReportPanel";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink } from "../../components/WorkflowNavButtons";
 import { useSowWorkflow } from "../../context/SowWorkflowContext";
@@ -10,6 +11,8 @@ import {
   downloadBlob,
   exportSowDocx,
   exportSowPdf,
+  fetchFormatQAReport,
+  type QAReportEntry,
 } from "../../services/api";
 import { SOW_SECTION_IDS, SOW_SECTION_LABELS } from "../../types/patent";
 import {
@@ -35,6 +38,7 @@ export default function SowExport() {
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [qaReport, setQaReport] = useState<QAReportEntry[]>([]);
 
   useEffect(() => {
     if (!isSowStepAccessible("export", getWorkflowSnapshot())) {
@@ -62,6 +66,28 @@ export default function SowExport() {
   const exporting = docxState === "preparing" || pdfState === "preparing";
   const exportDisabled = exporting || !isComplete;
   const engagementTitle = sowDetails?.engagement_title ?? "";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadQa = async () => {
+      try {
+        const report = await fetchFormatQAReport(sections, "sow");
+        if (!cancelled) {
+          setQaReport(report);
+        }
+      } catch {
+        if (!cancelled) {
+          setQaReport([]);
+        }
+      }
+    };
+
+    void loadQa();
+    return () => {
+      cancelled = true;
+    };
+  }, [sections]);
 
   const handleDownloadDocx = async () => {
     if (!isComplete) return;
@@ -143,6 +169,12 @@ export default function SowExport() {
           {error && (
             <div className="mx-10 mt-6 p-4 rounded-lg bg-error-container/20 text-error text-sm">{error}</div>
           )}
+
+          <QAReportPanel
+            report={qaReport}
+            sectionOrder={SOW_SECTION_IDS}
+            description="Automated checks for empty sections and insufficient source-content language before export."
+          />
 
           <section className="p-10">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">

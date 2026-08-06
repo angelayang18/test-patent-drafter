@@ -340,36 +340,41 @@ def test_citation_quote_truncates_at_sentence_boundary():
 
 
 def test_field_citations_prefer_extracted_value_over_label_boilerplate():
-    """Label-only overlap with boilerplate must lose to the extracted-value paragraph."""
-    # Mirrors the live bug: "Evaluation Plan" → {evaluation, plan} latches onto
-    # "Implementation Plan" cover-page boilerplate. The on-topic paragraph shares
-    # almost none of the label vocabulary, so label-only retrieval cannot find it.
+    """Extracted-value vocabulary must beat Implementation Plan cover pages."""
+    # Live bug shape: "Evaluation Plan" / {plan} latched onto cover-page boilerplate.
     combined_text = (
         "--- opAIda_2Week_Implementation_Plan.docx ---\n"
-        "Implementation Plan Prepared by Angela Yang for the Patent Internship program. "
-        "This cover page describes the two-week plan schedule and administrative logistics "
-        "for onboarding and weekly check-ins with mentors across the internship plan.\n\n"
+        "opAIda Document Drafter\n"
+        "Platform Expansion — 2-Week (10 Working Day) Implementation Plan\n"
+        "Prepared by Angela Yang · opAIda Patent Internship · July 23, 2026\n"
+        "1. Background\n"
+        "Following the supervisor demo of the current platform, this cover page "
+        "describes administrative logistics for onboarding and weekly check-ins.\n\n"
         "--- outcomes-framework.pdf ---\n"
         "Success is measured using quarterly outcome metrics, KPI dashboards, and "
         "longitudinal surveys of participant skill gains across regional cohorts with "
-        "baseline and follow-up instruments.\n"
+        "baseline and follow-up instruments. Evaluation harnesses leverage FDAbench "
+        "and GDPval for retrieval completeness and graded deliverable quality.\n"
     )
     field_labels = {"evaluation_plan": "Evaluation Plan"}
+
+    # Label-only must not cite the cover page as if it were evaluation evidence.
     label_only = citations_for_fields(
         combined_text,
         ["evaluation_plan"],
         field_labels,
         details={},
     )
-    assert label_only["evaluation_plan"]
-    assert label_only["evaluation_plan"][0]["label"] == (
-        "opAIda_2Week_Implementation_Plan.docx"
-    )
+    if label_only["evaluation_plan"]:
+        excerpt = label_only["evaluation_plan"][0]["excerpt"].lower()
+        assert "prepared by angela yang" not in excerpt
 
     details = {
         "evaluation_plan": (
-            "Quarterly outcome metrics, KPI dashboards, and longitudinal surveys of "
-            "participant skill gains with baseline and follow-up instruments"
+            "Success will be measured through standardized benchmarks with ≥95% "
+            "automated accuracy. Evaluation harnesses will leverage FDAbench-Full "
+            "for retrieval-and-structure completeness and GDPval for domain-expert "
+            "graded deliverable quality, plus KPI dashboards and longitudinal surveys."
         ),
     }
     enriched = citations_for_fields(
@@ -380,7 +385,32 @@ def test_field_citations_prefer_extracted_value_over_label_boilerplate():
     )
     assert enriched["evaluation_plan"]
     assert enriched["evaluation_plan"][0]["label"] == "outcomes-framework.pdf"
-    assert "kpi dashboards" in enriched["evaluation_plan"][0]["excerpt"].lower()
+    excerpt = enriched["evaluation_plan"][0]["excerpt"].lower()
+    assert "prepared by" not in excerpt
+    assert "kpi" in excerpt or "fdabench" in excerpt or "gdpval" in excerpt
+
+
+def test_field_citations_omit_when_value_terms_absent_from_source():
+    """Do not fall back to cover-page quotes when evidence terms are missing."""
+    combined_text = (
+        "--- opAIda_2Week_Implementation_Plan.docx ---\n"
+        "opAIda Document Drafter Platform Expansion Implementation Plan\n"
+        "Prepared by Angela Yang · opAIda Patent Internship · July 23, 2026\n"
+        "1. Background Following the supervisor demo of the current platform.\n"
+    )
+    details = {
+        "evaluation_plan": (
+            "FDAbench-Full retrieval completeness GDPval graded quality "
+            "immunogenicity database collaborative citation coverage"
+        ),
+    }
+    result = citations_for_fields(
+        combined_text,
+        ["evaluation_plan"],
+        {"evaluation_plan": "Evaluation Plan"},
+        details=details,
+    )
+    assert result["evaluation_plan"] == []
 
 
 def test_citations_for_generic_title_empty_source_returns_empty():

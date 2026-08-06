@@ -10,7 +10,9 @@ from fastapi.testclient import TestClient
 
 from exporter.invention_qa import get_invention_alignment_qa_report
 from exporter.text_format import get_format_qa_report
+from drafter.grant_sections import GRANT_SECTIONS
 from drafter.prompts import PATENT_SECTIONS
+from drafter.sow_sections import SOW_SECTIONS
 from learning.storage import reset_storage
 from main import app
 
@@ -27,6 +29,7 @@ def test_get_format_qa_report_warns_on_empty_section():
     field_entry = next(entry for entry in report if entry["section"] == "field")
     assert field_entry == {
         "section": "field",
+        "category": "Format",
         "status": "warn",
         "messages": ["Section is empty."],
     }
@@ -65,13 +68,32 @@ def test_get_format_qa_report_warns_only_for_unfilled_sections():
 def test_get_format_qa_report_passes_valid_section():
     report = get_format_qa_report({"field": "The present invention relates to data processing."})
     field_entry = next(entry for entry in report if entry["section"] == "field")
-    assert field_entry == {"section": "field", "status": "pass", "messages": []}
+    assert field_entry == {
+        "section": "field",
+        "category": "Format",
+        "status": "pass",
+        "messages": [],
+    }
+
+
+def test_get_format_qa_report_warns_on_insufficient_source_language():
+    text = (
+        "The provided source material does not provide sufficient detail to draft this section."
+    )
+    report = get_format_qa_report({"background": text})
+    background_entry = next(entry for entry in report if entry["section"] == "background")
+    assert background_entry["category"] == "Format"
+    assert background_entry["status"] == "warn"
+    assert background_entry["messages"] == [
+        "This section states the source material was insufficient — review before filing.",
+    ]
 
 
 def test_get_format_qa_report_fails_invalid_claims():
     report = get_format_qa_report({"claims": "1. First claim.\n\n3. Third claim."})
     claims_entry = next(entry for entry in report if entry["section"] == "claims")
     assert claims_entry["status"] == "fail"
+    assert claims_entry["category"] == "Format"
     assert claims_entry["messages"]
     empty_entries = [entry for entry in report if entry["section"] != "claims"]
     assert len(empty_entries) == len(PATENT_SECTIONS) - 1
@@ -86,6 +108,56 @@ def test_qa_report_endpoint_returns_format_qa_report(client: TestClient):
     response = client.post("/qa-report", json={"sections": sections})
     assert response.status_code == 200
     assert response.json() == get_format_qa_report(sections)
+
+
+def test_get_format_qa_report_respects_grant_canonical_sections():
+    text = (
+        "The provided source material does not provide sufficient detail to draft this section."
+    )
+    report = get_format_qa_report(
+        {"executive_summary": text},
+        canonical_sections=list(GRANT_SECTIONS),
+    )
+    assert len(report) == len(GRANT_SECTIONS)
+    assert {entry["section"] for entry in report} == set(GRANT_SECTIONS)
+    assert all(entry["section"] not in PATENT_SECTIONS for entry in report)
+    summary = next(entry for entry in report if entry["section"] == "executive_summary")
+    assert summary["status"] == "warn"
+    assert summary["messages"] == [
+        "This section states the source material was insufficient — review before filing.",
+    ]
+
+
+def test_format_qa_report_endpoint_for_grant(client: TestClient):
+    text = (
+        "The provided source material does not provide sufficient detail to draft this section."
+    )
+    sections = {"executive_summary": text, "problem_statement": "Clear problem narrative."}
+    response = client.post(
+        "/format-qa-report",
+        json={"sections": sections, "document_type": "grant"},
+    )
+    assert response.status_code == 200
+    assert response.json() == get_format_qa_report(
+        sections,
+        canonical_sections=list(GRANT_SECTIONS),
+    )
+    assert all(entry["category"] == "Format" for entry in response.json())
+    assert not any(entry.get("category") == "Alignment" for entry in response.json())
+
+
+def test_format_qa_report_endpoint_for_sow(client: TestClient):
+    sections = {"purpose": "Engagement purpose and background."}
+    response = client.post(
+        "/format-qa-report",
+        json={"sections": sections, "document_type": "sow"},
+    )
+    assert response.status_code == 200
+    report = response.json()
+    assert report == get_format_qa_report(sections, canonical_sections=list(SOW_SECTIONS))
+    assert len(report) == len(SOW_SECTIONS)
+    purpose = next(entry for entry in report if entry["section"] == "purpose")
+    assert purpose["status"] == "pass"
 
 
 def test_get_invention_alignment_qa_report_passes_when_draft_covers_requirements():
@@ -110,6 +182,7 @@ def test_get_invention_alignment_qa_report_passes_when_draft_covers_requirements
     report = get_invention_alignment_qa_report(sections, invention)
     assert len(report) == 4
     assert all(entry["status"] == "pass" for entry in report)
+    assert all(entry["category"] == "Alignment" for entry in report)
 
 
 def test_get_invention_alignment_qa_report_warns_on_empty_requirements():
@@ -123,6 +196,7 @@ def test_get_invention_alignment_qa_report_warns_on_empty_requirements():
     report = get_invention_alignment_qa_report(sections, invention)
     assert len(report) == 4
     assert all(entry["status"] == "warn" for entry in report)
+    assert all(entry["category"] == "Alignment" for entry in report)
 
 
 def test_get_invention_alignment_qa_report_fails_when_section_misses_requirement():
@@ -169,6 +243,8 @@ def test_qa_report_endpoint_includes_invention_alignment(client: TestClient):
     report = response.json()
     assert report[: len(PATENT_SECTIONS)] == get_format_qa_report(sections)
     assert report[len(PATENT_SECTIONS) :] == get_invention_alignment_qa_report(sections, invention)
+    assert all(entry["category"] == "Format" for entry in report[: len(PATENT_SECTIONS)])
+    assert all(entry["category"] == "Alignment" for entry in report[len(PATENT_SECTIONS) :])
 
 
 @patch("main.is_learning_enabled", return_value=True)

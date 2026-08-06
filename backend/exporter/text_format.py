@@ -343,38 +343,87 @@ def validate_section_output(section: str, text: str) -> list[str]:
 
 
 _EMPTY_SECTION_MESSAGE = "Section is empty."
+_INSUFFICIENT_SOURCE_MESSAGE = (
+    "This section states the source material was insufficient — review before filing."
+)
+_QA_CATEGORY_FORMAT = "Format"
+
+# Phrases the section agents are instructed to emit when source material is too sparse.
+_INSUFFICIENT_SOURCE_PATTERNS = (
+    re.compile(r"does\s+not\s+provide\s+sufficient\s+detail", re.IGNORECASE),
+    re.compile(r"insufficient\s+(?:detail|documentation|source|information|material)", re.IGNORECASE),
+    re.compile(r"source\s+material\s+(?:was\s+|is\s+)?insufficient", re.IGNORECASE),
+    re.compile(r"too\s+sparse\s+to\s+(?:describe|draft)", re.IGNORECASE),
+    re.compile(r"not\s+enough\s+(?:detail|information|documentation)\s+to\s+draft", re.IGNORECASE),
+)
 
 
-def _ordered_section_keys(sections: dict[str, str]) -> list[str]:
-    """Always validate every core patent section, even when missing from the payload."""
-    ordered = list(PATENT_SECTIONS)
+def _has_insufficient_source_language(text: str) -> bool:
+    """Return True when section text admits source material was insufficient to draft."""
+    return any(pattern.search(text) for pattern in _INSUFFICIENT_SOURCE_PATTERNS)
+
+
+def _ordered_section_keys(
+    sections: dict[str, str],
+    canonical_sections: list[str] | None = None,
+) -> list[str]:
+    """Order keys for QA: canonical list first, then any extra payload keys.
+
+    Defaults to PATENT_SECTIONS so patent callers keep full-coverage empty checks
+    even when the client omits untouched section keys. Grant/SOW pass their own
+    canonical lists so they are not padded with patent section ids.
+    """
+    ordered = list(canonical_sections if canonical_sections is not None else PATENT_SECTIONS)
+    known = set(ordered)
     for key in sections:
-        if key not in PATENT_SECTIONS:
+        if key not in known:
             ordered.append(key)
     return ordered
 
 
-def get_format_qa_report(sections: dict[str, str]) -> list[dict]:
-    """Run format validation on each draft section and summarize pass/warn/fail status."""
+def get_format_qa_report(
+    sections: dict[str, str],
+    *,
+    canonical_sections: list[str] | None = None,
+) -> list[dict]:
+    """Run format validation on each draft section and summarize pass/warn/fail status.
+
+    Generic over ``dict[str, str]``. Patent-specific claim/abstract validators only
+    apply when those section keys are present. Pass ``canonical_sections`` for
+    non-patent document types (e.g. grant/SOW) so missing patent keys are not warned.
+    """
     report: list[dict] = []
 
-    for section in _ordered_section_keys(sections):
+    for section in _ordered_section_keys(sections, canonical_sections):
         text = sections.get(section, "")
         if not text or not text.strip():
             report.append(
                 {
                     "section": section,
+                    "category": _QA_CATEGORY_FORMAT,
                     "status": "warn",
                     "messages": [_EMPTY_SECTION_MESSAGE],
                 }
             )
             continue
 
-        messages = validate_section_output(section, text)
+        messages = list(validate_section_output(section, text))
+        has_format_errors = bool(messages)
+        if _has_insufficient_source_language(text):
+            messages.append(_INSUFFICIENT_SOURCE_MESSAGE)
+
+        if has_format_errors:
+            status = "fail"
+        elif messages:
+            status = "warn"
+        else:
+            status = "pass"
+
         report.append(
             {
                 "section": section,
-                "status": "fail" if messages else "pass",
+                "category": _QA_CATEGORY_FORMAT,
+                "status": status,
                 "messages": messages,
             }
         )

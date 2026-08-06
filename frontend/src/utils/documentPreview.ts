@@ -1,4 +1,9 @@
-import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS, PATENT_SECTION_IDS } from "../types/patent";
+import {
+  GRANT_SECTION_IDS,
+  GRANT_SECTION_LABELS,
+  PATENT_SECTION_IDS,
+  SOW_SECTION_LABELS,
+} from "../types/patent";
 
 export const DOCUMENT_SECTION_ORDER = [
   "cross_reference",
@@ -157,6 +162,9 @@ export function orderedPreviewSectionKeys(sections: Record<string, string>): str
 export function sectionDisplayTitle(key: string): string {
   if (key in GRANT_SECTION_LABELS) {
     return GRANT_SECTION_LABELS[key as keyof typeof GRANT_SECTION_LABELS].toUpperCase();
+  }
+  if (key in SOW_SECTION_LABELS) {
+    return SOW_SECTION_LABELS[key as keyof typeof SOW_SECTION_LABELS].toUpperCase();
   }
   return DOCUMENT_SECTION_TITLES[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }

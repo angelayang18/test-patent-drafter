@@ -14,7 +14,7 @@ from drafter.section_agents import (
     get_custom_section_agent_system,
     get_section_agent_system,
 )
-from drafter.prompts import PATENT_SECTIONS
+from drafter.prompts import PATENT_SECTIONS, get_background_prompt, get_description_prompt
 
 
 def _sample_invention() -> dict:
@@ -36,6 +36,67 @@ def test_agent_system_is_section_specific():
     assert "Field of the Invention" in field_sys
     assert "Informal Patent Claims" in claims_sys
     assert field_sys != claims_sys
+
+
+def test_agent_system_includes_grounding_instruction():
+    field_sys = get_section_agent_system("field")
+    custom_sys = get_custom_section_agent_system(
+        "Best Mode",
+        "Describe the best mode contemplated by the inventors.",
+    )
+    for system in (field_sys, custom_sys):
+        assert "Ground every claim" in system
+        assert "N/A" in system
+        assert "sufficient detail" in system
+
+
+def test_background_prompt_does_not_hardcode_rag_chunking_focus():
+    """Regression: Background must not force RAG/chunking prior-art themes.
+
+    A leftover invention-specific focus block caused Background to draft confident
+    RAG/chunking content even when invention fields were N/A.
+    """
+    prompt = get_background_prompt(
+        {
+            "invention_title": "N/A",
+            "technical_field": "N/A",
+            "problem_being_solved": "N/A",
+            "core_technical_solution": "N/A",
+            "novel_mechanism": "N/A",
+            "key_components": [],
+            "alternative_embodiments": [],
+        }
+    )
+    assert "Fixed-size/sentence-boundary chunking" not in prompt
+    assert "downstream retrieval quality in RAG systems" not in prompt
+    assert "preserve document hierarchy" not in prompt
+    assert "Ground the background exclusively in the invention details" in prompt
+    assert "N/A" in prompt
+
+
+def test_description_prompt_does_not_hardcode_rag_specificity():
+    """Regression: Detailed Description must not force RAG/embedding technical themes.
+
+    A leftover invention-specific specificity block could pull thin or N/A drafts
+    toward transformer/chunking/embedding language unsupported by the invention.
+    """
+    prompt = get_description_prompt(
+        {
+            "invention_title": "N/A",
+            "technical_field": "N/A",
+            "problem_being_solved": "N/A",
+            "core_technical_solution": "N/A",
+            "novel_mechanism": "N/A",
+            "key_components": [],
+            "alternative_embodiments": [],
+        }
+    )
+    assert "transformer architecture" not in prompt
+    assert "vector embedding" not in prompt
+    assert "hybrid search" not in prompt
+    assert "chunk metadata" not in prompt
+    assert "do not default to AI/ML" in prompt
+    assert "N/A" in prompt
 
 
 def test_provisional_overview_covers_enablement_and_deadline():

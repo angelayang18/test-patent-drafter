@@ -13,6 +13,46 @@ MAX_EXCERPTS_PER_SECTION = 6
 MIN_PARAGRAPH_CHARS = 40
 MAX_CITATION_QUOTE_CHARS = 220
 
+# Stricter budgets / gates for field citations (quality over weak matches).
+MAX_CITATION_CANDIDATE_EXCERPTS = 12
+MIN_WEIGHTED_CITATION_SCORE = 0.55
+MIN_DISTINCTIVE_TERM_HITS = 2
+COVER_PAGE_SCORE_PENALTY = 0.45
+
+# Generic field-label nouns that latch onto cover pages ("Implementation Plan").
+_GENERIC_LABEL_TERMS = frozenset(
+    {
+        "plan",
+        "overview",
+        "title",
+        "statement",
+        "section",
+        "summary",
+        "details",
+        "description",
+        "application",
+        "document",
+        "report",
+        "field",
+        "name",
+        "background",
+        "purpose",
+        "scope",
+        "work",
+        "terms",
+        "data",
+    }
+)
+
+_COVER_PAGE_PHRASES = (
+    "prepared by",
+    "implementation plan",
+    "internship",
+    "working day",
+    "platform expansion",
+    "document drafter",
+)
+
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 # Matches === Page N ===, === Paragraph N ===, === Slide N ===, === Slide N: Title ===
@@ -169,6 +209,53 @@ def _words(text: str) -> set[str]:
         for w in _WORD_RE.findall(text.lower())
         if len(w) > 2 and w not in _STOPWORDS
     }
+
+
+def _looks_like_cover_page(text: str) -> bool:
+    """Return True for title-page / admin header paragraphs."""
+    lower = text.lower()
+    hits = sum(1 for phrase in _COVER_PAGE_PHRASES if phrase in lower)
+    return hits >= 2
+
+
+def _paragraph_term_dfs(paragraphs: list[str]) -> tuple[dict[str, int], int]:
+    """Document frequency of terms across paragraphs (each para is a 'doc')."""
+    df: dict[str, int] = {}
+    for paragraph in paragraphs:
+        for term in _words(paragraph):
+            df[term] = df.get(term, 0) + 1
+    return df, len(paragraphs)
+
+
+def _term_weight(term: str, df: dict[str, int], n_docs: int) -> float:
+    """IDF × length bonus so rare / longer tokens dominate citation ranking."""
+    if n_docs <= 0:
+        idf = 1.0
+    else:
+        idf = math.log(1.0 + n_docs / (1.0 + df.get(term, 0)))
+    length_bonus = 1.0 + max(0, len(term) - 5) * 0.15
+    return idf * length_bonus
+
+
+def _distinctive_query_terms(
+    query_terms: set[str],
+    df: dict[str, int],
+    n_docs: int,
+) -> set[str]:
+    """Terms that are long or relatively rare in the passage corpus."""
+    if not query_terms:
+        return set()
+    weights = {t: _term_weight(t, df, n_docs) for t in query_terms}
+    if not weights:
+        return set()
+    median = sorted(weights.values())[len(weights) // 2]
+    return {t for t, w in weights.items() if len(t) >= 6 or w >= median}
+
+
+def _filter_generic_label_terms(terms: set[str]) -> set[str]:
+    """Drop generic label nouns; keep the rest (or originals if all filtered)."""
+    filtered = {t for t in terms if t not in _GENERIC_LABEL_TERMS}
+    return filtered or terms
 
 
 def _parse_location_marker(line: str) -> str | None:
@@ -374,51 +461,90 @@ def retrieve_relevant_excerpts(
     invention: dict,
     chunks: list[SourceChunk],
     query_fields: list[str],
+    *,
+    max_excerpts: int | None = None,
+    max_chars: int | None = None,
+    weighted: bool = False,
+    demote_cover_pages: bool = False,
+    min_score: float = 0.0,
+    query_terms_override: set[str] | None = None,
 ) -> tuple[list[Excerpt], set[str]]:
     """Rank paragraphs by query overlap and return top excerpts within budget.
 
-    Score = |query_terms ∩ paragraph_terms| / sqrt(|query_terms|).
-    Returns ``([], set())`` if chunks or query_terms are empty.
+    Default score = |query ∩ para| / sqrt(|query|).
+    When ``weighted`` is True, use IDF × length-weighted overlap (citation mode).
 
-    The query-term set is returned alongside excerpts so citation quotes can
-    window on the matched vocabulary rather than always truncating from the start.
+    Returns ``([], set())`` if chunks or query_terms are empty.
     """
     if not chunks:
         return [], set()
-    query_terms = build_section_query_terms(
-        section_description,
-        invention,
-        query_fields,
+    query_terms = (
+        query_terms_override
+        if query_terms_override is not None
+        else build_section_query_terms(
+            section_description,
+            invention,
+            query_fields,
+        )
     )
     if not query_terms:
         return [], set()
 
-    denom = math.sqrt(len(query_terms))
-    scored: list[Excerpt] = []
+    located: list[tuple[str, str, str]] = []
     for chunk in chunks:
         for location, paragraph in _split_located_paragraphs(chunk.text):
-            para_terms = _words(paragraph)
-            overlap = len(query_terms & para_terms)
-            if overlap <= 0:
+            located.append((chunk.label, location, paragraph))
+
+    paragraphs = [p for _, _, p in located]
+    df, n_docs = _paragraph_term_dfs(paragraphs) if weighted else ({}, 0)
+    denom = math.sqrt(len(query_terms)) or 1.0
+
+    scored: list[Excerpt] = []
+    for label, location, paragraph in located:
+        para_terms = _words(paragraph)
+        overlap_terms = query_terms & para_terms
+        if not overlap_terms:
+            continue
+
+        if weighted:
+            score = sum(_term_weight(t, df, n_docs) for t in overlap_terms) / denom
+            distinctive = _distinctive_query_terms(query_terms, df, n_docs)
+            distinctive_hits = len(overlap_terms & distinctive) if distinctive else 0
+            if (
+                distinctive
+                and distinctive_hits < MIN_DISTINCTIVE_TERM_HITS
+                and score < MIN_WEIGHTED_CITATION_SCORE
+            ):
                 continue
-            score = overlap / denom
-            scored.append(
-                Excerpt(
-                    label=chunk.label,
-                    text=paragraph,
-                    score=score,
-                    location=location,
-                )
+        else:
+            score = len(overlap_terms) / denom
+
+        if demote_cover_pages and _looks_like_cover_page(paragraph):
+            score *= COVER_PAGE_SCORE_PENALTY
+
+        if score < min_score:
+            continue
+
+        scored.append(
+            Excerpt(
+                label=label,
+                text=paragraph,
+                score=score,
+                location=location,
             )
+        )
 
     scored.sort(key=lambda e: e.score, reverse=True)
+
+    excerpt_limit = MAX_EXCERPTS_PER_SECTION if max_excerpts is None else max_excerpts
+    char_limit = MAX_EXCERPT_CHARS_PER_SECTION if max_chars is None else max_chars
 
     selected: list[Excerpt] = []
     total_chars = 0
     for excerpt in scored:
-        if len(selected) >= MAX_EXCERPTS_PER_SECTION:
+        if len(selected) >= excerpt_limit:
             break
-        if total_chars + len(excerpt.text) > MAX_EXCERPT_CHARS_PER_SECTION and selected:
+        if total_chars + len(excerpt.text) > char_limit and selected:
             break
         selected.append(excerpt)
         total_chars += len(excerpt.text)
@@ -446,17 +572,24 @@ def format_excerpts_block(excerpts: list[Excerpt]) -> str:
 def citations_from_excerpts(
     excerpts: list[Excerpt],
     query_terms: set[str] | None = None,
+    *,
+    require_distinctive: set[str] | None = None,
 ) -> list[dict]:
     """Build citation dicts with label, location, and a clean quote; dedupe triples.
 
     When ``query_terms`` is provided, quote windows prefer sentences that contain
     those terms so long paragraphs do not surface leading boilerplate.
+
+    When ``require_distinctive`` is set, skip quotes that share none of those terms
+    (avoids cover-page truncations that never mention the extracted evidence).
     """
     seen: set[tuple[str, str, str]] = set()
     citations: list[dict] = []
     for excerpt in excerpts:
         quote = _citation_quote(excerpt.text, query_terms)
         if not quote:
+            continue
+        if require_distinctive and not (_words(quote) & require_distinctive):
             continue
         location = excerpt.location or ""
         key = (excerpt.label, location, quote)
@@ -473,17 +606,24 @@ def citations_from_excerpts(
     return citations
 
 
+def _field_citation_query_terms(label: str, extracted_value: str) -> set[str]:
+    """Build citation query terms: prefer extracted value; scrub generic label nouns."""
+    if extracted_value.strip():
+        return _words(extracted_value)
+    return _filter_generic_label_terms(_words(label))
+
+
 def citations_for_fields(
     combined_text: str,
     fields: list[str],
     field_labels: dict[str, str],
     details: dict | None = None,
 ) -> dict[str, list[dict]]:
-    """Build per-field citation lists using each field's label plus extracted value.
+    """Build per-field citation lists using extracted values as primary vocabulary.
 
-    The extracted value supplies the vocabulary that actually informed the answer,
-    so retrieval prefers source paragraphs about that content rather than weak
-    label-only overlaps with administrative boilerplate.
+    When an extracted value is present, the field label is not mixed into the query
+    (avoids "Evaluation Plan" latching onto "Implementation Plan" cover pages).
+    Weak / cover-page-only matches are omitted rather than shown.
     """
     chunks = parse_source_chunks(combined_text)
     citations_by_field: dict[str, list[dict]] = {}
@@ -493,9 +633,34 @@ def citations_for_fields(
     for field in fields:
         label = field_labels.get(field, field)
         extracted_value = _field_value_query_text(details.get(field))
-        description = f"{label} {extracted_value}" if extracted_value else label
-        excerpts, query_terms = retrieve_relevant_excerpts(description, {}, chunks, [])
-        citations_by_field[field] = citations_from_excerpts(excerpts, query_terms)
+        query_terms = _field_citation_query_terms(label, extracted_value)
+        if not query_terms:
+            citations_by_field[field] = []
+            continue
+
+        # Collect candidate paragraphs for IDF / distinctive-term gating.
+        all_paragraphs: list[str] = []
+        for chunk in chunks:
+            all_paragraphs.extend(p for _, p in _split_located_paragraphs(chunk.text))
+        df, n_docs = _paragraph_term_dfs(all_paragraphs)
+        distinctive = _distinctive_query_terms(query_terms, df, n_docs)
+
+        excerpts, _ = retrieve_relevant_excerpts(
+            "",
+            {},
+            chunks,
+            [],
+            max_excerpts=MAX_CITATION_CANDIDATE_EXCERPTS,
+            weighted=True,
+            demote_cover_pages=True,
+            min_score=MIN_WEIGHTED_CITATION_SCORE if extracted_value.strip() else 0.0,
+            query_terms_override=query_terms,
+        )
+        citations_by_field[field] = citations_from_excerpts(
+            excerpts,
+            query_terms,
+            require_distinctive=distinctive if extracted_value.strip() else None,
+        )
     return citations_by_field
 
 

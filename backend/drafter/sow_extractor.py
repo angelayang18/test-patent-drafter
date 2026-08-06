@@ -10,10 +10,15 @@ from .extractor import (
     _build_lookup,
     _flatten_extraction_payload,
 )
+from .extract_context import (
+    apply_empty_field_fallback,
+    build_extract_source,
+    build_group_extract_sources,
+    empty_fields,
+)
 from .llm_client import generate_json
 from .relevance import extraction_system_prompt, format_relevance_guidance
 from .retrieval import with_field_citations
-from .source_text import prepare_source_text
 
 log = logging.getLogger(__name__)
 
@@ -190,14 +195,35 @@ _GROUP_EXTRACTORS: list[tuple[str, str]] = [
     ("terms", EXTRACT_SOW_GROUP_TERMS_USER),
 ]
 
+_GROUP_QUERIES: dict[str, str] = {
+    "identity": (
+        "engagement title client vendor purpose background parties"
+    ),
+    "delivery": (
+        "objectives scope of work deliverables services milestones"
+    ),
+    "terms": (
+        "timeline effort schedule responsibilities inputs commercial terms "
+        "payment fees"
+    ),
+}
+
+_DEFAULT_EXTRACT_QUERY = (
+    "statement of work engagement client vendor objectives scope "
+    "deliverables timeline commercial terms"
+)
+
 
 def _prepare_extract_documentation(
     combined_text: str,
     relevant_notes: str = "",
     irrelevant_notes: str = "",
+    query_description: str = "",
 ) -> tuple[str, str]:
-    """Truncate source text and prepend user relevance guidance."""
-    body = prepare_source_text(combined_text)
+    """Build retrieve-then-extract source context and prepend relevance guidance."""
+    body = build_extract_source(
+        combined_text, query_description or _DEFAULT_EXTRACT_QUERY
+    )
     guidance = format_relevance_guidance(relevant_notes, irrelevant_notes)
     system = extraction_system_prompt(
         EXTRACT_SOW_SYSTEM, relevant_notes, irrelevant_notes
@@ -264,14 +290,56 @@ def _run_group_pass_with_retry(
     return {}
 
 
-def _extract_grouped(system: str, source: str) -> dict:
-    """Three parallel LLM calls, each returning a subset of SOW fields."""
+def _gap_fill_empty_fields(
+    system: str, combined_text: str, details: dict
+) -> dict:
+    """Re-extract empty SOW fields with field-focused retrieved context."""
+    missing = empty_fields(details)
+    if not missing:
+        return apply_empty_field_fallback(details)
+    log.info("Gap-filling empty SOW fields: %s", missing)
+    updated = dict(details)
+    for field in missing:
+        label = _FIELD_LABELS.get(field, field)
+        source = build_extract_source(combined_text, label)
+        field_system = system + f" Return JSON with exactly one key: {field!r} (str)."
+        user = f"""\
+Analyze the source documentation below and extract only the field "{label}" ({field}).
+
+Return a JSON object with exactly one key "{field}".
+
+Source documentation:
+{source}
+"""
+        try:
+            parsed = generate_json(field_system, user)
+            if field not in parsed:
+                continue
+            piece = _normalize_extraction({field: parsed[field]})
+            if piece.get(field):
+                updated[field] = piece[field]
+        except Exception as exc:
+            log.warning("SOW gap-fill for field %s failed: %s", field, exc)
+    return apply_empty_field_fallback(_normalize_extraction(updated))
+
+
+def _extract_grouped(system: str, combined_text: str) -> dict:
+    """Three parallel LLM calls, each with group-focused retrieved source context."""
+    group_queries = [
+        (label, _GROUP_QUERIES.get(label, _DEFAULT_EXTRACT_QUERY))
+        for label, _ in _GROUP_EXTRACTORS
+    ]
+    sources = build_group_extract_sources(combined_text, group_queries)
     merged: dict = {}
     max_workers = min(len(_GROUP_EXTRACTORS), 3)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                _run_group_pass_with_retry, system, template, source, label
+                _run_group_pass_with_retry,
+                system,
+                template,
+                sources.get(label, combined_text),
+                label,
             ): label
             for label, template in _GROUP_EXTRACTORS
         }
@@ -285,7 +353,9 @@ def _extract_grouped(system: str, source: str) -> dict:
                     label,
                     exc,
                 )
-    return _normalize_extraction(merged)
+    return _gap_fill_empty_fields(
+        system, combined_text, _normalize_extraction(merged)
+    )
 
 
 def _extract_single_pass(system: str, source: str) -> dict:
@@ -304,16 +374,16 @@ def extract_sow_details(
     """
     Analyze combined source text and extract structured SOW details.
 
-    Uses grouped parallel extraction by default (three LLM calls).
+    Uses grouped parallel retrieve-then-extract by default (three LLM calls).
     Returns field values plus ``citations`` keyed by field name.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
 
-    system, source = _prepare_extract_documentation(
+    system, _source = _prepare_extract_documentation(
         combined_text, relevant_notes, irrelevant_notes
     )
-    details = _extract_grouped(system, source)
+    details = _extract_grouped(system, combined_text)
     return with_field_citations(combined_text, details, _FIELD_LABELS)
 
 
@@ -335,10 +405,13 @@ def extract_sow_field(
     if field not in EXTRACTABLE_SOW_FIELDS:
         raise ValueError(f"Unknown field: {field}")
 
-    system, source = _prepare_extract_documentation(
-        combined_text, relevant_notes, irrelevant_notes
-    )
     label = _FIELD_LABELS[field]
+    system, source = _prepare_extract_documentation(
+        combined_text,
+        relevant_notes,
+        irrelevant_notes,
+        query_description=label,
+    )
     context_block = ""
     if current:
         context_block = (
@@ -363,7 +436,9 @@ Source documentation:
     if field not in parsed:
         raise ValueError(f"Model response missing field {field!r}.")
 
-    normalized = _normalize_extraction({field: parsed[field]})
+    normalized = apply_empty_field_fallback(
+        _normalize_extraction({field: parsed[field]})
+    )
     return with_field_citations(
         combined_text,
         {field: normalized[field]},

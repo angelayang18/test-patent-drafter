@@ -3,12 +3,15 @@ import { useNavigate } from "react-router-dom";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { SowAppShell } from "../../components/SowAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
+import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { SOW_CORE_FIELD_KEYS, SOW_REVIEW_FIELDS } from "../../constants/sowFields";
 import { useSowWorkflow } from "../../context/SowWorkflowContext";
+import { useUndoRedo } from "../../hooks/useUndoRedo";
 import {
   ApiError,
   extractionNotesFromSources,
@@ -35,13 +38,29 @@ export default function SowReview() {
     requestAutoDraft,
   } = useSowWorkflow();
 
-  const [form, setForm] = useState<SOWDetails>(sowDetails ?? defaultSowDetails);
+  const {
+    value: form,
+    replace,
+    push,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset,
+  } = useUndoRedo<SOWDetails>(sowDetails ?? defaultSowDetails);
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
   const [suggestingTitles, setSuggestingTitles] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
+  const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
   const formRef = useRef(form);
+  const initialSynced = useRef(false);
+  const suppressSavedIndicator = useRef(true);
+  const hasDetailsRef = useRef(Boolean(sowDetails));
+  hasDetailsRef.current = Boolean(sowDetails);
 
   useEffect(() => {
     formRef.current = form;
@@ -52,14 +71,27 @@ export default function SowReview() {
       navigate("/sow/input", { replace: true });
       return;
     }
-    setForm(sowDetails);
-  }, [sowDetails, navigate]);
+    if (!initialSynced.current) {
+      reset(sowDetails);
+      initialSynced.current = true;
+      window.setTimeout(() => {
+        suppressSavedIndicator.current = false;
+      }, 0);
+    }
+  }, [sowDetails, navigate, reset]);
 
   useEffect(() => {
     if (!sowDetails) return;
     setSowDetails(form);
     saveToStorage();
   }, [form, sowDetails, setSowDetails, saveToStorage]);
+
+  useEffect(() => {
+    if (!hasDetailsRef.current || suppressSavedIndicator.current) {
+      return;
+    }
+    flashSavedRef.current();
+  }, [form]);
 
   const extractionNotes = extractionNotesFromSources(inputSources);
   const isBusy = regenerating.size > 0 || suggestingTitles;
@@ -70,13 +102,14 @@ export default function SowReview() {
   const allCoreEmpty = coreFilled === 0;
 
   const updateField = (key: ExtractableSowField, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    replace({ ...form, [key]: value });
   };
 
   const handleRegenerateField = (field: ExtractableSowField) => {
     if (regenerating.has(field) || regenerating.has("all") || suggestingTitles) return;
     setRegenerating((prev) => new Set(prev).add(field));
     setError(null);
+    push(structuredClone(formRef.current));
 
     void (async () => {
       try {
@@ -91,8 +124,13 @@ export default function SowReview() {
           formRef.current,
           extractionNotes,
         );
-        setForm((prev) => ({ ...prev, ...result.details }));
+        const next = { ...formRef.current, ...result.details };
+        formRef.current = next;
+        push(next);
         setFieldCitations(result.citations);
+        if (field === "engagement_title") {
+          setTitleSuggestions([]);
+        }
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Re-extraction failed.");
       } finally {
@@ -109,6 +147,7 @@ export default function SowReview() {
     if (suggestingTitles) return;
     setRegenerating((prev) => new Set(prev).add("all"));
     setError(null);
+    push(structuredClone(formRef.current));
     void (async () => {
       try {
         const { combined } = await gatherSourceText({ onProgress: setExtractPhase });
@@ -117,9 +156,10 @@ export default function SowReview() {
           return;
         }
         const result = await extractSow(combined, extractionNotes);
-        setForm(result.details);
+        push(result.details);
         setSowDetails(result.details);
         setFieldCitations(result.citations);
+        setTitleSuggestions([]);
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Extraction failed.");
       } finally {
@@ -171,17 +211,26 @@ export default function SowReview() {
         <WorkflowFooter
           left={<WorkflowBackLink to="/sow/input" />}
           right={
-            <WorkflowNextLink
-              to="/sow/draft"
-              disabled={allCoreEmpty || isBusy}
-              onClick={() => {
-                markStepComplete("review");
-                requestAutoDraft();
-                saveToStorage();
-              }}
-            >
-              Next: Draft
-            </WorkflowNextLink>
+            <>
+              <SavedIndicator visible={savedVisible} />
+              <UndoRedoToolbar
+                canUndo={canUndo && !isBusy}
+                canRedo={canRedo && !isBusy}
+                onUndo={undo}
+                onRedo={redo}
+              />
+              <WorkflowNextLink
+                to="/sow/draft"
+                disabled={allCoreEmpty || isBusy}
+                onClick={() => {
+                  markStepComplete("review");
+                  requestAutoDraft();
+                  saveToStorage();
+                }}
+              >
+                Next: Draft
+              </WorkflowNextLink>
+            </>
           }
         />
       }
@@ -258,7 +307,7 @@ export default function SowReview() {
                 <TitleSuggestionsList
                   suggestions={titleSuggestions}
                   onSelect={(title) => {
-                    updateField("engagement_title", title);
+                    push({ ...form, engagement_title: title });
                     setTitleSuggestions([]);
                   }}
                 />

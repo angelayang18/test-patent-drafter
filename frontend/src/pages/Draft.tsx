@@ -107,6 +107,8 @@ export default function Draft() {
   const [confirmingRegenerateAll, setConfirmingRegenerateAll] = useState(false);
   const [manageSectionsOpen, setManageSectionsOpen] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
   const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
 
   const activeSectionRef = useRef(activeSection);
@@ -115,6 +117,8 @@ export default function Draft() {
   const autoDraftStarted = useRef(false);
   const suppressSavedIndicator = useRef(true);
   const prevActiveSectionRef = useRef(activeSection);
+  const saveToStorageRef = useRef(saveToStorage);
+  saveToStorageRef.current = saveToStorage;
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -295,6 +299,27 @@ export default function Draft() {
     sectionIds,
   ]);
 
+  // Flash immediately on draft edits so a prior hide timer cannot blank the indicator
+  // during a debounce gap. Persist stays debounced separately.
+  useEffect(() => {
+    if (workflowResetting || !invention || suppressSavedIndicator.current) {
+      return;
+    }
+    if (pendingSectionIds.includes(activeSection) || regeneratingSections.has(activeSection)) {
+      return;
+    }
+    flashSavedRef.current();
+  }, [
+    draftText,
+    activeSection,
+    pendingSectionIds,
+    regeneratingSections,
+    invention,
+    workflowResetting,
+  ]);
+
+  // Debounce persist only. Read saveToStorage from a ref so post-flush identity churn
+  // cannot cancel the debounce.
   useEffect(() => {
     if (workflowResetting || !invention) {
       return;
@@ -304,10 +329,7 @@ export default function Draft() {
         return;
       }
       flushActiveSection(activeSection, draftText);
-      saveToStorage();
-      if (!suppressSavedIndicator.current) {
-        flashSaved();
-      }
+      saveToStorageRef.current();
     }, 500);
     return () => window.clearTimeout(timer);
   }, [
@@ -316,8 +338,6 @@ export default function Draft() {
     pendingSectionIds,
     regeneratingSections,
     flushActiveSection,
-    saveToStorage,
-    flashSaved,
     invention,
     workflowResetting,
   ]);
@@ -789,7 +809,7 @@ export default function Draft() {
                     <p className="font-body-sm text-body-sm text-on-surface-variant text-center max-w-md">
                       {parallelDrafting
                         ? "Each section uses an isolated agent and the provisional filing template. You can switch sections while drafting continues."
-                        : "This usually takes 15–60 seconds."}
+                        : "This usually takes 30 seconds to a few minutes, depending on source length."}
                     </p>
                   </div>
                 )}

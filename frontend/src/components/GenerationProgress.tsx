@@ -45,7 +45,7 @@ export function GenerationProgress({ active, label, step }: GenerationProgressPr
         <div className="generation-progress-bar h-full rounded-full bg-secondary" />
       </div>
       <p className="font-body-sm text-body-sm text-on-surface-variant">
-        AI generation can take 15–60 seconds depending on section length.
+        AI generation can take 30 seconds to a few minutes, depending on source length.
       </p>
     </div>
   );

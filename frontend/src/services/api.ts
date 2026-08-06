@@ -782,6 +782,8 @@ function exportPayloadBody(draft: PatentDraft): string {
 
 export interface QAReportEntry {
   section: string;
+  /** Distinguishes Format vs Alignment checks that share a section key. */
+  category?: string;
   status: string;
   messages: string[];
 }
@@ -794,6 +796,20 @@ export async function fetchQAReport(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sections, invention: invention ?? null }),
+  });
+}
+
+export type FormatQADocumentType = "patent" | "grant" | "sow";
+
+/** Format-only QA (empty sections, insufficient-source language). No patent alignment. */
+export async function fetchFormatQAReport(
+  sections: Record<string, string>,
+  documentType: FormatQADocumentType,
+): Promise<QAReportEntry[]> {
+  return requestJson<QAReportEntry[]>("/format-qa-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sections, document_type: documentType }),
   });
 }
 

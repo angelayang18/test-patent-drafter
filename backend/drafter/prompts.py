@@ -207,11 +207,11 @@ REQUIREMENTS:
 - Use formal patent language throughout
 - End with the phrase: 'Accordingly, there remains a need for improved methods and systems
   that address these deficiencies.'
-
-Focus especially on the specific technical limitations of:
-1. Fixed-size/sentence-boundary chunking methods and their loss of structural context
-2. How structural context loss degrades downstream retrieval quality in RAG systems
-3. The failure of existing vector indexing approaches to preserve document hierarchy
+- Ground the background exclusively in the invention details above (especially Technical Field
+  and Problem Being Solved). Do not introduce domain-specific prior-art themes (e.g. RAG,
+  chunking, vector indexing, or any other technology) unless those themes appear in the
+  invention details. If the details are largely missing, marked 'N/A', or too sparse to
+  identify a real technical problem, state that plainly instead of inventing prior-art context.
 
 Draft the section now:"""
 
@@ -304,12 +304,16 @@ PATENT LANGUAGE CONVENTIONS (use throughout):
 - 'in one embodiment...', 'in another embodiment...' for variations
 
 TECHNICAL SPECIFICITY REQUIRED:
-- Reference transformer architecture, attention mechanisms, tokenization where applicable
-- Specify the structural metadata schema stored with each chunk (section type, position,
-  parent-child relationships, contextual markers)
-- Describe the vector embedding process and how metadata is stored alongside embeddings
-- Explain hybrid search mechanics (vector similarity + structural metadata filtering)
-- Reference specific data structures (e.g. JSON schema for chunk metadata)
+- Be highly specific about concrete mechanisms, data structures, algorithms, interfaces,
+  and processing steps — avoid vague business language
+- Scope all technical detail exclusively to the domain described in the invention details
+  above. When those details actually describe an AI/ML invention, reference transformers,
+  embeddings, RAG, tokenization, etc. as applicable; do not default to AI/ML (or any other)
+  themes when the details do not support them
+- Name specific schemas, data structures, and algorithms only when grounded in the
+  invention details — do not invent domain-specific technical detail
+- If the invention details are largely missing, marked 'N/A', or too sparse to enable a
+  technical description, state that plainly instead of inventing plausible technical content
 - Do not copy internal chunk delimiter syntax or template braces from source documents
   (write 'qa' not '%%qa'; never leave {{item_1_desc}}-style placeholders)
 - For numbered method or component lists, put each item on its own line. Use a short

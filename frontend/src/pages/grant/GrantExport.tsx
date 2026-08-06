@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { QAReportPanel } from "../../components/QAReportPanel";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink } from "../../components/WorkflowNavButtons";
 import { useGrantWorkflow } from "../../context/GrantWorkflowContext";
@@ -10,6 +11,8 @@ import {
   downloadBlob,
   exportGrantDocx,
   exportGrantPdf,
+  fetchFormatQAReport,
+  type QAReportEntry,
 } from "../../services/api";
 import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS } from "../../types/patent";
 import { isGrantStepAccessible } from "../../utils/grantStorage";
@@ -35,6 +38,7 @@ export default function GrantExport() {
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [qaReport, setQaReport] = useState<QAReportEntry[]>([]);
 
   useEffect(() => {
     if (!isGrantStepAccessible("export", getWorkflowSnapshot())) {
@@ -63,6 +67,28 @@ export default function GrantExport() {
   const exporting = docxState === "preparing" || pdfState === "preparing";
   const exportDisabled = exporting || !isComplete;
   const projectTitle = grantDetails?.project_title ?? "";
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadQa = async () => {
+      try {
+        const report = await fetchFormatQAReport(sections, "grant");
+        if (!cancelled) {
+          setQaReport(report);
+        }
+      } catch {
+        if (!cancelled) {
+          setQaReport([]);
+        }
+      }
+    };
+
+    void loadQa();
+    return () => {
+      cancelled = true;
+    };
+  }, [sections]);
 
   const handleDownloadDocx = async () => {
     if (!isComplete) return;
@@ -148,6 +174,12 @@ export default function GrantExport() {
           {error && (
             <div className="mx-10 mt-6 p-4 rounded-lg bg-error-container/20 text-error text-sm">{error}</div>
           )}
+
+          <QAReportPanel
+            report={qaReport}
+            sectionOrder={GRANT_SECTION_IDS}
+            description="Automated checks for empty sections and insufficient source-content language before export."
+          />
 
           <section className="p-10">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">

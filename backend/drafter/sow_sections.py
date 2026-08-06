@@ -91,7 +91,13 @@ _AGENT_CONVENTIONS = (
     "Write complete SOW prose for your assigned section only. "
     "Do not include the section title in your output. "
     "Ground obligations in the engagement details provided; do not invent unsupported "
-    "fees, dates, or scope."
+    "fees, dates, or scope. "
+    "If the engagement details are largely missing, marked 'N/A', or too sparse to "
+    "describe a real engagement, say so plainly in the section text (e.g., state that "
+    "the source material does not provide sufficient detail to draft this section) "
+    "rather than inventing placeholder values or generic filler. "
+    "Do not use bracket placeholders like [Client Name] or [insert X] — write complete "
+    "prose or state that the detail isn't available."
 )
 
 _DEFAULT_CUSTOM_DESCRIPTION = (

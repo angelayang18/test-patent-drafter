@@ -14,6 +14,8 @@ from drafter.sow_sections import (
     SOW_SECTIONS,
     draft_all_sow_sections_parallel,
     draft_single_sow_section,
+    get_custom_sow_section_agent_system,
+    get_sow_section_agent_system,
 )
 
 
@@ -30,6 +32,55 @@ def _sample_sow() -> dict:
         "responsibilities_and_inputs": "Client provides SSO and sample tickets.",
         "commercial_terms": "Fixed fee billed at phase gates.",
     }
+
+
+def test_sow_agent_conventions_forbid_bracket_placeholders():
+    """Regression: sparse engagement details must not produce [bracket] filler.
+
+    SOW conventions previously lacked Patent/ADA-style sparse-detail guidance,
+    so thin or N/A extracts yielded unfilled placeholders like [Client Name].
+    """
+    system = get_sow_section_agent_system("purpose")
+    custom_system = get_custom_sow_section_agent_system(
+        "Risk Register",
+        "List material risks and mitigation owners for the engagement.",
+    )
+    for prompt in (system, custom_system):
+        assert "largely missing" in prompt
+        assert "N/A" in prompt
+        assert "too sparse" in prompt
+        assert "sufficient detail" in prompt
+        assert "bracket placeholders" in prompt
+        assert "[Client Name]" in prompt
+        assert "[insert X]" in prompt
+
+    na_sow = {
+        "engagement_title": "N/A",
+        "client_name": "N/A",
+        "vendor_name": "N/A",
+        "purpose_and_background": "N/A",
+        "objectives": "N/A",
+        "scope_of_work": "N/A",
+        "deliverables": "N/A",
+        "timeline_and_effort": "N/A",
+        "responsibilities_and_inputs": "N/A",
+        "commercial_terms": "N/A",
+    }
+
+    def _fake_generate(sys: str, user: str) -> str:
+        assert "bracket placeholders" in sys
+        assert "N/A" in user
+        return (
+            "The provided source material does not provide sufficient detail "
+            "to draft this section."
+        )
+
+    with patch("drafter.sow_sections.generate_text", side_effect=_fake_generate):
+        content, citations = draft_single_sow_section(na_sow, "purpose")
+
+    assert "[" not in content
+    assert "sufficient detail" in content.lower()
+    assert citations == []
 
 
 def test_draft_single_sow_section_returns_content_and_citations_tuple():

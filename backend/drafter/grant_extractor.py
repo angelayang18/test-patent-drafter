@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
@@ -11,10 +12,15 @@ from .extractor import (
     _build_lookup,
     _flatten_extraction_payload,
 )
+from .extract_context import (
+    apply_empty_field_fallback,
+    build_extract_source,
+    build_group_extract_sources,
+    empty_fields,
+)
 from .llm_client import generate_json
 from .relevance import extraction_system_prompt, format_relevance_guidance
 from .retrieval import with_field_citations
-from .source_text import prepare_source_text
 
 log = logging.getLogger(__name__)
 
@@ -150,14 +156,35 @@ _GROUP_EXTRACTORS: list[tuple[str, str]] = [
     ("capacity", EXTRACT_GRANT_GROUP_CAPACITY_USER),
 ]
 
+_GROUP_QUERIES: dict[str, str] = {
+    "overview": (
+        "project title problem statement proposed solution need gap approach"
+    ),
+    "impact": (
+        "innovation impact target population beneficiaries evaluation plan "
+        "metrics benchmarks outcomes success measured"
+    ),
+    "capacity": (
+        "team qualifications organizational capacity budget overview funding"
+    ),
+}
+
+_DEFAULT_EXTRACT_QUERY = (
+    "grant project title problem solution innovation impact population "
+    "team budget evaluation metrics"
+)
+
 
 def _prepare_extract_documentation(
     combined_text: str,
     relevant_notes: str = "",
     irrelevant_notes: str = "",
+    query_description: str = "",
 ) -> tuple[str, str]:
-    """Truncate source text and prepend user relevance guidance."""
-    body = prepare_source_text(combined_text)
+    """Build retrieve-then-extract source context and prepend relevance guidance."""
+    body = build_extract_source(
+        combined_text, query_description or _DEFAULT_EXTRACT_QUERY
+    )
     guidance = format_relevance_guidance(relevant_notes, irrelevant_notes)
     system = extraction_system_prompt(
         EXTRACT_GRANT_SYSTEM, relevant_notes, irrelevant_notes
@@ -224,14 +251,112 @@ def _run_group_pass_with_retry(
     return {}
 
 
-def _extract_grouped(system: str, source: str) -> dict:
-    """Three parallel LLM calls, each returning a subset of grant fields."""
+def _gap_fill_empty_fields(
+    system: str, combined_text: str, details: dict
+) -> dict:
+    """Re-extract empty grant fields with field-focused retrieved context."""
+    missing = empty_fields(details)
+    if not missing:
+        log.info("Grant gap-fill skipped — no empty fields")
+        return apply_empty_field_fallback(details)
+    log.info(
+        "Gap-filling empty grant fields (%d): %s",
+        len(missing),
+        missing,
+    )
+    updated = dict(details)
+    gap_started = time.monotonic()
+    for index, field in enumerate(missing, start=1):
+        label = _FIELD_LABELS.get(field, field)
+        retrieve_started = time.monotonic()
+        source = build_extract_source(combined_text, label)
+        retrieve_s = time.monotonic() - retrieve_started
+        field_system = system + f" Return JSON with exactly one key: {field!r} (str)."
+        user = f"""\
+Analyze the source documentation below and extract only the field "{label}" ({field}).
+
+Return a JSON object with exactly one key "{field}".
+
+Source documentation:
+{source}
+"""
+        try:
+            llm_started = time.monotonic()
+            parsed = generate_json(field_system, user)
+            llm_s = time.monotonic() - llm_started
+            log.info(
+                "Grant gap-fill field %d/%d '%s': retrieve=%.2fs llm=%.2fs "
+                "running_total=%.2fs",
+                index,
+                len(missing),
+                field,
+                retrieve_s,
+                llm_s,
+                time.monotonic() - gap_started,
+            )
+            if field not in parsed:
+                continue
+            piece = _normalize_extraction({field: parsed[field]})
+            if piece.get(field):
+                updated[field] = piece[field]
+        except Exception as exc:
+            log.warning(
+                "Grant gap-fill for field %s failed after retrieve=%.2fs: %s",
+                field,
+                retrieve_s,
+                exc,
+            )
+    log.info(
+        "Grant gap-fill finished %d fields in %.2fs",
+        len(missing),
+        time.monotonic() - gap_started,
+    )
+    return apply_empty_field_fallback(_normalize_extraction(updated))
+
+
+def _timed_group_pass(
+    system: str, user_template: str, source: str, label: str
+) -> dict:
+    """Run one group extraction pass and log its wall time."""
+    started = time.monotonic()
+    try:
+        return _run_group_pass_with_retry(system, user_template, source, label)
+    finally:
+        log.info(
+            "Grant group '%s' finished in %.2fs",
+            label,
+            time.monotonic() - started,
+        )
+
+
+def _extract_grouped(system: str, combined_text: str) -> dict:
+    """Three parallel LLM calls, each with group-focused retrieved source context."""
+    group_queries = [
+        (label, _GROUP_QUERIES.get(label, _DEFAULT_EXTRACT_QUERY))
+        for label, _ in _GROUP_EXTRACTORS
+    ]
+    retrieve_started = time.monotonic()
+    sources = build_group_extract_sources(combined_text, group_queries)
+    log.info(
+        "Grant group source prep for %d groups took %.2fs",
+        len(group_queries),
+        time.monotonic() - retrieve_started,
+    )
     merged: dict = {}
     max_workers = min(len(_GROUP_EXTRACTORS), 3)
+    log.info(
+        "Grant grouped extraction starting %d parallel group calls",
+        len(_GROUP_EXTRACTORS),
+    )
+    groups_started = time.monotonic()
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
-                _run_group_pass_with_retry, system, template, source, label
+                _timed_group_pass,
+                system,
+                template,
+                sources.get(label, combined_text),
+                label,
             ): label
             for label, template in _GROUP_EXTRACTORS
         }
@@ -239,13 +364,24 @@ def _extract_grouped(system: str, source: str) -> dict:
             label = futures[future]
             try:
                 merged.update(future.result())
+                log.info(
+                    "Grant group '%s' collected (wall since pool start=%.2fs)",
+                    label,
+                    time.monotonic() - groups_started,
+                )
             except Exception as exc:
                 log.exception(
                     "Unexpected error collecting grant group '%s' result: %s",
                     label,
                     exc,
                 )
-    return _normalize_extraction(merged)
+    log.info(
+        "Grant grouped extraction parallel phase finished in %.2fs",
+        time.monotonic() - groups_started,
+    )
+    return _gap_fill_empty_fields(
+        system, combined_text, _normalize_extraction(merged)
+    )
 
 
 def _extract_single_pass(system: str, source: str) -> dict:
@@ -264,17 +400,29 @@ def extract_grant_details(
     """
     Analyze combined source text and extract structured grant application details.
 
-    Uses grouped parallel extraction by default (three LLM calls).
+    Uses grouped parallel retrieve-then-extract by default (three LLM calls).
     Returns field values plus ``citations`` keyed by field name.
     """
     if not combined_text.strip():
         raise ValueError("combined_text is required.")
 
-    system, source = _prepare_extract_documentation(
+    started = time.monotonic()
+    log.info(
+        "extract_grant_details start (source_chars=%d)",
+        len(combined_text),
+    )
+    system, _source = _prepare_extract_documentation(
         combined_text, relevant_notes, irrelevant_notes
     )
-    details = _extract_grouped(system, source)
-    return with_field_citations(combined_text, details, _FIELD_LABELS)
+    details = _extract_grouped(system, combined_text)
+    cite_started = time.monotonic()
+    result = with_field_citations(combined_text, details, _FIELD_LABELS)
+    log.info(
+        "extract_grant_details citations took %.2fs; total=%.2fs",
+        time.monotonic() - cite_started,
+        time.monotonic() - started,
+    )
+    return result
 
 
 def extract_grant_field(
@@ -295,10 +443,13 @@ def extract_grant_field(
     if field not in EXTRACTABLE_GRANT_FIELDS:
         raise ValueError(f"Unknown field: {field}")
 
-    system, source = _prepare_extract_documentation(
-        combined_text, relevant_notes, irrelevant_notes
-    )
     label = _FIELD_LABELS[field]
+    system, source = _prepare_extract_documentation(
+        combined_text,
+        relevant_notes,
+        irrelevant_notes,
+        query_description=label,
+    )
     context_block = ""
     if current:
         context_block = (
@@ -323,7 +474,9 @@ Source documentation:
     if field not in parsed:
         raise ValueError(f"Model response missing field {field!r}.")
 
-    normalized = _normalize_extraction({field: parsed[field]})
+    normalized = apply_empty_field_fallback(
+        _normalize_extraction({field: parsed[field]})
+    )
     return with_field_citations(
         combined_text,
         {field: normalized[field]},
