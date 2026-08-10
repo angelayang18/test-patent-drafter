@@ -179,6 +179,9 @@ export default function GrantExport() {
             report={qaReport}
             sectionOrder={GRANT_SECTION_IDS}
             description="Automated checks for empty sections and insufficient source-content language before export."
+            onSelectSection={(sectionId) =>
+              navigate(`/grant/draft?section=${encodeURIComponent(sectionId)}`)
+            }
           />
 
           <section className="p-10">

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AttorneyFeedbackPanel } from "../../components/AttorneyFeedbackPanel";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { CopyToClipboardButton } from "../../components/CopyToClipboardButton";
@@ -40,10 +40,12 @@ import {
   resolveSectionOrder,
 } from "../../utils/sectionSettings";
 import { buildReviewFieldValues } from "../../utils/resolveCitationPreviewSource";
+import { resolveInitialActiveSection } from "../../utils/resolveInitialActiveSection";
 import "../../styles/patent-drafter.css";
 
 export default function GrantDraft() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     grantDetails,
     sections,
@@ -101,7 +103,9 @@ export default function GrantDraft() {
     return map;
   }, [sectionSettings]);
 
-  const [activeSection, setActiveSection] = useState<string>(sectionIds[0]);
+  const [activeSection, setActiveSection] = useState<string>(() =>
+    resolveInitialActiveSection(sectionIds, searchParams.get("section")),
+  );
   const {
     value: draftText,
     replace: setDraftText,

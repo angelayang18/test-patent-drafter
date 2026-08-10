@@ -503,7 +503,14 @@ export default function Export() {
           </section>
           )}
 
-          {!isGrant && <QAReportPanel report={qaReport} />}
+          {!isGrant && (
+            <QAReportPanel
+              report={qaReport}
+              onSelectSection={(sectionId) =>
+                navigate(`/patent/draft?section=${encodeURIComponent(sectionId)}`)
+              }
+            />
+          )}
 
           {!isGrant && (
           <section className="p-10 border-b border-outline-variant bg-surface-container-low/30">

@@ -80,12 +80,53 @@ def test_get_format_qa_report_warns_on_insufficient_source_language():
     text = (
         "The provided source material does not provide sufficient detail to draft this section."
     )
-    report = get_format_qa_report({"background": text})
+    report = get_format_qa_report({"background": text}, document_type="patent")
     background_entry = next(entry for entry in report if entry["section"] == "background")
     assert background_entry["category"] == "Format"
     assert background_entry["status"] == "warn"
     assert background_entry["messages"] == [
+        (
+            "This section states the source material was insufficient — review before filing. "
+            "Try adding more detail to the Technical Problem Being Solved field on the Review "
+            "tab, or uploading a source document that covers it."
+        ),
+    ]
+
+
+def test_get_format_qa_report_insufficient_source_falls_back_without_hint():
+    """Unmapped sections keep the generic insufficient-source message."""
+    text = (
+        "The provided source material does not provide sufficient detail to draft this section."
+    )
+    report = get_format_qa_report(
+        {"out_of_scope": text},
+        canonical_sections=list(SOW_SECTIONS),
+        document_type="sow",
+    )
+    entry = next(item for item in report if item["section"] == "out_of_scope")
+    assert entry["status"] == "warn"
+    assert entry["messages"] == [
         "This section states the source material was insufficient — review before filing.",
+    ]
+
+
+def test_get_format_qa_report_insufficient_source_hint_for_grant_budget():
+    text = (
+        "The provided source material does not provide sufficient detail to draft this section."
+    )
+    report = get_format_qa_report(
+        {"budget_narrative": text},
+        canonical_sections=list(GRANT_SECTIONS),
+        document_type="grant",
+    )
+    entry = next(item for item in report if item["section"] == "budget_narrative")
+    assert entry["status"] == "warn"
+    assert entry["messages"] == [
+        (
+            "This section states the source material was insufficient — review before filing. "
+            "Try adding more detail to the Budget Overview field on the Review tab, "
+            "or uploading a source document that covers it."
+        ),
     ]
 
 
@@ -95,6 +136,10 @@ def test_get_format_qa_report_fails_invalid_claims():
     assert claims_entry["status"] == "fail"
     assert claims_entry["category"] == "Format"
     assert claims_entry["messages"]
+    # Format fail messages are unchanged; insufficient-source enrichment is absent here.
+    assert all(
+        "insufficient" not in message.lower() for message in claims_entry["messages"]
+    )
     empty_entries = [entry for entry in report if entry["section"] != "claims"]
     assert len(empty_entries) == len(PATENT_SECTIONS) - 1
     assert all(entry["status"] == "warn" for entry in empty_entries)
@@ -107,7 +152,7 @@ def test_qa_report_endpoint_returns_format_qa_report(client: TestClient):
     }
     response = client.post("/qa-report", json={"sections": sections})
     assert response.status_code == 200
-    assert response.json() == get_format_qa_report(sections)
+    assert response.json() == get_format_qa_report(sections, document_type="patent")
 
 
 def test_get_format_qa_report_respects_grant_canonical_sections():
@@ -117,6 +162,7 @@ def test_get_format_qa_report_respects_grant_canonical_sections():
     report = get_format_qa_report(
         {"executive_summary": text},
         canonical_sections=list(GRANT_SECTIONS),
+        document_type="grant",
     )
     assert len(report) == len(GRANT_SECTIONS)
     assert {entry["section"] for entry in report} == set(GRANT_SECTIONS)
@@ -124,7 +170,11 @@ def test_get_format_qa_report_respects_grant_canonical_sections():
     summary = next(entry for entry in report if entry["section"] == "executive_summary")
     assert summary["status"] == "warn"
     assert summary["messages"] == [
-        "This section states the source material was insufficient — review before filing.",
+        (
+            "This section states the source material was insufficient — review before filing. "
+            "Try adding more detail to the Problem Statement and Proposed Solution fields "
+            "on the Review tab, or uploading a source document that covers it."
+        ),
     ]
 
 
@@ -141,6 +191,7 @@ def test_format_qa_report_endpoint_for_grant(client: TestClient):
     assert response.json() == get_format_qa_report(
         sections,
         canonical_sections=list(GRANT_SECTIONS),
+        document_type="grant",
     )
     assert all(entry["category"] == "Format" for entry in response.json())
     assert not any(entry.get("category") == "Alignment" for entry in response.json())
@@ -154,7 +205,11 @@ def test_format_qa_report_endpoint_for_sow(client: TestClient):
     )
     assert response.status_code == 200
     report = response.json()
-    assert report == get_format_qa_report(sections, canonical_sections=list(SOW_SECTIONS))
+    assert report == get_format_qa_report(
+        sections,
+        canonical_sections=list(SOW_SECTIONS),
+        document_type="sow",
+    )
     assert len(report) == len(SOW_SECTIONS)
     purpose = next(entry for entry in report if entry["section"] == "purpose")
     assert purpose["status"] == "pass"
@@ -241,7 +296,9 @@ def test_qa_report_endpoint_includes_invention_alignment(client: TestClient):
     response = client.post("/qa-report", json={"sections": sections, "invention": invention})
     assert response.status_code == 200
     report = response.json()
-    assert report[: len(PATENT_SECTIONS)] == get_format_qa_report(sections)
+    assert report[: len(PATENT_SECTIONS)] == get_format_qa_report(
+        sections, document_type="patent"
+    )
     assert report[len(PATENT_SECTIONS) :] == get_invention_alignment_qa_report(sections, invention)
     assert all(entry["category"] == "Format" for entry in report[: len(PATENT_SECTIONS)])
     assert all(entry["category"] == "Alignment" for entry in report[len(PATENT_SECTIONS) :])

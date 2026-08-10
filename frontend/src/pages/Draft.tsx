@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AttorneyFeedbackPanel } from "../components/AttorneyFeedbackPanel";
 import { PatentNotesSidebar } from "../components/PatentNotesSidebar";
@@ -47,10 +47,12 @@ import {
   resolveSectionOrder,
 } from "../utils/sectionSettings";
 import { buildReviewFieldValues } from "../utils/resolveCitationPreviewSource";
+import { resolveInitialActiveSection } from "../utils/resolveInitialActiveSection";
 import "../styles/patent-drafter.css";
 
 export default function Draft() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     workflowMode,
     invention,
@@ -108,7 +110,9 @@ export default function Draft() {
     [fixedIds, sectionSettings],
   );
 
-  const [activeSection, setActiveSection] = useState<string>(sectionIds[0]);
+  const [activeSection, setActiveSection] = useState<string>(() =>
+    resolveInitialActiveSection(sectionIds, searchParams.get("section")),
+  );
   const [parallelDrafting, setParallelDrafting] = useState(false);
   const [parallelAgentCount, setParallelAgentCount] = useState(0);
   const [pendingSectionIds, setPendingSectionIds] = useState<string[]>([]);

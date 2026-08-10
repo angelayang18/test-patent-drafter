@@ -6,6 +6,8 @@ interface QAReportPanelProps {
   /** Optional section order for Grant/SOW (defaults to patent document order). */
   sectionOrder?: readonly string[];
   description?: string;
+  /** When set, warn/fail rows navigate (or otherwise select) the flagged Draft section. */
+  onSelectSection?: (sectionId: string) => void;
 }
 
 function statusIndicator(status: string): {
@@ -72,10 +74,15 @@ function sortReport(report: QAReportEntry[], sectionOrder: readonly string[]): Q
   });
 }
 
+function isActionableStatus(status: string): boolean {
+  return status === "warn" || status === "fail";
+}
+
 export function QAReportPanel({
   report,
   sectionOrder = DOCUMENT_SECTION_ORDER,
   description = "Automated checks for empty sections, claim numbering, and abstract length before export.",
+  onSelectSection,
 }: QAReportPanelProps) {
   if (report.length === 0) {
     return null;
@@ -97,11 +104,9 @@ export function QAReportPanel({
       <ul className="space-y-2">
         {sorted.map((entry, index) => {
           const indicator = statusIndicator(entry.status);
-          return (
-            <li
-              key={`${entry.category ?? "qa"}-${entry.section}-${index}`}
-              className={`flex items-start gap-3 p-3 rounded-lg border ${indicator.rowClass}`}
-            >
+          const clickable = Boolean(onSelectSection) && isActionableStatus(entry.status);
+          const rowBody = (
+            <>
               <span
                 className={`material-symbols-outlined shrink-0 mt-0.5 ${indicator.iconClass}`}
                 style={entry.status === "pass" ? { fontVariationSettings: "'FILL' 1" } : undefined}
@@ -136,6 +141,32 @@ export function QAReportPanel({
                   </ul>
                 )}
               </div>
+              {clickable && (
+                <span className="shrink-0 flex items-center gap-1 self-center font-label-sm text-label-sm text-primary">
+                  <span className="hidden sm:inline">Fix in Draft</span>
+                  <span className="material-symbols-outlined text-[18px]" aria-hidden>
+                    chevron_right
+                  </span>
+                </span>
+              )}
+            </>
+          );
+
+          return (
+            <li key={`${entry.category ?? "qa"}-${entry.section}-${index}`}>
+              {clickable ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectSection?.(entry.section)}
+                  className={`flex items-start gap-3 p-3 rounded-lg border w-full text-left transition-colors hover:border-secondary/60 hover:bg-secondary/5 cursor-pointer ${indicator.rowClass}`}
+                >
+                  {rowBody}
+                </button>
+              ) : (
+                <div className={`flex items-start gap-3 p-3 rounded-lg border ${indicator.rowClass}`}>
+                  {rowBody}
+                </div>
+              )}
             </li>
           );
         })}

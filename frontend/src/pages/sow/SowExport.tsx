@@ -174,6 +174,9 @@ export default function SowExport() {
             report={qaReport}
             sectionOrder={SOW_SECTION_IDS}
             description="Automated checks for empty sections and insufficient source-content language before export."
+            onSelectSection={(sectionId) =>
+              navigate(`/sow/draft?section=${encodeURIComponent(sectionId)}`)
+            }
           />
 
           <section className="p-10">

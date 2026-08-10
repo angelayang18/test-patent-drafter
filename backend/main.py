@@ -1528,7 +1528,7 @@ def qa_report(body: QAReportRequest) -> List[Dict[str, Union[str, List[str]]]]:
     When ``invention`` is provided, also append patent invention-alignment checks.
     Grant/SOW clients should prefer ``/format-qa-report`` instead.
     """
-    report = get_format_qa_report(body.sections)
+    report = get_format_qa_report(body.sections, document_type="patent")
     if body.invention is not None:
         report.extend(
             get_invention_alignment_qa_report(body.sections, body.invention.model_dump())
@@ -1551,7 +1551,11 @@ def format_qa_report(
             status_code=400,
             detail=f"Unsupported document_type '{body.document_type}'.",
         )
-    return get_format_qa_report(body.sections, canonical_sections=canonical)
+    return get_format_qa_report(
+        body.sections,
+        canonical_sections=canonical,
+        document_type=body.document_type,
+    )
 
 
 @app.post("/export/docx")
