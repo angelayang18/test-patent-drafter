@@ -12,12 +12,21 @@ MAX_EXCERPT_CHARS_PER_SECTION = 3500
 MAX_EXCERPTS_PER_SECTION = 6
 MIN_PARAGRAPH_CHARS = 40
 MAX_CITATION_QUOTE_CHARS = 220
+# Preview highlight target: full matched paragraph (not the 220-char list quote).
+# Cap is a safety bound only; typical paragraphs are far smaller. Truncate on a
+# sentence/word boundary if ever exceeded — never reuse the short quote budget.
+MAX_FULL_CITATION_EXCERPT_CHARS = 4000
 
 # Stricter budgets / gates for field citations (quality over weak matches).
 MAX_CITATION_CANDIDATE_EXCERPTS = 12
 MIN_WEIGHTED_CITATION_SCORE = 0.55
 MIN_DISTINCTIVE_TERM_HITS = 2
+# Sparse extracted values get non-generic label terms mixed in as anchors.
+# Threshold is inclusive: 1–2 surviving value tokens still get label help.
+_SPARSE_VALUE_TERM_THRESHOLD = 2
 COVER_PAGE_SCORE_PENALTY = 0.45
+# Must match drafter.extract_context.EMPTY_FIELD_FALLBACK (avoid circular import).
+_EMPTY_FIELD_FALLBACK = "Not provided in the source documentation."
 
 # Generic field-label nouns that latch onto cover pages ("Implementation Plan").
 _GENERIC_LABEL_TERMS = frozenset(
@@ -203,11 +212,15 @@ class Excerpt:
 
 
 def _words(text: str) -> set[str]:
-    """Lowercase tokens, strip stopwords, keep length > 2."""
+    """Lowercase tokens, strip stopwords, keep length >= 2.
+
+    Length 2 is required so technical tokens (CV, AI, ng, ml) remain matchable
+    for field citations; common English two-letter words are already stopwords.
+    """
     return {
         w
         for w in _WORD_RE.findall(text.lower())
-        if len(w) > 2 and w not in _STOPWORDS
+        if len(w) >= 2 and w not in _STOPWORDS
     }
 
 
@@ -427,13 +440,52 @@ def _citation_quote(text: str, query_terms: set[str] | None = None) -> str:
     return _trim_citation_window(window, preserve_through=preserve_through)
 
 
+def _full_citation_excerpt(text: str) -> str:
+    """Return the full matched paragraph for preview highlighting.
+
+    Uses the complete paragraph (whitespace-collapsed) rather than the 220-char
+    list quote. ``MAX_FULL_CITATION_EXCERPT_CHARS`` is only a safety bound; when
+    hit, truncate on a sentence or word boundary so highlights do not end mid-word.
+    """
+    cleaned = " ".join(text.split()).strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) <= MAX_FULL_CITATION_EXCERPT_CHARS:
+        return cleaned
+
+    window = cleaned[:MAX_FULL_CITATION_EXCERPT_CHARS]
+    best_end = -1
+    min_cut = MAX_FULL_CITATION_EXCERPT_CHARS // 3
+    for sep in (". ", "? ", "! "):
+        idx = window.rfind(sep)
+        if idx >= min_cut:
+            best_end = max(best_end, idx + 1)
+    if best_end > 0:
+        return window[:best_end].rstrip()
+    space_idx = window.rfind(" ")
+    if space_idx > MAX_FULL_CITATION_EXCERPT_CHARS // 2:
+        return window[:space_idx].rstrip() + "…"
+    return window.rstrip() + "…"
+
+
 def _field_value_query_text(value: object) -> str:
-    """Normalize an extracted field value into query vocabulary text."""
+    """Normalize an extracted field value into query vocabulary text.
+
+    Empty-field fallback placeholders are treated as absent so they do not
+    latch onto generic phrases like "source documentation".
+    """
     if value is None:
         return ""
     if isinstance(value, list):
-        return " ".join(str(item) for item in value if item)
+        parts = [
+            str(item).strip()
+            for item in value
+            if item and str(item).strip() and str(item).strip() != _EMPTY_FIELD_FALLBACK
+        ]
+        return " ".join(parts)
     text = str(value).strip()
+    if text == _EMPTY_FIELD_FALLBACK:
+        return ""
     return text
 
 
@@ -510,9 +562,12 @@ def retrieve_relevant_excerpts(
             score = sum(_term_weight(t, df, n_docs) for t in overlap_terms) / denom
             distinctive = _distinctive_query_terms(query_terms, df, n_docs)
             distinctive_hits = len(overlap_terms & distinctive) if distinctive else 0
+            # Cap required hits at available distinctive terms so single-token
+            # values like "ELISA" / "MSD" are not impossible to cite.
+            required_hits = min(MIN_DISTINCTIVE_TERM_HITS, len(distinctive))
             if (
                 distinctive
-                and distinctive_hits < MIN_DISTINCTIVE_TERM_HITS
+                and distinctive_hits < required_hits
                 and score < MIN_WEIGHTED_CITATION_SCORE
             ):
                 continue
@@ -601,16 +656,31 @@ def citations_from_excerpts(
                 "label": excerpt.label,
                 "location": location,
                 "excerpt": quote,
+                # Full paragraph for SourceTextPreviewModal highlighting; list UI
+                # continues to show the short ``excerpt`` quote.
+                "full_excerpt": _full_citation_excerpt(excerpt.text),
             }
         )
     return citations
 
 
 def _field_citation_query_terms(label: str, extracted_value: str) -> set[str]:
-    """Build citation query terms: prefer extracted value; scrub generic label nouns."""
-    if extracted_value.strip():
-        return _words(extracted_value)
-    return _filter_generic_label_terms(_words(label))
+    """Build citation query terms from value + non-generic label anchors.
+
+    Prefer extracted-value vocabulary. When the value tokenizes to nothing
+    (e.g. ``%CV under 20%`` after stopword/length filters) or is very sparse,
+    mix in scrubbed label terms so fields with real source support still cite.
+    Generic label nouns alone are never enough to revive a cover-page latch.
+    """
+    label_terms = _filter_generic_label_terms(_words(label))
+    if not extracted_value.strip():
+        return label_terms
+    value_terms = _words(extracted_value)
+    if not value_terms:
+        return label_terms
+    if len(value_terms) <= _SPARSE_VALUE_TERM_THRESHOLD:
+        return value_terms | label_terms
+    return value_terms
 
 
 def citations_for_fields(
@@ -621,8 +691,9 @@ def citations_for_fields(
 ) -> dict[str, list[dict]]:
     """Build per-field citation lists using extracted values as primary vocabulary.
 
-    When an extracted value is present, the field label is not mixed into the query
-    (avoids "Evaluation Plan" latching onto "Implementation Plan" cover pages).
+    Extracted values drive the query; non-generic label terms are mixed in only
+    when the value is absent or tokenizes too sparsely (keeps symbol-heavy ADA
+    metrics and short names citable without reviving cover-page latching).
     Weak / cover-page-only matches are omitted rather than shown.
     """
     chunks = parse_source_chunks(combined_text)
@@ -645,6 +716,10 @@ def citations_for_fields(
         df, n_docs = _paragraph_term_dfs(all_paragraphs)
         distinctive = _distinctive_query_terms(query_terms, df, n_docs)
 
+        # Value-backed queries keep a score floor; label-only / sparse fallbacks
+        # rely on distinctive-term gating + cover-page demotion instead.
+        value_term_count = len(_words(extracted_value))
+        use_value_floor = value_term_count > _SPARSE_VALUE_TERM_THRESHOLD
         excerpts, _ = retrieve_relevant_excerpts(
             "",
             {},
@@ -653,13 +728,13 @@ def citations_for_fields(
             max_excerpts=MAX_CITATION_CANDIDATE_EXCERPTS,
             weighted=True,
             demote_cover_pages=True,
-            min_score=MIN_WEIGHTED_CITATION_SCORE if extracted_value.strip() else 0.0,
+            min_score=MIN_WEIGHTED_CITATION_SCORE if use_value_floor else 0.0,
             query_terms_override=query_terms,
         )
         citations_by_field[field] = citations_from_excerpts(
             excerpts,
             query_terms,
-            require_distinctive=distinctive if extracted_value.strip() else None,
+            require_distinctive=distinctive if use_value_floor else None,
         )
     return citations_by_field
 

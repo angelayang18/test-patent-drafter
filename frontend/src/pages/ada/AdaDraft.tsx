@@ -15,6 +15,7 @@ import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { getDocumentTypeConfig } from "../../constants/documentTypes";
+import { ADA_CITATION_FIELD_LABELS } from "../../constants/reviewFieldCitationLabels";
 import { useAdaWorkflow } from "../../context/AdaWorkflowContext";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUndoRedo } from "../../hooks/useUndoRedo";
@@ -38,6 +39,7 @@ import {
   resolveSectionLabel,
   resolveSectionOrder,
 } from "../../utils/sectionSettings";
+import { buildReviewFieldValues } from "../../utils/resolveCitationPreviewSource";
 import "../../styles/patent-drafter.css";
 
 export default function AdaDraft() {
@@ -59,11 +61,21 @@ export default function AdaDraft() {
     clearAutoDraftPending,
     gatherSourceText,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
   } = useAdaWorkflow();
 
   const sectionIds = resolveSectionOrder(
     effectiveSectionIds(ADA_SECTION_IDS, sectionSettings),
     sectionSettings,
+  );
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        ADA_CITATION_FIELD_LABELS,
+        (adaDetails ?? undefined) as Record<string, unknown> | undefined,
+      ),
+    [adaDetails],
   );
   const adaDefaultDescriptions = useMemo(() => {
     const map: Record<string, string> = {};
@@ -554,6 +566,9 @@ export default function AdaDraft() {
             <SectionCitationsPanel
               citations={sectionCitations[activeSection] ?? []}
               uploadedFiles={uploadedFiles}
+              pastedText={inputSources.pastedText}
+              cachedRemoteSources={cachedRemoteSources}
+              reviewFieldValues={reviewFieldValues}
             />
           </div>
           </div>{/* end p-8 */}

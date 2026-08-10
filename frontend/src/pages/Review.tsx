@@ -1,13 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AutoResizeTextarea } from "../components/AutoResizeTextarea";
 import { GenerationProgress } from "../components/GenerationProgress";
 import { HorizontalSplitPane } from "../components/HorizontalSplitPane";
 import { MidWorkflowUpload } from "../components/MidWorkflowUpload";
+import { ReviewAiField } from "../components/ReviewAiField";
+import { ReviewDetailsPane } from "../components/ReviewDetailsPane";
+import {
+  computeCoreFieldEmptiness,
+  ReviewEmptyFieldsBanner,
+} from "../components/ReviewEmptyFieldsBanner";
+import { ReviewSourceMaterialPanel } from "../components/ReviewSourceMaterialPanel";
 import { SectionCitationsPanel } from "../components/SectionCitationsPanel";
-import { SourceFilePreviewModal } from "../components/SourceFilePreviewModal";
-import { SourceTextPreviewModal } from "../components/SourceTextPreviewModal";
 import { SelectionRegeneratePopover } from "../components/SelectionRegeneratePopover";
 import { SavedIndicator, useSavedIndicator } from "../components/SavedIndicator";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../components/TitleSuggestions";
@@ -15,7 +20,7 @@ import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { defaultGrantDetails, defaultInvention } from "../types/patent";
-import { usePatentWorkflow, type UploadedSourceFile } from "../context/PatentWorkflowContext";
+import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useUndoRedo } from "../hooks/useUndoRedo";
 import { useTextareaSelectionRegenerate } from "../hooks/useTextareaSelectionRegenerate";
 import {
@@ -26,6 +31,10 @@ import {
   PATENT_CORE_FIELD_KEYS,
   PATENT_REVIEW_FIELDS as PATENT_REVIEW_FIELD_DEFS,
 } from "../constants/patentFields";
+import {
+  GRANT_CITATION_FIELD_LABELS,
+  PATENT_CITATION_FIELD_LABELS,
+} from "../constants/reviewFieldCitationLabels";
 import {
   ApiError,
   extractionNotesFromSources,
@@ -39,7 +48,6 @@ import {
   type ExtractableInventionField,
 } from "../services/api";
 import type { GrantDetails, InventionDetails } from "../types/patent";
-import { fileIcon, formatFileSize } from "../utils/format";
 import {
   computeExtractionSourceKey,
   hasExtractedGrantReviewContent,
@@ -49,6 +57,7 @@ import {
   needsGrantExtraction,
 } from "../utils/extractionSourceKey";
 import { SourceGatherError } from "../utils/gatherSourceText";
+import { buildReviewFieldValues } from "../utils/resolveCitationPreviewSource";
 import "../styles/patent-drafter.css";
 
 const TITLE_MAX_LENGTH = 500;
@@ -72,65 +81,6 @@ const GRANT_REVIEW_FIELDS = GRANT_REVIEW_FIELD_DEFS.map((field) => ({
   ...field,
   multiline: true as const,
 }));
-
-function RegenerateButton({
-  onClick,
-  loading,
-}: {
-  onClick: () => void;
-  loading: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={loading}
-      onClick={onClick}
-      className="flex items-center gap-2 text-secondary font-label-sm text-label-sm hover:underline disabled:opacity-50"
-    >
-      <span className={`material-symbols-outlined text-[16px] ${loading ? "loading-spin" : ""}`}>
-        autorenew
-      </span>
-      {loading ? "Regenerating..." : "Regenerate with AI"}
-    </button>
-  );
-}
-
-function AiField({
-  label,
-  hint,
-  children,
-  onRegenerate,
-  regenerating,
-  extraActions,
-}: {
-  label: string;
-  hint?: string;
-  children: ReactNode;
-  onRegenerate: () => void;
-  regenerating: boolean;
-  extraActions?: ReactNode;
-}) {
-  return (
-    <div className="space-y-3">
-      <div>
-        <div className="flex items-center gap-2">
-          <label className="font-label-md text-label-md text-primary">{label}</label>
-          <span className="bg-secondary-fixed text-on-secondary-fixed text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-tighter">
-            AI-Generated
-          </span>
-        </div>
-        {hint && (
-          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">{hint}</p>
-        )}
-      </div>
-      {children}
-      <div className="flex justify-end items-center gap-4">
-        {extraActions}
-        <RegenerateButton onClick={onRegenerate} loading={regenerating} />
-      </div>
-    </div>
-  );
-}
 
 export default function Review() {
   const navigate = useNavigate();
@@ -180,12 +130,6 @@ export default function Review() {
   const [suggestingTitles, setSuggestingTitles] = useState(false);
   const [extractPhase, setExtractPhase] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
-  const [textPreview, setTextPreview] = useState<{
-    title: string;
-    subtitle?: string;
-    content: string;
-  } | null>(null);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
   const flashSavedRef = useRef(flashSaved);
   flashSavedRef.current = flashSaved;
@@ -197,6 +141,15 @@ export default function Review() {
   const selectionFieldRef = useRef<string | null>(null);
 
   const reviewFields = isGrant ? GRANT_REVIEW_FIELDS : REVIEW_FIELDS;
+
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        isGrant ? GRANT_CITATION_FIELD_LABELS : PATENT_CITATION_FIELD_LABELS,
+        form as unknown as Record<string, unknown>,
+      ),
+    [form, isGrant],
+  );
 
   const isBusy = regeneratingFields.size > 0 || regeneratingSelection || suggestingTitles;
   const {
@@ -609,35 +562,19 @@ export default function Review() {
   const { allCoreFieldsEmpty, someCoreFieldsEmpty } = useMemo(() => {
     if (isGrant) {
       const grantForm = form as GrantDetails;
-      const filledCount = GRANT_CORE_FIELD_KEYS.filter(
-        (key) => typeof grantForm[key] === "string" && grantForm[key].trim().length > 0,
-      ).length;
-      return {
-        allCoreFieldsEmpty: filledCount === 0,
-        someCoreFieldsEmpty: filledCount > 0 && filledCount < GRANT_CORE_FIELD_KEYS.length,
-      };
+      return computeCoreFieldEmptiness(
+        GRANT_CORE_FIELD_KEYS.map((key) =>
+          typeof grantForm[key] === "string" ? grantForm[key] : "",
+        ),
+      );
     }
     const patentForm = form as InventionDetails;
-    const filledCount = PATENT_CORE_FIELD_KEYS.filter((key) =>
-      hasCoreReviewFieldContent(patentForm, key),
-    ).length;
-    return {
-      allCoreFieldsEmpty: filledCount === 0,
-      someCoreFieldsEmpty: filledCount > 0 && filledCount < PATENT_CORE_FIELD_KEYS.length,
-    };
+    return computeCoreFieldEmptiness(
+      PATENT_CORE_FIELD_KEYS.map((key) =>
+        hasCoreReviewFieldContent(patentForm, key) ? (patentForm[key] as string) : "",
+      ),
+    );
   }, [form, isGrant]);
-
-  const confluenceSource = cachedRemoteSources.confluence;
-  const websiteSources = cachedRemoteSources.website ?? [];
-  const pastedText = inputSources.pastedText.trim();
-  const relevantNotes = inputSources.relevantContentNotes.trim();
-  const irrelevantNotes = inputSources.irrelevantContentNotes.trim();
-  const hasRelevanceGuidance = relevantNotes.length > 0 || irrelevantNotes.length > 0;
-  const hasConfluence = Boolean(confluenceSource?.content?.trim());
-  const hasWebsite = websiteSources.some((entry) => entry.content.trim().length > 0);
-  const hasPasted = pastedText.length > 0;
-  const hasUploaded = uploadedFiles.length > 0;
-  const hasAnySource = hasUploaded || hasConfluence || hasWebsite || hasPasted;
 
   const textareaClassName =
     "w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none";
@@ -805,279 +742,72 @@ export default function Review() {
         storageKey="patent-drafter-review-split"
         defaultLeftPercent={40}
         left={
-          <>
-            <div className="p-8 border-b border-outline-variant shrink-0">
-              <h2 className="font-headline-md text-headline-md font-semibold text-on-surface">
-                Source Material
-              </h2>
-              <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-                Files and text used to extract invention details.
-              </p>
-            </div>
-            <div className="flex-grow overflow-y-auto p-6 space-y-4 custom-scrollbar">
-              {!hasAnySource && !hasRelevanceGuidance ? (
-                <p className="font-body-sm text-body-sm text-on-surface-variant">
-                  No source material found. Add files below, or go back to Input for pasted text,
-                  Confluence, or a website URL.
-                </p>
-              ) : (
-                <>
-                  {hasRelevanceGuidance && (
-                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
-                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/10 text-primary shrink-0">
-                        <span className="material-symbols-outlined">tune</span>
-                      </div>
-                      <div className="flex-grow min-w-0">
-                        <p className="font-label-md text-label-md text-on-surface">
-                          Relevance guidance
-                        </p>
-                        <p className="font-body-sm text-body-sm text-on-surface-variant">
-                          {[relevantNotes && "relevant", irrelevantNotes && "irrelevant"]
-                            .filter(Boolean)
-                            .join(" & ")}{" "}
-                          notes for extraction
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label="Preview relevance guidance"
-                        onClick={() =>
-                          setTextPreview({
-                            title: "Relevance guidance",
-                            subtitle: "Applied during AI extraction",
-                            content: [
-                              relevantNotes &&
-                                `Relevant — prioritize and extract from:\n${relevantNotes}`,
-                              irrelevantNotes &&
-                                `Irrelevant — ignore or de-emphasize:\n${irrelevantNotes}`,
-                            ]
-                              .filter(Boolean)
-                              .join("\n\n"),
-                          })
-                        }
-                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">visibility</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {hasConfluence && confluenceSource && (
-                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
-                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-secondary/10 text-secondary shrink-0">
-                        <span
-                          className="material-symbols-outlined"
-                          style={{ fontVariationSettings: "'FILL' 1" }}
-                        >
-                          extension
-                        </span>
-                      </div>
-                      <div className="flex-grow min-w-0">
-                        <p className="font-label-md text-label-md text-on-surface truncate">
-                          Confluence · {confluenceSource.spaceKey}
-                        </p>
-                        <p className="font-body-sm text-body-sm text-on-surface-variant truncate">
-                          {confluenceSource.url}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`Preview Confluence space ${confluenceSource.spaceKey}`}
-                        onClick={() =>
-                          setTextPreview({
-                            title: `Confluence · ${confluenceSource.spaceKey}`,
-                            subtitle: confluenceSource.url,
-                            content: confluenceSource.content,
-                          })
-                        }
-                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">visibility</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {websiteSources
-                    .filter((entry) => entry.content.trim().length > 0)
-                    .map((websiteSource) => (
-                    <div
-                      key={websiteSource.url}
-                      className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4"
-                    >
-                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
-                        <span className="material-symbols-outlined">language</span>
-                      </div>
-                      <div className="flex-grow min-w-0">
-                        <p className="font-label-md text-label-md text-on-surface truncate">
-                          Website
-                        </p>
-                        <p className="font-body-sm text-body-sm text-on-surface-variant truncate">
-                          {websiteSource.url}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`Preview website ${websiteSource.url}`}
-                        onClick={() =>
-                          setTextPreview({
-                            title: "Website",
-                            subtitle: websiteSource.url,
-                            content: websiteSource.content,
-                          })
-                        }
-                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">visibility</span>
-                      </button>
-                    </div>
-                  ))}
-
-                  {hasPasted && (
-                    <div className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4">
-                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
-                        <span className="material-symbols-outlined">content_paste</span>
-                      </div>
-                      <div className="flex-grow min-w-0">
-                        <p className="font-label-md text-label-md text-on-surface truncate">
-                          Pasted text
-                        </p>
-                        <p className="font-body-sm text-body-sm text-on-surface-variant">
-                          {pastedText.length.toLocaleString()} characters
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label="Preview pasted text"
-                        onClick={() =>
-                          setTextPreview({
-                            title: "Pasted text",
-                            subtitle: "Text entered on the Input step",
-                            content: pastedText,
-                          })
-                        }
-                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">visibility</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {uploadedFiles.map((file) => (
-                    <div
-                      key={file.id}
-                      className="bg-surface-container-lowest border border-outline-variant p-4 rounded-lg flex items-center gap-4"
-                    >
-                      <div className="w-12 h-12 flex items-center justify-center rounded-lg bg-primary/5 text-primary shrink-0">
-                        <span className="material-symbols-outlined">{fileIcon(file.filename)}</span>
-                      </div>
-                      <div className="flex-grow min-w-0">
-                        <p className="font-label-md text-label-md text-on-surface truncate">
-                          {file.filename}
-                        </p>
-                        <p className="font-body-sm text-body-sm text-on-surface-variant">
-                          {formatFileSize(file.sizeBytes)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label={`Preview ${file.filename}`}
-                        onClick={() => setPreviewFile(file)}
-                        className="p-2 rounded-lg text-on-surface-variant hover:text-primary hover:bg-primary/5 transition-all shrink-0"
-                      >
-                        <span className="material-symbols-outlined text-[20px]">visibility</span>
-                      </button>
-                    </div>
-                  ))}
-                </>
-              )}
-              <MidWorkflowUpload />
-            </div>
-          </>
+          <ReviewSourceMaterialPanel
+            uploadedFiles={uploadedFiles}
+            cachedRemoteSources={cachedRemoteSources}
+            relevantContentNotes={inputSources.relevantContentNotes}
+            irrelevantContentNotes={inputSources.irrelevantContentNotes}
+            pastedText={inputSources.pastedText}
+            subtitle={
+              isGrant
+                ? "Files and text used to extract grant details."
+                : "Files and text used to extract invention details."
+            }
+            footer={<MidWorkflowUpload />}
+          />
         }
         right={
-          <>
-            <div className="p-8 border-b border-outline-variant flex justify-between items-start gap-4 shrink-0">
-              <div>
-                <h2 className="font-headline-md text-headline-md font-semibold text-on-surface">
-                  {isGrant ? "Extracted Grant Details" : "Extracted Invention Details"}
-                </h2>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-                  {isGrant
-                    ? "Edit fields below, then continue to draft grant application sections."
-                    : "Edit fields below, then continue to draft full patent sections."}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => void handleRegenerateAll()}
-                disabled={isBusy}
-                className="px-4 py-2 bg-secondary/10 text-secondary rounded-lg font-label-md text-label-md hover:bg-secondary/20 disabled:opacity-50 flex items-center gap-2 shrink-0"
-              >
-                <span
-                  className={`material-symbols-outlined text-sm ${regeneratingFields.has("all") ? "loading-spin" : ""}`}
-                >
-                  autorenew
-                </span>
-                Regenerate all
-              </button>
-            </div>
-            <div className="flex-grow overflow-y-auto p-8 space-y-8 custom-scrollbar pb-8">
-              {allCoreFieldsEmpty && (
-                <div
-                  role="alert"
-                  className="p-4 rounded-lg bg-error-container/20 text-error border border-error/30 font-body-sm text-body-sm"
-                >
-                  Please fill in at least one {isGrant ? "grant detail" : "invention detail"} before drafting.
+          <ReviewDetailsPane
+            title={isGrant ? "Extracted Grant Details" : "Extracted Invention Details"}
+            description={
+              isGrant
+                ? "Edit fields below, then continue to draft grant application sections."
+                : "Edit fields below, then continue to draft full patent sections."
+            }
+            onRegenerateAll={() => void handleRegenerateAll()}
+            regeneratingAll={regeneratingFields.has("all")}
+            isBusy={isBusy}
+          >
+            <ReviewEmptyFieldsBanner
+              allCoreFieldsEmpty={allCoreFieldsEmpty}
+              someCoreFieldsEmpty={someCoreFieldsEmpty}
+              detailNoun={isGrant ? "grant detail" : "invention detail"}
+            />
+            {reviewFields.map((field) => {
+              const isTitleField =
+                field.key === "invention_title" || field.key === "project_title";
+              return (
+                <div key={field.key} className="space-y-4">
+                  <ReviewAiField
+                    label={field.label}
+                    hint={field.hint}
+                    onRegenerate={() => handleRegenerateField(field.key)}
+                    regenerating={regeneratingFields.has(field.key)}
+                    extraActions={
+                      isTitleField ? (
+                        <SuggestTitlesButton
+                          onClick={handleSuggestTitles}
+                          loading={suggestingTitles}
+                          disabled={isBusy}
+                        />
+                      ) : undefined
+                    }
+                  >
+                    {renderFieldValue(field)}
+                  </ReviewAiField>
+                  <SectionCitationsPanel
+                    citations={fieldCitations[field.key] ?? []}
+                    uploadedFiles={uploadedFiles}
+                    pastedText={inputSources.pastedText}
+                    cachedRemoteSources={cachedRemoteSources}
+                    reviewFieldValues={reviewFieldValues}
+                  />
                 </div>
-              )}
-              {someCoreFieldsEmpty && (
-                <div className="p-4 rounded-lg bg-secondary/10 text-on-surface border border-secondary/30 font-body-sm text-body-sm">
-                  Some {isGrant ? "grant details are" : "invention details are"} still empty. You can continue, but draft quality may
-                  improve if you fill in the remaining fields.
-                </div>
-              )}
-              {reviewFields.map((field) => {
-                const isTitleField =
-                  field.key === "invention_title" || field.key === "project_title";
-                return (
-                  <div key={field.key} className="space-y-0">
-                    <AiField
-                      label={field.label}
-                      hint={field.hint}
-                      onRegenerate={() => handleRegenerateField(field.key)}
-                      regenerating={regeneratingFields.has(field.key)}
-                      extraActions={
-                        isTitleField ? (
-                          <SuggestTitlesButton
-                            onClick={handleSuggestTitles}
-                            loading={suggestingTitles}
-                            disabled={isBusy}
-                          />
-                        ) : undefined
-                      }
-                    >
-                      {renderFieldValue(field)}
-                    </AiField>
-                    <SectionCitationsPanel
-                      citations={fieldCitations[field.key] ?? []}
-                      uploadedFiles={uploadedFiles}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          </>
+              );
+            })}
+          </ReviewDetailsPane>
         }
       />
-      <SourceFilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
-      {textPreview && (
-        <SourceTextPreviewModal
-          title={textPreview.title}
-          subtitle={textPreview.subtitle}
-          content={textPreview.content}
-          onClose={() => setTextPreview(null)}
-        />
-      )}
       <SelectionRegeneratePopover
         anchorRect={textareaSelection?.anchorRect ?? null}
         loading={regeneratingSelection}

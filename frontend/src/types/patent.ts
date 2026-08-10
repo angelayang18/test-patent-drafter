@@ -111,7 +111,13 @@ export interface SectionCitation {
   label: string;
   /** Document location such as "Page 3", "Slide 4", or "Paragraph 12". */
   location: string;
+  /** Short quote for the citations list (backend-truncated ~220 chars). */
   excerpt: string;
+  /**
+   * Full matched paragraph for source-preview highlighting.
+   * Optional for backward compatibility with older payloads; preview falls back to ``excerpt``.
+   */
+  full_excerpt?: string;
 }
 
 export const SECTION_LABELS: Record<PatentSectionId, string> = {

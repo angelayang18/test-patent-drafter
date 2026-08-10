@@ -26,6 +26,10 @@ from .patent_template import (
 )
 from .prompts import PATENT_SECTIONS, _format_invention_context, get_prompt
 from .retrieval import citations_from_excerpts, format_excerpts_block, retrieve_relevant_excerpts
+from .review_field_sources import (
+    PATENT_REVIEW_FIELD_LABELS,
+    append_review_fields_to_combined_text,
+)
 from .source_chunks import parse_source_chunks
 
 _SECTION_LABELS = {
@@ -215,8 +219,8 @@ def draft_section_agent(
 ) -> tuple[str, list[dict]]:
     """Draft one section via its isolated agent with optional reflection.
 
-    Returns ``(content, citations)``. When ``combined_text`` is empty, retrieval
-    is skipped and citations is ``[]``.
+    Returns ``(content, citations)``. When ``combined_text`` is empty and Review
+    fields are empty/N/A, retrieval is skipped and citations is ``[]``.
 
     Custom (non-canonical) section ids are accepted when ``custom_sections``
     supplies ``name`` / ``description`` metadata for that id.
@@ -227,6 +231,11 @@ def draft_section_agent(
         raise ValueError(
             f"Unknown section '{section}'. Must be one of: {PATENT_SECTIONS}"
         )
+
+    # Make Review-tab fields citable via the same chunk/citation pipeline as uploads.
+    combined_text = append_review_fields_to_combined_text(
+        combined_text, invention, PATENT_REVIEW_FIELD_LABELS
+    )
 
     excerpts = []
     query_terms: set[str] = set()

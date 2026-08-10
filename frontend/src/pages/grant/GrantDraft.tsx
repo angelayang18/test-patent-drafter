@@ -15,6 +15,7 @@ import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { getDocumentTypeConfig } from "../../constants/documentTypes";
+import { GRANT_CITATION_FIELD_LABELS } from "../../constants/reviewFieldCitationLabels";
 import { useGrantWorkflow } from "../../context/GrantWorkflowContext";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUndoRedo } from "../../hooks/useUndoRedo";
@@ -38,6 +39,7 @@ import {
   resolveSectionLabel,
   resolveSectionOrder,
 } from "../../utils/sectionSettings";
+import { buildReviewFieldValues } from "../../utils/resolveCitationPreviewSource";
 import "../../styles/patent-drafter.css";
 
 export default function GrantDraft() {
@@ -59,11 +61,21 @@ export default function GrantDraft() {
     clearAutoDraftPending,
     gatherSourceText,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
   } = useGrantWorkflow();
 
   const sectionIds = resolveSectionOrder(
     effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings),
     sectionSettings,
+  );
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        GRANT_CITATION_FIELD_LABELS,
+        (grantDetails ?? undefined) as Record<string, unknown> | undefined,
+      ),
+    [grantDetails],
   );
   const grantDefaultDescriptions = useMemo(() => {
     const map: Record<string, string> = {};
@@ -548,6 +560,9 @@ export default function GrantDraft() {
             <SectionCitationsPanel
               citations={sectionCitations[activeSection] ?? []}
               uploadedFiles={uploadedFiles}
+              pastedText={inputSources.pastedText}
+              cachedRemoteSources={cachedRemoteSources}
+              reviewFieldValues={reviewFieldValues}
             />
           </div>
           </div>{/* end p-8 */}

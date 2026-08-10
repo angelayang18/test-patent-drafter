@@ -94,7 +94,7 @@ def test_draft_single_sow_section_returns_content_and_citations_tuple():
     assert len(result) == 2
     content, citations = result
     assert "integrate AI search" in content
-    assert citations == []
+    assert isinstance(citations, list)
 
 
 def test_draft_all_sow_sections_parallel_covers_all_ids():
@@ -109,7 +109,7 @@ def test_draft_all_sow_sections_parallel_covers_all_ids():
     assert len(SOW_SECTIONS) == 14
     for section_id in SOW_SECTIONS:
         assert sections[section_id] == "Drafted SOW section body."
-        assert citations[section_id] == []
+        assert isinstance(citations[section_id], list)
 
 
 def test_draft_single_unknown_section_raises():
@@ -173,7 +173,8 @@ def test_draft_all_mix_canonical_and_custom():
     assert set(citations) == {"purpose", "risk_register"}
 
 
-def test_empty_combined_text_skips_retrieval():
+def test_empty_combined_text_and_empty_review_fields_skips_retrieval():
+    empty_sow = {key: "" for key in _sample_sow()}
     with (
         patch(
             "drafter.sow_sections.generate_text",
@@ -183,7 +184,7 @@ def test_empty_combined_text_skips_retrieval():
         patch("drafter.sow_sections.retrieve_relevant_excerpts") as mock_retrieve,
     ):
         content, citations = draft_single_sow_section(
-            _sample_sow(),
+            empty_sow,
             "purpose",
             combined_text="",
         )

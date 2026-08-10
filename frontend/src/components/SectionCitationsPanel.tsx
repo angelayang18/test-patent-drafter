@@ -1,42 +1,56 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { UploadedSourceFile } from "../context/PatentWorkflowContext";
 import type { SectionCitation } from "../types/patent";
-import { SourceFilePreviewModal } from "./SourceFilePreviewModal";
+import type { CachedRemoteSources } from "../utils/gatherSourceText";
+import {
+  resolveCitationPreviewSource,
+  type CitationPreviewSource,
+} from "../utils/resolveCitationPreviewSource";
+import { SourceTextPreviewModal } from "./SourceTextPreviewModal";
 
 interface SectionCitationsPanelProps {
   citations: SectionCitation[];
   /** Uploaded files available for click-to-preview; labels matching a filename are clickable. */
   uploadedFiles?: UploadedSourceFile[];
-}
-
-function findUploadedFile(
-  label: string,
-  uploadedFiles: UploadedSourceFile[],
-): UploadedSourceFile | undefined {
-  return uploadedFiles.find((file) => file.filename === label);
+  /** Pasted Input-step text; citations labeled "Pasted text" open this in preview. */
+  pastedText?: string;
+  /** Cached Confluence / website scrapes for non-file citation previews. */
+  cachedRemoteSources?: CachedRemoteSources;
+  /**
+   * Bare Review-field label → current value for ``Your reviewed {Field}`` citations.
+   */
+  reviewFieldValues?: Record<string, string>;
 }
 
 export function SectionCitationsPanel({
   citations,
   uploadedFiles = [],
+  pastedText = "",
+  cachedRemoteSources = {},
+  reviewFieldValues = {},
 }: SectionCitationsPanelProps) {
   const [expanded, setExpanded] = useState(false);
-  const [previewFile, setPreviewFile] = useState<UploadedSourceFile | null>(null);
+  const [previewSource, setPreviewSource] = useState<CitationPreviewSource | null>(null);
   const [highlightText, setHighlightText] = useState<string | undefined>(undefined);
 
   useEffect(() => {
-    if (!previewFile) {
+    if (!previewSource) {
       setHighlightText(undefined);
     }
-  }, [previewFile]);
+  }, [previewSource]);
 
   if (!citations.length) {
     return null;
   }
 
-  const openPreview = (file: UploadedSourceFile, excerpt: string) => {
-    setHighlightText(excerpt);
-    setPreviewFile(file);
+  const openPreview = (source: CitationPreviewSource, highlight: string) => {
+    setHighlightText(highlight);
+    setPreviewSource(source);
+  };
+
+  const previewHighlightText = (citation: SectionCitation): string => {
+    const full = citation.full_excerpt?.trim() ?? "";
+    return full || citation.excerpt;
   };
 
   return (
@@ -72,17 +86,23 @@ export function SectionCitationsPanel({
         {expanded && (
           <ul className="mt-6 space-y-4">
             {citations.map((citation) => {
-              const matchedFile = findUploadedFile(citation.label, uploadedFiles);
+              const preview = resolveCitationPreviewSource(citation.label, {
+                uploadedFiles,
+                pastedText,
+                cachedRemoteSources,
+                reviewFieldValues,
+              });
               const location = citation.location?.trim() ?? "";
               const quote = citation.excerpt;
+              const highlight = previewHighlightText(citation);
 
               let labelNode: ReactNode;
-              if (matchedFile) {
+              if (preview) {
                 labelNode = (
                   <button
                     type="button"
                     className="font-label-sm text-label-sm text-primary underline underline-offset-2 hover:text-primary/80 text-left"
-                    onClick={() => openPreview(matchedFile, quote)}
+                    onClick={() => openPreview(preview, highlight)}
                   >
                     {citation.label}
                   </button>
@@ -116,11 +136,15 @@ export function SectionCitationsPanel({
         )}
       </section>
 
-      <SourceFilePreviewModal
-        file={previewFile}
-        highlightText={highlightText}
-        onClose={() => setPreviewFile(null)}
-      />
+      {previewSource && (
+        <SourceTextPreviewModal
+          title={previewSource.title}
+          subtitle={previewSource.subtitle}
+          content={previewSource.content}
+          highlightText={highlightText}
+          onClose={() => setPreviewSource(null)}
+        />
+      )}
     </>
   );
 }

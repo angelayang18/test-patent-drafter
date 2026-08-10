@@ -15,6 +15,7 @@ import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { getDocumentTypeConfig } from "../../constants/documentTypes";
+import { SOW_CITATION_FIELD_LABELS } from "../../constants/reviewFieldCitationLabels";
 import { useSowWorkflow } from "../../context/SowWorkflowContext";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { useUndoRedo } from "../../hooks/useUndoRedo";
@@ -38,6 +39,7 @@ import {
   resolveSectionLabel,
   resolveSectionOrder,
 } from "../../utils/sectionSettings";
+import { buildReviewFieldValues } from "../../utils/resolveCitationPreviewSource";
 import "../../styles/patent-drafter.css";
 
 export default function SowDraft() {
@@ -59,11 +61,21 @@ export default function SowDraft() {
     clearAutoDraftPending,
     gatherSourceText,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
   } = useSowWorkflow();
 
   const sectionIds = resolveSectionOrder(
     effectiveSectionIds(SOW_SECTION_IDS, sectionSettings),
     sectionSettings,
+  );
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        SOW_CITATION_FIELD_LABELS,
+        (sowDetails ?? undefined) as Record<string, unknown> | undefined,
+      ),
+    [sowDetails],
   );
   const sowDefaultDescriptions = useMemo(() => {
     const map: Record<string, string> = {};
@@ -554,6 +566,9 @@ export default function SowDraft() {
             <SectionCitationsPanel
               citations={sectionCitations[activeSection] ?? []}
               uploadedFiles={uploadedFiles}
+              pastedText={inputSources.pastedText}
+              cachedRemoteSources={cachedRemoteSources}
+              reviewFieldValues={reviewFieldValues}
             />
           </div>
           </div>{/* end p-8 */}

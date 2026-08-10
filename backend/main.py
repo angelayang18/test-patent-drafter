@@ -36,6 +36,7 @@ from drafter.sow_sections import (
 )
 from drafter.generic_sections import draft_generic_section, draft_generic_sections_parallel
 from drafter.retrieval import citations_for_generic_title
+from drafter.sections_suggest import suggest_sections_from_samples
 from drafter.titles import suggest_generic_titles, suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
@@ -184,6 +185,14 @@ class ExtractGenericTitleCitationsRequest(BaseModel):
     combined_text: str
     document_type_label: str
     title: str = ""
+
+
+class SuggestDocumentTypeSectionsRequest(BaseModel):
+    """Request body for inferring a custom document-type section outline."""
+
+    combined_text: str
+    document_type_name: str
+    description: str = ""
 
 
 class GrantDraftRequest(GrantDetails):
@@ -346,6 +355,8 @@ class SectionCitation(BaseModel):
     label: str
     location: str
     excerpt: str
+    # Full matched paragraph for preview highlighting; empty on legacy payloads.
+    full_excerpt: str = ""
 
 
 class DraftRequest(InventionDetails):
@@ -690,6 +701,39 @@ def extract_generic_title_citations(body: ExtractGenericTitleCitationsRequest) -
         body.title,
     )
     return {"citations": citations}
+
+
+@app.post("/document-types/suggest-sections")
+def suggest_document_type_sections(body: SuggestDocumentTypeSectionsRequest) -> dict:
+    """Suggest a reusable section outline from sample report text.
+
+    Returns ``{"sections": [{"name", "description"}, ...], "style_note": str | null}``.
+    Suggestions are not auto-applied — the client presents accept/edit/reject UI.
+    """
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+    if not body.document_type_name.strip():
+        raise HTTPException(status_code=400, detail="document_type_name is required.")
+
+    try:
+        return suggest_sections_from_samples(
+            body.combined_text,
+            body.document_type_name,
+            description=body.description,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception(
+            "Section suggestion failed for document type %s",
+            body.document_type_name,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to suggest sections: {exc}",
+        ) from exc
 
 
 @app.post("/extract")

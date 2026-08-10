@@ -1,12 +1,20 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { SectionListEditor } from "../components/SectionListEditor";
+import { UploadProgressPanel } from "../components/UploadProgressPanel";
 import { getDocumentTypeConfig } from "../constants/documentTypes";
 import { useAdaWorkflow } from "../context/AdaWorkflowContext";
+import type { UploadedSourceFile } from "../context/grantContext";
 import { useGrantWorkflow } from "../context/GrantWorkflowContext";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useSowWorkflow } from "../context/SowWorkflowContext";
+import { useFileUpload } from "../hooks/useFileUpload";
+import {
+  ApiError,
+  suggestDocumentTypeSections,
+  type SuggestedDocumentSection,
+} from "../services/api";
 import {
   ADA_SECTION_IDS,
   ADA_SECTION_LABELS,
@@ -22,10 +30,12 @@ import { getResumePath, workflowHasProgress } from "../utils/draftStorage";
 import {
   type CustomSectionDef,
   type DocumentTypeTemplate,
+  deleteDocumentTypeTemplate,
   generateDocumentTypeTemplateId,
   listDocumentTypeTemplates,
   saveDocumentTypeTemplate,
 } from "../utils/documentTypeTemplates";
+import { fileIcon, formatFileSize } from "../utils/format";
 import {
   clearActiveGenericWorkflow,
   GENERIC_STEP_PATHS,
@@ -41,6 +51,7 @@ import {
   commitSectionSettings,
   defaultSectionSettings,
   effectiveSectionIds,
+  generateCustomSectionId,
   orderAllSectionIds,
   resolveSectionDescription,
   resolveSectionLabel,
@@ -50,6 +61,10 @@ import {
 } from "../utils/sectionSettings";
 import { getSowResumePath, sowWorkflowHasProgress, SOW_STEP_PATHS } from "../utils/sowStorage";
 import "../styles/patent-drafter.css";
+
+interface PendingSuggestedSection extends SuggestedDocumentSection {
+  localId: string;
+}
 
 type BuiltinDocumentTypeId =
   | "PATENT_PROVISIONAL"
@@ -395,6 +410,11 @@ function CustomTypeSectionsPanel({ template }: CustomTypeSectionsPanelProps) {
       {template.basedOn && (
         <p className="font-body-sm text-body-sm text-on-surface-variant">{template.basedOn}</p>
       )}
+      {(template.builtFromSamples || template.sampleNote) && (
+        <p className="font-body-sm text-body-sm text-on-surface-variant">
+          {template.sampleNote?.trim() || "Built from uploaded sample reports."}
+        </p>
+      )}
       <p className="font-body-md text-body-md text-on-surface-variant">
         These are the default sections we&apos;ll draft. Reorder, rename, remove, or add sections —
         if you don&apos;t change anything, the defaults below are used.
@@ -478,6 +498,22 @@ function CreateDocumentTypePanel({
   const [localSettings, setLocalSettings] = useState<SectionSettingsMap>({});
   const [rowOrder, setRowOrder] = useState<string[]>([]);
 
+  const [sampleFiles, setSampleFiles] = useState<UploadedSourceFile[]>([]);
+  const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestedSection[]>([]);
+  const [styleNote, setStyleNote] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [builtFromSamples, setBuiltFromSamples] = useState(false);
+  const [sampleNote, setSampleNote] = useState<string | undefined>(undefined);
+
+  const fileInputId = useId();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dropzoneRef = useRef<HTMLDivElement>(null);
+  const nameRef = useRef(name);
+  const descriptionRef = useRef(description);
+  nameRef.current = name;
+  descriptionRef.current = description;
+
   const cloneOptions = useMemo(() => {
     const builtin = DOCUMENT_TYPES.map((doc) => ({
       value: `builtin:${doc.id}`,
@@ -489,6 +525,105 @@ function CreateDocumentTypePanel({
     }));
     return [...builtin, ...custom];
   }, [templates]);
+
+  const requestSuggestions = useCallback(async (files: UploadedSourceFile[]) => {
+    const trimmedName = nameRef.current.trim();
+    if (!trimmedName) {
+      setSuggestError("Enter a name for the document type before suggesting sections.");
+      return;
+    }
+    const combinedText = files
+      .map((file) => `--- ${file.filename} ---\n${file.content}`)
+      .join("\n\n")
+      .trim();
+    if (!combinedText) {
+      setSuggestError("Uploaded samples had no extractable text.");
+      return;
+    }
+
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const result = await suggestDocumentTypeSections(
+        combinedText,
+        trimmedName,
+        descriptionRef.current,
+      );
+      setPendingSuggestions(
+        result.sections.map((section, index) => ({
+          localId: `suggestion-${Date.now()}-${index}`,
+          name: section.name,
+          description: section.description ?? "",
+        })),
+      );
+      setStyleNote(result.styleNote);
+    } catch (err) {
+      setPendingSuggestions([]);
+      setStyleNote(null);
+      setSuggestError(
+        err instanceof ApiError ? err.message : "Could not suggest sections from samples.",
+      );
+    } finally {
+      setSuggesting(false);
+    }
+  }, []);
+
+  const handleSamplesUploaded = useCallback(
+    (files: UploadedSourceFile[]) => {
+      setSampleFiles((prev) => {
+        const next = [...prev, ...files];
+        setBuiltFromSamples(true);
+        const filenames = next.map((file) => file.filename).filter(Boolean);
+        setSampleNote(
+          filenames.length > 0
+            ? `Built from sample report${filenames.length === 1 ? "" : "s"}: ${filenames.join(", ")}`
+            : "Built from uploaded sample reports.",
+        );
+        void requestSuggestions(next);
+        return next;
+      });
+    },
+    [requestSuggestions],
+  );
+
+  const { processFiles, uploadQueue, error: uploadError, uploading } =
+    useFileUpload(handleSamplesUploaded);
+
+  useEffect(() => {
+    const dropzone = dropzoneRef.current;
+    if (!dropzone) return;
+
+    const onDragOver = (e: DragEvent) => {
+      e.preventDefault();
+      dropzone.classList.add("border-secondary", "bg-secondary/10");
+    };
+    const onDragLeave = () => {
+      dropzone.classList.remove("border-secondary", "bg-secondary/10");
+    };
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      dropzone.classList.remove("border-secondary", "bg-secondary/10");
+      if (e.dataTransfer?.files?.length) {
+        void processFiles(e.dataTransfer.files);
+      }
+    };
+
+    dropzone.addEventListener("dragover", onDragOver);
+    dropzone.addEventListener("dragleave", onDragLeave);
+    dropzone.addEventListener("drop", onDrop);
+    return () => {
+      dropzone.removeEventListener("dragover", onDragOver);
+      dropzone.removeEventListener("dragleave", onDragLeave);
+      dropzone.removeEventListener("drop", onDrop);
+    };
+  }, [processFiles, started]);
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) {
+      void processFiles(e.target.files);
+      e.target.value = "";
+    }
+  };
 
   const seedFromSections = (sections: CustomSectionDef[], provenance?: string) => {
     const editor = sectionsToEditorState(sections);
@@ -540,6 +675,83 @@ function CreateDocumentTypePanel({
     setError("Select a source to clone from.");
   };
 
+  const appendSectionsToEditor = (
+    sections: Array<{ name: string; description: string }>,
+  ) => {
+    const valid = sections
+      .map((section) => ({
+        name: section.name.trim(),
+        description: section.description.trim(),
+      }))
+      .filter((section) => section.name);
+    if (valid.length === 0) return;
+
+    setRowOrder((prevOrder) => {
+      const nextOrder = [...prevOrder];
+      const additions: SectionSettingsMap = {};
+      for (const section of valid) {
+        const id = generateCustomSectionId(section.name, nextOrder);
+        additions[id] = {
+          order: nextOrder.length,
+          included: true,
+          name: section.name,
+          ...(section.description ? { description: section.description } : {}),
+        };
+        nextOrder.push(id);
+      }
+      setLocalSettings((prevSettings) => ({ ...prevSettings, ...additions }));
+      return nextOrder;
+    });
+  };
+
+  const handleAcceptSuggestion = (localId: string) => {
+    const suggestion = pendingSuggestions.find((item) => item.localId === localId);
+    if (!suggestion) return;
+    appendSectionsToEditor([suggestion]);
+    setPendingSuggestions((prev) => prev.filter((item) => item.localId !== localId));
+  };
+
+  const handleRejectSuggestion = (localId: string) => {
+    setPendingSuggestions((prev) => prev.filter((item) => item.localId !== localId));
+  };
+
+  const handlePatchSuggestion = (
+    localId: string,
+    patch: Partial<Pick<PendingSuggestedSection, "name" | "description">>,
+  ) => {
+    setPendingSuggestions((prev) =>
+      prev.map((item) => (item.localId === localId ? { ...item, ...patch } : item)),
+    );
+  };
+
+  const handleAcceptAllSuggestions = () => {
+    appendSectionsToEditor(pendingSuggestions);
+    setPendingSuggestions([]);
+  };
+
+  const handleRejectAllSuggestions = () => {
+    setPendingSuggestions([]);
+    setStyleNote(null);
+  };
+
+  const handleRemoveSampleFile = (id: string) => {
+    setSampleFiles((prev) => {
+      const next = prev.filter((file) => file.id !== id);
+      if (next.length === 0) {
+        setBuiltFromSamples(false);
+        setSampleNote(undefined);
+        setPendingSuggestions([]);
+        setStyleNote(null);
+      } else {
+        const filenames = next.map((file) => file.filename).filter(Boolean);
+        setSampleNote(
+          `Built from sample report${filenames.length === 1 ? "" : "s"}: ${filenames.join(", ")}`,
+        );
+      }
+      return next;
+    });
+  };
+
   const handleSave = () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
@@ -564,6 +776,8 @@ function CreateDocumentTypePanel({
       sections,
       createdAt: new Date().toISOString(),
       basedOn,
+      builtFromSamples: builtFromSamples || undefined,
+      sampleNote: builtFromSamples ? sampleNote : undefined,
     };
 
     try {
@@ -692,6 +906,183 @@ function CreateDocumentTypePanel({
           {basedOn && (
             <p className="font-body-sm text-body-sm text-on-surface-variant">{basedOn}</p>
           )}
+
+          <section className="space-y-3">
+            <div>
+              <h4 className="font-label-md text-label-md text-primary">
+                Upload sample reports{" "}
+                <span className="text-on-surface-variant font-normal">(optional)</span>
+              </h4>
+              <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                Upload 1+ PDF, DOCX, or PPTX examples to suggest sections. You can accept, edit, or
+                reject each suggestion — nothing is applied automatically.
+              </p>
+            </div>
+
+            <input
+              ref={fileInputRef}
+              id={fileInputId}
+              type="file"
+              className="hidden"
+              accept=".pdf,.docx,.pptx"
+              multiple
+              onChange={handleFileInputChange}
+            />
+            <div
+              ref={dropzoneRef}
+              role="button"
+              tabIndex={uploading || suggesting ? -1 : 0}
+              aria-disabled={uploading || suggesting}
+              onClick={() => !uploading && !suggesting && fileInputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (uploading || suggesting) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileInputRef.current?.click();
+                }
+              }}
+              className={`border-2 border-dashed border-outline-variant rounded-xl p-6 flex flex-col items-center justify-center bg-surface-container-low transition-all group ${
+                uploading || suggesting
+                  ? "opacity-60 cursor-not-allowed"
+                  : "hover:bg-primary/5 hover:border-primary cursor-pointer"
+              }`}
+            >
+              <span
+                className={`material-symbols-outlined text-primary text-4xl mb-3 transition-transform ${
+                  uploading || suggesting ? "loading-spin" : "group-hover:scale-110"
+                }`}
+              >
+                {uploading || suggesting ? "progress_activity" : "cloud_upload"}
+              </span>
+              <p className="font-title-md text-title-md text-on-surface mb-1">
+                {uploading
+                  ? "Parsing sample reports…"
+                  : suggesting
+                    ? "Suggesting sections…"
+                    : "Drag files here or click to browse"}
+              </p>
+              <p className="font-body-sm text-body-sm text-on-surface-variant">
+                Accepted formats: PDF, .docx, .pptx
+              </p>
+            </div>
+
+            <UploadProgressPanel items={uploadQueue} />
+
+            {(uploadError || suggestError) && (
+              <div className="p-3 rounded-lg bg-error-container/20 text-error text-sm">
+                {uploadError ?? suggestError}
+              </div>
+            )}
+
+            {sampleFiles.length > 0 && (
+              <ul className="space-y-2">
+                {sampleFiles.map((file) => (
+                  <li
+                    key={file.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-outline-variant bg-surface"
+                  >
+                    <span className="material-symbols-outlined text-primary shrink-0">
+                      {fileIcon(file.filename)}
+                    </span>
+                    <div className="flex-grow min-w-0">
+                      <p className="font-body-md text-body-md truncate">{file.filename}</p>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        {formatFileSize(file.sizeBytes)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveSampleFile(file.id)}
+                      className="font-label-sm text-label-sm text-secondary hover:underline shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {pendingSuggestions.length > 0 && (
+            <section className="space-y-3 rounded-xl border border-outline-variant bg-surface-container-lowest p-4">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                  <h4 className="font-label-md text-label-md text-primary">Suggested sections</h4>
+                  {styleNote && (
+                    <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                      Style note: {styleNote}
+                    </p>
+                  )}
+                  <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                    Edit a suggestion, then accept it into your section list — or reject it.
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleRejectAllSuggestions}
+                    className="px-3 py-1.5 rounded-lg border border-outline-variant font-label-sm text-label-sm text-on-surface"
+                  >
+                    Reject all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAcceptAllSuggestions}
+                    className="px-3 py-1.5 rounded-lg bg-primary text-on-primary font-label-sm text-label-sm"
+                  >
+                    Accept all
+                  </button>
+                </div>
+              </div>
+              <ul className="space-y-3">
+                {pendingSuggestions.map((suggestion) => (
+                  <li
+                    key={suggestion.localId}
+                    className="space-y-2 p-3 rounded-lg border border-outline-variant bg-surface"
+                  >
+                    <input
+                      type="text"
+                      value={suggestion.name}
+                      onChange={(e) =>
+                        handlePatchSuggestion(suggestion.localId, { name: e.target.value })
+                      }
+                      aria-label="Suggested section name"
+                      className="w-full bg-white border border-outline-variant rounded-lg p-2.5 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary outline-none"
+                    />
+                    <textarea
+                      value={suggestion.description}
+                      onChange={(e) =>
+                        handlePatchSuggestion(suggestion.localId, {
+                          description: e.target.value,
+                        })
+                      }
+                      rows={2}
+                      aria-label="Suggested section description"
+                      className="w-full bg-white border border-outline-variant rounded-lg p-2.5 font-body-sm text-body-sm text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary outline-none resize-y"
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRejectSuggestion(suggestion.localId)}
+                        className="px-3 py-1.5 rounded-lg border border-outline-variant font-label-sm text-label-sm text-on-surface"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleAcceptSuggestion(suggestion.localId)}
+                        disabled={!suggestion.name.trim()}
+                        className="px-3 py-1.5 rounded-lg bg-secondary text-on-secondary font-label-sm text-label-sm disabled:opacity-50"
+                      >
+                        Accept
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           <SectionListEditor
             fixedIds={fixedIds}
             rowOrder={rowOrder}
@@ -758,6 +1149,10 @@ export default function Home() {
   const [templates, setTemplates] = useState<DocumentTypeTemplate[]>(() =>
     listDocumentTypeTemplates(),
   );
+  const [templatePendingDelete, setTemplatePendingDelete] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   const patent = usePatentWorkflow();
   const grant = useGrantWorkflow();
@@ -848,6 +1243,17 @@ export default function Home() {
     setSelectedType({ kind: "custom", templateId: template.id });
   };
 
+  const handleConfirmDeleteTemplate = () => {
+    if (!templatePendingDelete) return;
+    const { id } = templatePendingDelete;
+    deleteDocumentTypeTemplate(id);
+    setTemplates(listDocumentTypeTemplates());
+    setTemplatePendingDelete(null);
+    if (selectedType.kind === "custom" && selectedType.templateId === id) {
+      setSelectedType({ kind: "builtin", id: "PATENT_PROVISIONAL" });
+    }
+  };
+
   return (
     <AppShell
       step="input"
@@ -875,6 +1281,7 @@ export default function Home() {
                     type="button"
                     onClick={() => setSelectedType({ kind: "builtin", id: doc.id })}
                     aria-pressed={selected}
+                    data-testid={`builtin-type-card-${doc.id}`}
                     className={`p-5 rounded-xl border text-left transition-all ${
                       selected
                         ? "border-2 border-primary bg-primary/5 shadow-sm"
@@ -895,32 +1302,84 @@ export default function Home() {
                   selectedType.kind === "custom" &&
                   selectedType.templateId === template.id;
                 return (
-                  <button
-                    key={template.id}
-                    type="button"
-                    onClick={() =>
-                      setSelectedType({ kind: "custom", templateId: template.id })
-                    }
-                    aria-pressed={selected}
-                    className={`p-5 rounded-xl border text-left transition-all ${
-                      selected
-                        ? "border-2 border-primary bg-primary/5 shadow-sm"
-                        : "border border-outline-variant bg-surface-container-lowest hover:border-primary/40"
-                    }`}
-                  >
-                    <span className="material-symbols-outlined text-primary text-3xl mb-3 block">
-                      note_add
-                    </span>
-                    <h3 className="font-title-md text-title-md text-primary mb-1">
-                      {template.name}
-                    </h3>
-                    <p className="font-body-sm text-body-sm text-on-surface-variant">
-                      {template.description?.trim() ||
-                        "4 steps: Input → Review → Draft → Export"}
-                    </p>
-                  </button>
+                  <div key={template.id} className="relative">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelectedType({ kind: "custom", templateId: template.id })
+                      }
+                      aria-pressed={selected}
+                      data-testid={`custom-template-card-${template.id}`}
+                      className={`w-full p-5 pr-12 rounded-xl border text-left transition-all ${
+                        selected
+                          ? "border-2 border-primary bg-primary/5 shadow-sm"
+                          : "border border-outline-variant bg-surface-container-lowest hover:border-primary/40"
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-primary text-3xl mb-3 block">
+                        note_add
+                      </span>
+                      <h3 className="font-title-md text-title-md text-primary mb-1">
+                        {template.name}
+                      </h3>
+                      <p className="font-body-sm text-body-sm text-on-surface-variant">
+                        {template.description?.trim() ||
+                          "4 steps: Input → Review → Draft → Export"}
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Delete ${template.name}`}
+                      title="Delete template"
+                      data-testid={`delete-template-${template.id}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        event.preventDefault();
+                        setTemplatePendingDelete({
+                          id: template.id,
+                          name: template.name,
+                        });
+                      }}
+                      className="absolute top-3 right-3 z-10 p-1.5 rounded hover:bg-error-container/30 text-on-surface-variant hover:text-error"
+                    >
+                      <span className="material-symbols-outlined text-[20px]">delete</span>
+                    </button>
+                  </div>
                 );
               })}
+
+              {templatePendingDelete && (
+                <div
+                  className="p-4 rounded-lg border border-error/30 bg-error-container/10 space-y-3"
+                  role="alertdialog"
+                  aria-labelledby="delete-template-confirm-title"
+                  data-testid="delete-template-confirm"
+                >
+                  <p
+                    id="delete-template-confirm-title"
+                    className="font-body-sm text-body-sm text-on-surface"
+                  >
+                    Are you sure you want to delete &apos;{templatePendingDelete.name}
+                    &apos;? This can&apos;t be undone.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={handleConfirmDeleteTemplate}
+                      className="px-4 py-2 rounded-lg bg-error text-on-error font-label-md text-label-md hover:bg-error/90 transition-all active:scale-95"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTemplatePendingDelete(null)}
+                      className="px-4 py-2 rounded-lg border border-outline-variant text-on-surface font-label-md text-label-md hover:bg-surface-container-high transition-all active:scale-95"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <button
                 type="button"

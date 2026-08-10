@@ -1,27 +1,43 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { SowAppShell } from "../../components/SowAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { HorizontalSplitPane } from "../../components/HorizontalSplitPane";
+import { ReviewAiField } from "../../components/ReviewAiField";
+import { ReviewDetailsPane } from "../../components/ReviewDetailsPane";
+import {
+  computeCoreFieldEmptiness,
+  ReviewEmptyFieldsBanner,
+} from "../../components/ReviewEmptyFieldsBanner";
+import { ReviewSourceMaterialPanel } from "../../components/ReviewSourceMaterialPanel";
 import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
+import { SelectionRegeneratePopover } from "../../components/SelectionRegeneratePopover";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
 import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
+import { SOW_CITATION_FIELD_LABELS } from "../../constants/reviewFieldCitationLabels";
 import { SOW_CORE_FIELD_KEYS, SOW_REVIEW_FIELDS } from "../../constants/sowFields";
 import { useSowWorkflow } from "../../context/SowWorkflowContext";
 import { useUndoRedo } from "../../hooks/useUndoRedo";
+import { useTextareaSelectionRegenerate } from "../../hooks/useTextareaSelectionRegenerate";
 import {
   ApiError,
   extractionNotesFromSources,
   extractSow,
   extractSowField,
+  regenerateSelection,
   suggestTitles,
   type ExtractableSowField,
 } from "../../services/api";
 import { defaultSowDetails, type SOWDetails } from "../../types/patent";
+import { buildReviewFieldValues } from "../../utils/resolveCitationPreviewSource";
 import "../../styles/patent-drafter.css";
+
+const TEXTAREA_CLASS =
+  "w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none";
 
 export default function SowReview() {
   const navigate = useNavigate();
@@ -30,6 +46,7 @@ export default function SowReview() {
     setSowDetails,
     inputSources,
     uploadedFiles,
+    cachedRemoteSources,
     fieldCitations,
     setFieldCitations,
     gatherSourceText,
@@ -49,6 +66,7 @@ export default function SowReview() {
     reset,
   } = useUndoRedo<SOWDetails>(sowDetails ?? defaultSowDetails);
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
+  const [regeneratingSelection, setRegeneratingSelection] = useState(false);
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
   const [suggestingTitles, setSuggestingTitles] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,10 +75,28 @@ export default function SowReview() {
   const flashSavedRef = useRef(flashSaved);
   flashSavedRef.current = flashSaved;
   const formRef = useRef(form);
+  const selectionFieldRef = useRef<string | null>(null);
   const initialSynced = useRef(false);
   const suppressSavedIndicator = useRef(true);
   const hasDetailsRef = useRef(Boolean(sowDetails));
   hasDetailsRef.current = Boolean(sowDetails);
+
+  const isBusy = regenerating.size > 0 || regeneratingSelection || suggestingTitles;
+  const {
+    selection: textareaSelection,
+    dismiss: dismissSelectionPopover,
+    handleMouseUp,
+    handleKeyUp,
+  } = useTextareaSelectionRegenerate(isBusy);
+
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        SOW_CITATION_FIELD_LABELS,
+        form as unknown as Record<string, unknown>,
+      ),
+    [form],
+  );
 
   useEffect(() => {
     formRef.current = form;
@@ -94,19 +130,40 @@ export default function SowReview() {
   }, [form]);
 
   const extractionNotes = extractionNotesFromSources(inputSources);
-  const isBusy = regenerating.size > 0 || suggestingTitles;
 
-  const coreFilled = SOW_CORE_FIELD_KEYS.filter(
-    (key) => form[key]?.trim().length > 0,
-  ).length;
-  const allCoreEmpty = coreFilled === 0;
+  const { allCoreFieldsEmpty, someCoreFieldsEmpty } = useMemo(
+    () =>
+      computeCoreFieldEmptiness(SOW_CORE_FIELD_KEYS.map((key) => form[key] ?? "")),
+    [form],
+  );
 
   const updateField = (key: ExtractableSowField, value: string) => {
     replace({ ...form, [key]: value });
   };
 
+  const selectionHandlers = (fieldKey: string) => ({
+    onMouseUp: (event: React.MouseEvent<HTMLTextAreaElement>) => {
+      selectionFieldRef.current = fieldKey;
+      handleMouseUp(event);
+    },
+    onKeyUp: (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      selectionFieldRef.current = fieldKey;
+      handleKeyUp(event);
+    },
+  });
+
+  const fieldDisabled = (fieldKey: string) =>
+    regenerating.has(fieldKey) || regenerating.has("all") || regeneratingSelection;
+
   const handleRegenerateField = (field: ExtractableSowField) => {
-    if (regenerating.has(field) || regenerating.has("all") || suggestingTitles) return;
+    if (
+      regenerating.has(field) ||
+      regenerating.has("all") ||
+      suggestingTitles ||
+      regeneratingSelection
+    ) {
+      return;
+    }
     setRegenerating((prev) => new Set(prev).add(field));
     setError(null);
     push(structuredClone(formRef.current));
@@ -131,6 +188,7 @@ export default function SowReview() {
         if (field === "engagement_title") {
           setTitleSuggestions([]);
         }
+        flashSaved();
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Re-extraction failed.");
       } finally {
@@ -144,7 +202,7 @@ export default function SowReview() {
   };
 
   const handleRegenerateAll = () => {
-    if (suggestingTitles) return;
+    if (suggestingTitles || regeneratingSelection) return;
     setRegenerating((prev) => new Set(prev).add("all"));
     setError(null);
     push(structuredClone(formRef.current));
@@ -160,6 +218,7 @@ export default function SowReview() {
         setSowDetails(result.details);
         setFieldCitations(result.citations);
         setTitleSuggestions([]);
+        flashSaved();
       } catch (err) {
         setError(err instanceof ApiError ? err.message : "Extraction failed.");
       } finally {
@@ -174,7 +233,7 @@ export default function SowReview() {
   };
 
   const handleSuggestTitles = () => {
-    if (suggestingTitles || regenerating.size > 0) return;
+    if (suggestingTitles || regenerating.size > 0 || regeneratingSelection) return;
     setError(null);
     setSuggestingTitles(true);
 
@@ -200,13 +259,53 @@ export default function SowReview() {
     })();
   };
 
-  const textareaClassName =
-    "w-full bg-white border border-outline-variant rounded-lg p-4 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary transition-all outline-none";
+  const handleConfirmSelectionRegenerate = (instruction: string) => {
+    const fieldKey = selectionFieldRef.current as ExtractableSowField | null;
+    if (!fieldKey || !textareaSelection) return;
+
+    setError(null);
+    setRegeneratingSelection(true);
+    push(structuredClone(formRef.current));
+
+    void (async () => {
+      try {
+        const { combined } = await gatherSourceText();
+        if (!combined.trim()) {
+          setError("No source material available.");
+          dismissSelectionPopover();
+          return;
+        }
+
+        const fullFieldText = formRef.current[fieldKey] ?? "";
+        const replacement = await regenerateSelection(
+          combined,
+          fullFieldText,
+          textareaSelection.text,
+          instruction,
+        );
+        const newText =
+          fullFieldText.slice(0, textareaSelection.start) +
+          replacement +
+          fullFieldText.slice(textareaSelection.end);
+        const next = { ...formRef.current, [fieldKey]: newText };
+        formRef.current = next;
+        push(next);
+        setSowDetails(next);
+        saveToStorage();
+        flashSaved();
+        dismissSelectionPopover();
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Selection rewrite failed.");
+      } finally {
+        setRegeneratingSelection(false);
+      }
+    })();
+  };
 
   return (
     <SowAppShell
       step="review"
-      mainClassName="max-w-[900px] mx-auto px-margin-desktop py-10 pb-28"
+      mainClassName="flex flex-col min-h-0 flex-1 overflow-hidden"
       footer={
         <WorkflowFooter
           left={<WorkflowBackLink to="/sow/input" />}
@@ -221,7 +320,7 @@ export default function SowReview() {
               />
               <WorkflowNextLink
                 to="/sow/draft"
-                disabled={allCoreEmpty || isBusy}
+                disabled={allCoreFieldsEmpty || isBusy}
                 onClick={() => {
                   markStepComplete("review");
                   requestAutoDraft();
@@ -236,11 +335,13 @@ export default function SowReview() {
       }
     >
       {error && (
-        <div className="mb-6 p-4 rounded-lg bg-error-container/20 text-error text-sm">{error}</div>
+        <div className="mx-margin-desktop mt-4 p-4 rounded-lg bg-error-container/20 text-error text-sm shrink-0">
+          {error}
+        </div>
       )}
 
       {isBusy && (
-        <div className="mb-6">
+        <div className="mx-margin-desktop mt-4 shrink-0">
           <GenerationProgress
             active
             label={
@@ -248,100 +349,101 @@ export default function SowReview() {
                 ? "Suggesting titles…"
                 : extractPhase ??
                   (regenerating.has("all")
-                    ? "Re-extracting all fields"
-                    : "Re-extracting field…")
+                    ? "Regenerating all SOW fields"
+                    : regenerating.size > 1
+                      ? `Regenerating ${regenerating.size} fields`
+                      : `Regenerating ${SOW_REVIEW_FIELDS.find((f) => regenerating.has(f.key))?.label ?? "field"}`)
             }
           />
         </div>
       )}
 
-      <div className="flex justify-between items-start gap-4 mb-8">
-        <div>
-          <h1 className="font-headline-lg text-headline-lg text-primary">Review SOW details</h1>
-          <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
-            Edit extracted fields or re-extract from your source material.
-          </p>
-        </div>
-        <button
-          type="button"
-          disabled={isBusy}
-          onClick={() => void handleRegenerateAll()}
-          className="px-4 py-2 bg-secondary/10 text-secondary rounded-lg font-label-md text-label-md hover:bg-secondary/20 disabled:opacity-50 flex items-center gap-2 shrink-0"
-        >
-          <span
-            className={`material-symbols-outlined text-sm ${regenerating.has("all") ? "loading-spin" : ""}`}
+      <HorizontalSplitPane
+        storageKey="sow-drafter-review-split"
+        defaultLeftPercent={40}
+        left={
+          <ReviewSourceMaterialPanel
+            uploadedFiles={uploadedFiles}
+            cachedRemoteSources={cachedRemoteSources}
+            relevantContentNotes={inputSources.relevantContentNotes}
+            irrelevantContentNotes={inputSources.irrelevantContentNotes}
+            pastedText={inputSources.pastedText}
+            subtitle="Files and text used to extract SOW details."
+          />
+        }
+        right={
+          <ReviewDetailsPane
+            title="Extracted SOW Details"
+            description="Edit fields below, then continue to draft SOW sections."
+            onRegenerateAll={() => void handleRegenerateAll()}
+            regeneratingAll={regenerating.has("all")}
+            isBusy={isBusy}
           >
-            autorenew
-          </span>
-          Re-extract all
-        </button>
-      </div>
-
-      {allCoreEmpty && (
-        <div className="mb-6 p-4 rounded-lg bg-error-container/20 text-error text-sm">
-          Fill in at least one core field before drafting.
-        </div>
-      )}
-
-      <div className="space-y-8">
-        {SOW_REVIEW_FIELDS.map((field) => {
-          const isTitleField = field.key === "engagement_title";
-          return (
-            <div key={field.key} className="space-y-3">
-              <div>
-                <label className="font-label-md text-label-md text-primary">{field.label}</label>
-                <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">{field.hint}</p>
-              </div>
-              <AutoResizeTextarea
-                className={textareaClassName}
-                value={form[field.key]}
-                disabled={regenerating.has(field.key) || regenerating.has("all")}
-                onChange={(e) => {
-                  if (isTitleField) {
-                    setTitleSuggestions([]);
-                  }
-                  updateField(field.key, e.target.value);
-                }}
-              />
-              {isTitleField && titleSuggestions.length > 0 && (
-                <TitleSuggestionsList
-                  suggestions={titleSuggestions}
-                  onSelect={(title) => {
-                    push({ ...form, engagement_title: title });
-                    setTitleSuggestions([]);
-                  }}
-                />
-              )}
-              <div className="flex justify-end items-center gap-4">
-                {isTitleField && (
-                  <SuggestTitlesButton
-                    onClick={handleSuggestTitles}
-                    loading={suggestingTitles}
-                    disabled={isBusy && !suggestingTitles}
-                  />
-                )}
-                <button
-                  type="button"
-                  disabled={isBusy}
-                  onClick={() => handleRegenerateField(field.key)}
-                  className="flex items-center gap-2 text-secondary font-label-sm text-label-sm hover:underline disabled:opacity-50"
-                >
-                  <span
-                    className={`material-symbols-outlined text-[16px] ${regenerating.has(field.key) ? "loading-spin" : ""}`}
+            <ReviewEmptyFieldsBanner
+              allCoreFieldsEmpty={allCoreFieldsEmpty}
+              someCoreFieldsEmpty={someCoreFieldsEmpty}
+              detailNoun="SOW detail"
+            />
+            {SOW_REVIEW_FIELDS.map((field) => {
+              const isTitleField = field.key === "engagement_title";
+              return (
+                <div key={field.key} className="space-y-4">
+                  <ReviewAiField
+                    label={field.label}
+                    hint={field.hint}
+                    onRegenerate={() => handleRegenerateField(field.key)}
+                    regenerating={regenerating.has(field.key)}
+                    extraActions={
+                      isTitleField ? (
+                        <SuggestTitlesButton
+                          onClick={handleSuggestTitles}
+                          loading={suggestingTitles}
+                          disabled={isBusy}
+                        />
+                      ) : undefined
+                    }
                   >
-                    autorenew
-                  </span>
-                  {regenerating.has(field.key) ? "Re-extracting…" : "Re-extract"}
-                </button>
-              </div>
-              <SectionCitationsPanel
-                citations={fieldCitations[field.key] ?? []}
-                uploadedFiles={uploadedFiles}
-              />
-            </div>
-          );
-        })}
-      </div>
+                    <AutoResizeTextarea
+                      className={TEXTAREA_CLASS}
+                      value={form[field.key]}
+                      disabled={fieldDisabled(field.key)}
+                      {...selectionHandlers(field.key)}
+                      onChange={(e) => {
+                        if (isTitleField) {
+                          setTitleSuggestions([]);
+                        }
+                        updateField(field.key, e.target.value);
+                      }}
+                    />
+                    {isTitleField && titleSuggestions.length > 0 && (
+                      <TitleSuggestionsList
+                        suggestions={titleSuggestions}
+                        onSelect={(title) => {
+                          push({ ...form, engagement_title: title });
+                          setTitleSuggestions([]);
+                        }}
+                      />
+                    )}
+                  </ReviewAiField>
+                  <SectionCitationsPanel
+                    citations={fieldCitations[field.key] ?? []}
+                    uploadedFiles={uploadedFiles}
+                    pastedText={inputSources.pastedText}
+                    cachedRemoteSources={cachedRemoteSources}
+                    reviewFieldValues={reviewFieldValues}
+                  />
+                </div>
+              );
+            })}
+          </ReviewDetailsPane>
+        }
+      />
+      <SelectionRegeneratePopover
+        anchorRect={textareaSelection?.anchorRect ?? null}
+        loading={regeneratingSelection}
+        onConfirm={handleConfirmSelectionRegenerate}
+        onDismiss={dismissSelectionPopover}
+      />
     </SowAppShell>
   );
 }

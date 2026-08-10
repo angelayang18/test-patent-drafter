@@ -248,7 +248,12 @@ export default function GenericReview() {
               disabled={!hasAnySource}
             />
           </div>
-          <SectionCitationsPanel citations={titleCitations} uploadedFiles={uploadedFiles} />
+          <SectionCitationsPanel
+            citations={titleCitations}
+            uploadedFiles={uploadedFiles}
+            pastedText={inputSources.pastedText}
+            cachedRemoteSources={cachedRemoteSources}
+          />
         </div>
 
         <div className="space-y-4">

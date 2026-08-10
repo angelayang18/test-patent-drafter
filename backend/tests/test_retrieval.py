@@ -339,6 +339,77 @@ def test_citation_quote_truncates_at_sentence_boundary():
     assert bare in " ".join(long_text.split())
 
 
+def test_citations_include_full_excerpt_longer_than_short_quote():
+    """full_excerpt keeps the matched paragraph; excerpt stays at the 220-char budget."""
+    long_text = (
+        "The novel mechanism uses transformer embeddings with tokenization. "
+        "A second sentence adds cosine similarity ranking over dense passages and "
+        "continues with decoder synthesizer components until far beyond the citation "
+        "quote character budget so truncation is required for the UI excerpt field. "
+        "A third sentence remains available for preview highlighting of the full "
+        "matched paragraph rather than the truncated list quote alone."
+    )
+    cleaned = " ".join(long_text.split())
+    assert len(cleaned) > MAX_CITATION_QUOTE_CHARS
+
+    citations = citations_from_excerpts(
+        [Excerpt(label="x.pdf", text=long_text, score=1.0, location="Page 1")]
+    )
+    assert len(citations) == 1
+    quote = citations[0]["excerpt"]
+    full = citations[0]["full_excerpt"]
+    assert full == cleaned
+    assert len(full) >= len(quote.rstrip("…"))
+    assert len(full) > len(quote)
+    # Natural paragraph end — not mid-sentence truncation for preview.
+    assert full.endswith(".")
+    assert not full.endswith("…")
+
+
+def test_full_excerpt_equals_short_excerpt_when_paragraph_already_short():
+    short_text = "The novel mechanism uses transformer embeddings with tokenization."
+    citations = citations_from_excerpts(
+        [Excerpt(label="x.pdf", text=short_text, score=1.0, location="Page 1")]
+    )
+    assert len(citations) == 1
+    assert citations[0]["excerpt"] == short_text
+    assert citations[0]["full_excerpt"] == short_text
+
+
+def test_citations_for_fields_populate_full_excerpt():
+    combined_text = (
+        "--- outcomes-framework.pdf ---\n"
+        "Success is measured using quarterly outcome metrics, KPI dashboards, and "
+        "longitudinal surveys of participant skill gains across regional cohorts with "
+        "baseline and follow-up instruments. Evaluation harnesses leverage FDAbench "
+        "and GDPval for retrieval completeness and graded deliverable quality across "
+        "additional scoring dimensions that extend well past the short citation quote "
+        "budget used in the compact review list.\n"
+    )
+    details = {
+        "evaluation_plan": (
+            "Success will be measured through standardized benchmarks. Evaluation "
+            "harnesses will leverage FDAbench and GDPval plus KPI dashboards and "
+            "longitudinal surveys."
+        ),
+    }
+    result = citations_for_fields(
+        combined_text,
+        ["evaluation_plan"],
+        {"evaluation_plan": "Evaluation Plan"},
+        details=details,
+    )
+    citations = result["evaluation_plan"]
+    assert citations
+    citation = citations[0]
+    assert "full_excerpt" in citation
+    assert citation["full_excerpt"]
+    assert len(citation["full_excerpt"]) >= len(citation["excerpt"].rstrip("…"))
+    assert citation["full_excerpt"].endswith(".") or citation["full_excerpt"].endswith("…")
+    if citation["full_excerpt"].endswith("."):
+        assert not citation["full_excerpt"].endswith("…")
+
+
 def test_field_citations_prefer_extracted_value_over_label_boilerplate():
     """Extracted-value vocabulary must beat Implementation Plan cover pages."""
     # Live bug shape: "Evaluation Plan" / {plan} latched onto cover-page boilerplate.
@@ -411,6 +482,59 @@ def test_field_citations_omit_when_value_terms_absent_from_source():
         details=details,
     )
     assert result["evaluation_plan"] == []
+
+
+def test_field_citations_symbol_heavy_value_uses_label_anchor():
+    """Regression: %CV-style values must still cite via non-generic label terms."""
+    combined_text = (
+        "--- ada.pdf ---\n"
+        "Precision data for the confirmatory assay showed %CV under 20% across "
+        "independent runs with acceptance criteria documented for clinical use.\n"
+    )
+    result = citations_for_fields(
+        combined_text,
+        ["precision_data"],
+        {"precision_data": "Precision Data"},
+        details={"precision_data": "%CV under 20%"},
+    )
+    assert result["precision_data"]
+    excerpt = result["precision_data"][0]["excerpt"].lower()
+    assert "precision" in excerpt or "cv" in excerpt
+
+
+def test_field_citations_skip_empty_field_fallback_placeholder():
+    """Fallback filler must not produce bogus 'source documentation' citations."""
+    combined_text = (
+        "--- notes.pdf ---\n"
+        "This source documentation describes the invention in detail for reviewers "
+        "and provides background not otherwise available in secondary materials.\n"
+    )
+    result = citations_for_fields(
+        combined_text,
+        ["problem_statement"],
+        {"problem_statement": "Problem Statement"},
+        details={
+            "problem_statement": "Not provided in the source documentation.",
+        },
+    )
+    assert result["problem_statement"] == []
+
+
+def test_field_citations_single_token_technical_value():
+    """Short assay tokens like ELISA remain citable when present in source."""
+    combined_text = (
+        "--- ada.pdf ---\n"
+        "Assay platform uses a bridging ELISA format on an MSD reader for ADA "
+        "detection with confirmatory titration workflows for clinical samples.\n"
+    )
+    result = citations_for_fields(
+        combined_text,
+        ["assay_platform"],
+        {"assay_platform": "Assay Platform"},
+        details={"assay_platform": "ELISA"},
+    )
+    assert result["assay_platform"]
+    assert "elisa" in result["assay_platform"][0]["excerpt"].lower()
 
 
 def test_citations_for_generic_title_empty_source_returns_empty():

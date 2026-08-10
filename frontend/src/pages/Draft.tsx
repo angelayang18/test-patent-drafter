@@ -14,6 +14,10 @@ import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { getDocumentTypeConfig } from "../constants/documentTypes";
+import {
+  GRANT_CITATION_FIELD_LABELS,
+  PATENT_CITATION_FIELD_LABELS,
+} from "../constants/reviewFieldCitationLabels";
 import { defaultGrantDetails, defaultInvention } from "../types/patent";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -42,6 +46,7 @@ import {
   resolveSectionLabel,
   resolveSectionOrder,
 } from "../utils/sectionSettings";
+import { buildReviewFieldValues } from "../utils/resolveCitationPreviewSource";
 import "../styles/patent-drafter.css";
 
 export default function Draft() {
@@ -71,10 +76,20 @@ export default function Draft() {
     workflowResetting,
     gatherSourceText,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
   } = usePatentWorkflow();
 
   const isGrant = workflowMode === "grant";
   const reviewDetails = isGrant ? grantDetails : invention;
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        isGrant ? GRANT_CITATION_FIELD_LABELS : PATENT_CITATION_FIELD_LABELS,
+        (reviewDetails ?? undefined) as Record<string, unknown> | undefined,
+      ),
+    [isGrant, reviewDetails],
+  );
   const fixedIds = isGrant ? GRANT_SECTION_IDS : PATENT_SECTION_IDS;
   const sectionIds = isGrant
     ? resolveSectionOrder(effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings), sectionSettings)
@@ -832,6 +847,9 @@ export default function Draft() {
             <SectionCitationsPanel
               citations={sectionCitations[activeSection] ?? []}
               uploadedFiles={uploadedFiles}
+              pastedText={inputSources.pastedText}
+              cachedRemoteSources={cachedRemoteSources}
+              reviewFieldValues={reviewFieldValues}
             />
 
             <div className="flex justify-end items-center px-2">

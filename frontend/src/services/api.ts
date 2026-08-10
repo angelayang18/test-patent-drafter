@@ -393,6 +393,43 @@ export async function suggestGenericTitles(
   return { titles: data.titles, citations: data.citations ?? [] };
 }
 
+export interface SuggestedDocumentSection {
+  name: string;
+  description: string;
+}
+
+export interface SuggestDocumentTypeSectionsResult {
+  sections: SuggestedDocumentSection[];
+  styleNote: string | null;
+}
+
+/** Infer a reusable section outline from sample report text for a custom document type. */
+export async function suggestDocumentTypeSections(
+  combinedText: string,
+  documentTypeName: string,
+  description?: string,
+): Promise<SuggestDocumentTypeSectionsResult> {
+  const data = await requestJson<{
+    sections: SuggestedDocumentSection[];
+    style_note?: string | null;
+  }>("/document-types/suggest-sections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      document_type_name: documentTypeName,
+      description: description?.trim() ?? "",
+    }),
+  });
+  return {
+    sections: Array.isArray(data.sections) ? data.sections : [],
+    styleNote:
+      typeof data.style_note === "string" && data.style_note.trim()
+        ? data.style_note.trim()
+        : null,
+  };
+}
+
 export async function getGenericTitleCitations(
   combinedText: string,
   documentTypeLabel: string,

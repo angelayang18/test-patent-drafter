@@ -12,6 +12,10 @@ export interface DocumentTypeTemplate {
   sections: CustomSectionDef[];
   createdAt: string;
   basedOn?: string;
+  /** True when the type was configured with uploaded sample reports. */
+  builtFromSamples?: boolean;
+  /** Short note about sample provenance (filenames or summary). */
+  sampleNote?: string;
 }
 
 const TEMPLATES_KEY = "patent-drafter-custom-document-types";
@@ -71,6 +75,12 @@ function normalizeTemplate(raw: Partial<DocumentTypeTemplate> | null | undefined
         : new Date().toISOString(),
     basedOn:
       typeof raw.basedOn === "string" && raw.basedOn.trim() ? raw.basedOn.trim() : undefined,
+    // Safe default for templates saved before this field existed.
+    builtFromSamples: raw.builtFromSamples === true,
+    sampleNote:
+      typeof raw.sampleNote === "string" && raw.sampleNote.trim()
+        ? raw.sampleNote.trim()
+        : undefined,
   };
 }
 

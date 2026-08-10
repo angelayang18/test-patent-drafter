@@ -43,7 +43,7 @@ def test_draft_single_ada_section_returns_content_and_citations_tuple():
     assert len(result) == 2
     content, citations = result
     assert "bridging ADA assay" in content
-    assert citations == []
+    assert isinstance(citations, list)
 
 
 def test_draft_all_ada_sections_parallel_covers_all_ids():
@@ -58,7 +58,7 @@ def test_draft_all_ada_sections_parallel_covers_all_ids():
     assert len(ADA_SECTIONS) == 10
     for section_id in ADA_SECTIONS:
         assert sections[section_id] == "Drafted ADA section body."
-        assert citations[section_id] == []
+        assert isinstance(citations[section_id], list)
 
 
 def test_draft_single_unknown_section_raises():
@@ -124,7 +124,8 @@ def test_draft_all_mix_canonical_and_custom():
     assert set(citations) == {"study_overview", "deviations"}
 
 
-def test_empty_combined_text_skips_retrieval():
+def test_empty_combined_text_and_empty_review_fields_skips_retrieval():
+    empty_ada = {key: "" for key in _sample_ada()}
     with (
         patch(
             "drafter.ada_sections.generate_text",
@@ -134,7 +135,7 @@ def test_empty_combined_text_skips_retrieval():
         patch("drafter.ada_sections.retrieve_relevant_excerpts") as mock_retrieve,
     ):
         content, citations = draft_single_ada_section(
-            _sample_ada(),
+            empty_ada,
             "study_overview",
             combined_text="",
         )
