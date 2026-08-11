@@ -633,6 +633,8 @@ export default function GenericDraft() {
         inventionTitle={details?.title}
         sections={previewSections}
         pendingSectionIds={[]}
+        sectionOrder={sectionIds}
+        documentLabel={`${template.name} Draft`}
         onSectionClick={(sectionId) => selectSection(sectionId)}
         footerNote="Click a section heading to jump back and edit it."
       />

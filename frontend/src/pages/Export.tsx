@@ -16,7 +16,9 @@ import {
   exportPdf,
   fetchQAReport,
   submitLearningCorpus,
+  suggestRelatedApplications,
   type QAReportEntry,
+  type RelatedApplicationCandidate,
 } from "../services/api";
 import {
   figuresSignature,
@@ -234,6 +236,57 @@ export default function Export() {
 
   const updateFilingInfo = (patch: Partial<FilingInfo>) => {
     setFilingInfo(patch);
+  };
+
+  // Cross-reference candidates are bibliographic matches on applicant name
+  // only — accepting one inserts a neutral reference the user must still
+  // confirm/word correctly. Nothing is auto-applied.
+  const [relatedApplicantName, setRelatedApplicantName] = useState("opAIda");
+  const [relatedCandidates, setRelatedCandidates] = useState<RelatedApplicationCandidate[]>([]);
+  const [searchingRelated, setSearchingRelated] = useState(false);
+  const [relatedSearchError, setRelatedSearchError] = useState<string | null>(null);
+  const [relatedSearched, setRelatedSearched] = useState(false);
+
+  const handleSearchRelatedApplications = async () => {
+    const name = relatedApplicantName.trim();
+    if (!name) {
+      setRelatedSearchError("Enter an applicant/assignee name to search for.");
+      return;
+    }
+    setSearchingRelated(true);
+    setRelatedSearchError(null);
+    try {
+      const candidates = await suggestRelatedApplications(name);
+      setRelatedCandidates(candidates);
+      setRelatedSearched(true);
+    } catch (err) {
+      setRelatedCandidates([]);
+      setRelatedSearchError(
+        err instanceof ApiError ? err.message : "Could not search USPTO for related filings.",
+      );
+    } finally {
+      setSearchingRelated(false);
+    }
+  };
+
+  const handleAddRelatedCandidate = (candidate: RelatedApplicationCandidate) => {
+    const descriptor = candidate.patent_number
+      ? `U.S. Patent No. ${candidate.patent_number}`
+      : `U.S. Application No. ${candidate.application_number}`;
+    const reference =
+      `[Confirm relationship before filing] ${descriptor}` +
+      (candidate.filing_date ? `, filed ${candidate.filing_date}` : "") +
+      (candidate.invention_title ? `, titled "${candidate.invention_title}."` : ".");
+
+    const existing = filingInfo.related_applications.trim();
+    updateFilingInfo({
+      related_applications: existing ? `${existing}\n${reference}` : reference,
+    });
+    setRelatedCandidates((prev) => prev.filter((item) => item !== candidate));
+  };
+
+  const handleDismissRelatedCandidate = (candidate: RelatedApplicationCandidate) => {
+    setRelatedCandidates((prev) => prev.filter((item) => item !== candidate));
   };
 
   const ensureFigurePngsReady = async (): Promise<Record<string, string>> => {
@@ -498,6 +551,93 @@ export default function Export() {
                       'Leave blank for "Not Applicable." — or enter prior filing reference, e.g. "This application claims the benefit of U.S. Provisional Application No. 63/123,456, filed January 1, 2025."',
                   },
                 )}
+
+                <div className="mt-3 p-4 rounded-lg border border-outline-variant bg-surface-container-low space-y-3">
+                  <p className="font-body-sm text-body-sm text-on-surface-variant">
+                    Search USPTO for other filings under the same applicant. Results are
+                    bibliographic matches only — review each one and confirm (and word) the
+                    actual legal relationship yourself before filing.
+                  </p>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <input
+                      type="text"
+                      value={relatedApplicantName}
+                      onChange={(e) => setRelatedApplicantName(e.target.value)}
+                      placeholder="Applicant / assignee name"
+                      className="flex-1 min-w-[200px] bg-white border border-outline-variant rounded-lg px-3 py-2 font-body-md text-body-md text-on-surface focus:ring-2 focus:ring-secondary focus:border-secondary outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleSearchRelatedApplications()}
+                      disabled={searchingRelated}
+                      className="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-label-sm hover:bg-primary-container transition-all active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      <span
+                        className={`material-symbols-outlined text-[18px] ${searchingRelated ? "loading-spin" : ""}`}
+                      >
+                        search
+                      </span>
+                      Search USPTO
+                    </button>
+                  </div>
+
+                  <GenerationProgress
+                    active={searchingRelated}
+                    label={`Searching USPTO ODP for filings under "${relatedApplicantName.trim()}"`}
+                  />
+
+                  {relatedSearchError && (
+                    <div className="p-3 rounded-lg bg-error-container/20 text-error text-sm">
+                      {relatedSearchError}
+                    </div>
+                  )}
+
+                  {!searchingRelated && relatedSearched && relatedCandidates.length === 0 && !relatedSearchError && (
+                    <p className="font-body-sm text-body-sm text-on-surface-variant">
+                      No filings found under that applicant name.
+                    </p>
+                  )}
+
+                  {relatedCandidates.length > 0 && (
+                    <ul className="space-y-2">
+                      {relatedCandidates.map((candidate) => (
+                        <li
+                          key={candidate.application_number || candidate.invention_title}
+                          className="flex items-start justify-between gap-3 p-3 rounded-lg border border-outline-variant bg-surface"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-label-md text-label-md text-on-surface">
+                              {candidate.invention_title || "(untitled)"}
+                            </p>
+                            <p className="font-body-sm text-body-sm text-on-surface-variant">
+                              {candidate.patent_number
+                                ? `Patent No. ${candidate.patent_number}`
+                                : `App No. ${candidate.application_number}`}
+                              {candidate.filing_date ? ` · filed ${candidate.filing_date}` : ""}
+                              {candidate.status ? ` · ${candidate.status}` : ""}
+                            </p>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleAddRelatedCandidate(candidate)}
+                              className="px-3 py-1.5 rounded-lg bg-primary text-on-primary font-label-sm text-label-sm hover:bg-primary-container transition-all active:scale-95"
+                            >
+                              Add reference
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDismissRelatedCandidate(candidate)}
+                              className="px-3 py-1.5 rounded-lg border border-outline-variant text-on-surface-variant font-label-sm text-label-sm hover:bg-surface-container-high transition-all active:scale-95"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             </div>
           </section>

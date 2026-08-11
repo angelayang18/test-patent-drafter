@@ -587,6 +587,8 @@ export default function GrantDraft() {
         inventionTitle={grantDetails?.project_title}
         sections={previewSections}
         pendingSectionIds={[]}
+        sectionOrder={sectionIds}
+        documentLabel="Grant Application Draft"
         onSectionClick={(sectionId) => selectSection(sectionId)}
         footerNote="Click a section heading to jump back and edit it."
       />

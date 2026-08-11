@@ -59,10 +59,16 @@ def test_call_with_retry_raises_llm_unavailable_after_exhausted_retries():
 
 
 def test_generate_text_returns_503_json_when_llm_unavailable():
+    """API maps ``LLMUnavailableError`` to a structured 503 JSON body.
+
+    Patch at the route boundary: grouped extraction swallows per-call LLM
+    failures and gap-fills, so low-level ``_call_with_retry`` errors do not
+    always surface as HTTP 503.
+    """
     client = TestClient(app)
 
     with patch(
-        "drafter.llm_client._call_with_retry",
+        "main.extract_invention_details",
         side_effect=LLMUnavailableError("LLM (model at http://test/v1) failed: timed out"),
     ):
         response = client.post(

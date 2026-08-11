@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
 import type { FilingInfo, PatentFigure } from "../types/patent";
+import {
+  DEFAULT_DOCUMENT_LABEL,
+  DEFAULT_PREVIEW_SUBTITLE,
+} from "../utils/documentPreview";
 import { PatentDocumentPreview } from "./PatentDocumentPreview";
 
 interface DocumentPreviewModalProps {
@@ -10,6 +14,10 @@ interface DocumentPreviewModalProps {
   sections: Record<string, string>;
   pendingSectionIds?: string[];
   figures?: PatentFigure[];
+  /** Explicit section order for non-patent docs (SOW/ADA/Generic). */
+  sectionOrder?: readonly string[];
+  /** Cover/header label; defaults to provisional patent copy. */
+  documentLabel?: string;
   onSectionClick?: (sectionId: string) => void;
   footerNote?: ReactNode;
 }
@@ -22,10 +30,17 @@ export function DocumentPreviewModal({
   sections,
   pendingSectionIds,
   figures,
+  sectionOrder,
+  documentLabel = DEFAULT_DOCUMENT_LABEL,
   onSectionClick,
   footerNote,
 }: DocumentPreviewModalProps) {
   if (!open) return null;
+
+  const previewSubtitle =
+    documentLabel === DEFAULT_DOCUMENT_LABEL
+      ? DEFAULT_PREVIEW_SUBTITLE
+      : "Live preview of your document as you draft";
 
   return (
     <div className="fixed inset-0 z-[100] flex">
@@ -48,7 +63,7 @@ export function DocumentPreviewModal({
               Document preview
             </h2>
             <p className="font-body-sm text-body-sm text-on-surface-variant mt-0.5">
-              Live preview of your provisional application as you draft
+              {previewSubtitle}
             </p>
           </div>
           <button
@@ -68,6 +83,8 @@ export function DocumentPreviewModal({
             sections={sections}
             pendingSectionIds={pendingSectionIds}
             figures={figures}
+            sectionOrder={sectionOrder}
+            documentLabel={documentLabel}
             onSectionClick={
               onSectionClick
                 ? (sectionId) => {

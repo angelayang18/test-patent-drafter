@@ -1,3 +1,5 @@
+import { getStorageKey } from "./userScopedStorage";
+
 export interface CustomSectionDef {
   id: string;
   name: string;
@@ -22,7 +24,7 @@ const TEMPLATES_KEY = "patent-drafter-custom-document-types";
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -32,7 +34,7 @@ function readJson<T>(key: string): T | null {
 
 function writeJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save template. Browser storage may be full.");
   }

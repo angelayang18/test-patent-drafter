@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
+import { SignedIn, UserButton } from "@clerk/clerk-react";
 
 interface AppHeaderProps {
   stepNav: ReactNode;
@@ -49,12 +50,12 @@ export function AppHeader({
             )}
           </button>
         )}
-        <span
-          className="material-symbols-outlined text-on-primary cursor-default opacity-60 p-2 rounded-full"
-          title="Account (coming soon)"
-        >
-          account_circle
-        </span>
+        {/* App is fully gated behind RequireAuth, so this header only ever
+            renders for signed-in users — SignedIn here is just a defensive
+            guard against Clerk's auth state not being loaded yet. */}
+        <SignedIn>
+          <UserButton afterSignOutUrl="/" />
+        </SignedIn>
       </div>
     </header>
   );

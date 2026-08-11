@@ -593,6 +593,8 @@ export default function SowDraft() {
         inventionTitle={sowDetails?.engagement_title}
         sections={previewSections}
         pendingSectionIds={[]}
+        sectionOrder={sectionIds}
+        documentLabel="Statement of Work Draft"
         onSectionClick={(sectionId) => selectSection(sectionId)}
         footerNote="Click a section heading to jump back and edit it."
       />

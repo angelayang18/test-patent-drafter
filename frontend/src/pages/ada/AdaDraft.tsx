@@ -589,6 +589,8 @@ export default function AdaDraft() {
         inventionTitle={adaDetails?.study_title}
         sections={previewSections}
         pendingSectionIds={[]}
+        sectionOrder={sectionIds}
+        documentLabel="ADA Bioanalytical Report Draft"
         onSectionClick={(sectionId) => selectSection(sectionId)}
         footerNote="Click a section heading to jump back and edit it."
       />

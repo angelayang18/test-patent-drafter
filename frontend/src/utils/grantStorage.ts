@@ -3,6 +3,7 @@ import type { InputSources, UploadedSourceFile } from "../context/grantContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
+import { getStorageKey } from "./userScopedStorage";
 
 export type GrantWorkflowStep = "input" | "review" | "draft" | "export";
 
@@ -175,7 +176,7 @@ export function isGrantStepAccessible(
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -190,7 +191,10 @@ export function readActiveGrantWorkflow(): GrantWorkflowSnapshot {
 
 export function writeActiveGrantWorkflow(workflow: GrantWorkflowSnapshot): void {
   try {
-    localStorage.setItem(ACTIVE_GRANT_WORKFLOW_KEY, JSON.stringify(normalizeGrantWorkflow(workflow)));
+    localStorage.setItem(
+      getStorageKey(ACTIVE_GRANT_WORKFLOW_KEY),
+      JSON.stringify(normalizeGrantWorkflow(workflow)),
+    );
   } catch {
     // quota exceeded — workflow still lives in memory
   }
@@ -202,7 +206,7 @@ export function createEmptyGrantWorkflowSnapshot(): GrantWorkflowSnapshot {
 
 export function clearActiveGrantWorkflow(): void {
   try {
-    localStorage.removeItem(ACTIVE_GRANT_WORKFLOW_KEY);
+    localStorage.removeItem(getStorageKey(ACTIVE_GRANT_WORKFLOW_KEY));
   } catch {
     // ignore
   }
@@ -256,7 +260,7 @@ const GRANT_DRAFT_FILE_VERSION = 1;
 
 function writeGrantJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save draft. Browser storage may be full.");
   }

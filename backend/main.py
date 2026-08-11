@@ -9,11 +9,13 @@ from typing import Dict, List, Literal, Optional, Union
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from auth import get_current_user
+from community_templates import create_template, list_templates
 from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.ada_extractor import extract_ada_details, extract_ada_field
 from drafter.ada_sections import draft_all_ada_sections_parallel, draft_single_ada_section
@@ -55,6 +57,7 @@ from parsers.confluence import ConfluenceClient
 from parsers.docx_parser import extract_text_from_docx
 from parsers.pdf_parser import extract_text_from_pdf
 from parsers.pptx_parser import extract_text_from_pptx
+from parsers.uspto_odp import ODPConfigError, ODPRequestError, search_related_applications
 from parsers.web_scraper import scrape_url
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -114,6 +117,12 @@ class ConfluenceConnectRequest(BaseModel):
 
 class ScrapeRequest(BaseModel):
     url: str
+
+
+class SuggestRelatedApplicationsRequest(BaseModel):
+    """Request body for looking up an applicant's prior USPTO filings."""
+
+    applicant_name: str
 
 
 class ExtractRequest(BaseModel):
@@ -193,6 +202,32 @@ class SuggestDocumentTypeSectionsRequest(BaseModel):
     combined_text: str
     document_type_name: str
     description: str = ""
+
+
+class CommunityTemplateSection(BaseModel):
+    """One section definition within a shared community document-type template."""
+
+    id: str
+    name: str
+    description: str = ""
+    order: int = 0
+
+
+class CommunityTemplateCreateRequest(BaseModel):
+    """Request body for publishing a document-type template to the community store."""
+
+    name: str
+    description: str = ""
+    sections: list[CommunityTemplateSection] = Field(default_factory=list)
+    based_on: str = ""
+    created_by_name: str = ""
+
+
+class CommunityTemplateCreateResponse(BaseModel):
+    """Response after creating a community document-type template."""
+
+    id: str
+    created_at: str
 
 
 class GrantDraftRequest(GrantDetails):
@@ -734,6 +769,75 @@ def suggest_document_type_sections(body: SuggestDocumentTypeSectionsRequest) -> 
             status_code=502,
             detail=f"Failed to suggest sections: {exc}",
         ) from exc
+
+
+@app.get("/document-types/community")
+def list_community_document_types(
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """List shared community document-type templates for the authenticated user.
+
+    Each template includes ``mine`` (true when the current user created it).
+    """
+    user_id = user["user_id"]
+    templates = []
+    for template in list_templates():
+        templates.append(
+            {
+                **template,
+                "mine": template.get("created_by_user_id") == user_id,
+            }
+        )
+    return {"templates": templates}
+
+
+@app.post("/document-types/community")
+def create_community_document_type(
+    body: CommunityTemplateCreateRequest,
+    user: dict = Depends(get_current_user),
+) -> CommunityTemplateCreateResponse:
+    """Publish a document-type template to the shared community store."""
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="name is required.")
+
+    created_by_name = body.created_by_name.strip() or "Teammate"
+    section_dicts = [section.model_dump() for section in body.sections]
+    template_id = create_template(
+        name=body.name.strip(),
+        description=body.description,
+        sections=section_dicts,
+        created_by_user_id=user["user_id"],
+        created_by_name=created_by_name,
+        based_on=body.based_on,
+    )
+    created_at = ""
+    for template in list_templates():
+        if template["id"] == template_id:
+            created_at = template["created_at"] or ""
+            break
+    return CommunityTemplateCreateResponse(id=template_id, created_at=created_at)
+
+
+@app.post("/export/suggest-related-applications")
+def suggest_related_applications(body: SuggestRelatedApplicationsRequest) -> dict:
+    """Look up an applicant's prior USPTO filings as cross-reference candidates.
+
+    Returns ``{"candidates": [...]}``. Candidates are bibliographic matches on
+    applicant name only — this endpoint never determines or asserts that a
+    match is legally related (priority claim, continuation, etc.); that
+    determination is left to the user before it's added to the filing field.
+    """
+    if not body.applicant_name.strip():
+        raise HTTPException(status_code=400, detail="applicant_name is required.")
+
+    try:
+        candidates = search_related_applications(body.applicant_name)
+    except ODPConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ODPRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"candidates": candidates}
 
 
 @app.post("/extract")

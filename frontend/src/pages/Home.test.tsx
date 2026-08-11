@@ -64,6 +64,32 @@ vi.mock("../components/AppShell", () => ({
   AppShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock("@clerk/clerk-react", () => ({
+  useAuth: () => ({
+    getToken: vi.fn(async () => null),
+    isLoaded: true,
+    isSignedIn: true,
+  }),
+  useUser: () => ({
+    user: {
+      fullName: "Test User",
+      primaryEmailAddress: { emailAddress: "test@example.com" },
+    },
+  }),
+}));
+
+vi.mock("../services/api", async () => {
+  const actual = await vi.importActual<typeof import("../services/api")>("../services/api");
+  return {
+    ...actual,
+    listCommunityDocumentTypeTemplates: vi.fn(async () => []),
+    publishDocumentTypeTemplate: vi.fn(async () => ({
+      id: "community_test",
+      created_at: "2026-01-01T00:00:00.000Z",
+    })),
+  };
+});
+
 vi.mock("../context/PatentWorkflowContext", () => ({
   usePatentWorkflow: () => mockPatentWorkflow(),
 }));

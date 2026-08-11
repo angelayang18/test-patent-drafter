@@ -3,6 +3,7 @@ import type { InputSources, UploadedSourceFile } from "../context/genericContext
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
+import { getStorageKey } from "./userScopedStorage";
 
 export type GenericWorkflowStep = "input" | "review" | "draft" | "export";
 
@@ -198,7 +199,7 @@ export function isGenericStepAccessible(
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -219,7 +220,7 @@ export function writeActiveGenericWorkflow(
 ): void {
   try {
     localStorage.setItem(
-      activeGenericWorkflowKey(templateId),
+      getStorageKey(activeGenericWorkflowKey(templateId)),
       JSON.stringify(normalizeGenericWorkflow(workflow)),
     );
   } catch {
@@ -233,7 +234,7 @@ export function createEmptyGenericWorkflowSnapshot(): GenericWorkflowSnapshot {
 
 export function clearActiveGenericWorkflow(templateId: string): void {
   try {
-    localStorage.removeItem(activeGenericWorkflowKey(templateId));
+    localStorage.removeItem(getStorageKey(activeGenericWorkflowKey(templateId)));
   } catch {
     // ignore
   }
@@ -290,7 +291,7 @@ const GENERIC_DRAFT_FILE_VERSION = 1;
 
 function writeGenericJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save draft. Browser storage may be full.");
   }

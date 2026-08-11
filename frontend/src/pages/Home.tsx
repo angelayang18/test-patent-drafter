@@ -1,3 +1,4 @@
+import { useAuth, useUser } from "@clerk/clerk-react";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
@@ -12,7 +13,10 @@ import { useSowWorkflow } from "../context/SowWorkflowContext";
 import { useFileUpload } from "../hooks/useFileUpload";
 import {
   ApiError,
+  listCommunityDocumentTypeTemplates,
+  publishDocumentTypeTemplate,
   suggestDocumentTypeSections,
+  type CommunityDocumentTypeTemplate,
   type SuggestedDocumentSection,
 } from "../services/api";
 import {
@@ -473,30 +477,82 @@ function CustomTypeSectionsPanel({ template }: CustomTypeSectionsPanelProps) {
 
 type CreateMode = "blank" | "clone";
 
+interface CreateDocumentTypeSeed {
+  name: string;
+  description?: string;
+  sections: CustomSectionDef[];
+  basedOn: string;
+}
+
+function communitySectionsToCustom(
+  sections: CommunityDocumentTypeTemplate["sections"],
+): CustomSectionDef[] {
+  return (Array.isArray(sections) ? sections : [])
+    .map((section, index) => {
+      const name = typeof section.name === "string" ? section.name.trim() : "";
+      const id =
+        typeof section.id === "string" && section.id.trim()
+          ? section.id.trim()
+          : name
+            ? `section_${index}`
+            : "";
+      if (!id || !name) return null;
+      return {
+        id,
+        name,
+        description: typeof section.description === "string" ? section.description : "",
+        order: typeof section.order === "number" ? section.order : index,
+      };
+    })
+    .filter((section): section is CustomSectionDef => section !== null)
+    .sort((a, b) => a.order - b.order)
+    .map((section, index) => ({ ...section, order: index }));
+}
+
+function sharedByLabel(createdByName: string | undefined): string {
+  const name = createdByName?.trim() || "Teammate";
+  return `Shared by ${name}`;
+}
+
 interface CreateDocumentTypePanelProps {
   templates: DocumentTypeTemplate[];
+  communityTemplates: CommunityDocumentTypeTemplate[];
+  initialSeed?: CreateDocumentTypeSeed | null;
   onSaved: (template: DocumentTypeTemplate) => void;
   onCancel: () => void;
 }
 
 function CreateDocumentTypePanel({
   templates,
+  communityTemplates,
+  initialSeed = null,
   onSaved,
   onCancel,
 }: CreateDocumentTypePanelProps) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [mode, setMode] = useState<CreateMode>("blank");
+  const { getToken } = useAuth();
+  const { user } = useUser();
+  const [name, setName] = useState(initialSeed?.name ?? "");
+  const [description, setDescription] = useState(initialSeed?.description ?? "");
+  const [mode, setMode] = useState<CreateMode>(initialSeed ? "clone" : "blank");
   const [cloneSource, setCloneSource] = useState<string>("builtin:SOW_CONTRACT");
-  const [basedOn, setBasedOn] = useState<string | undefined>(undefined);
+  const [basedOn, setBasedOn] = useState<string | undefined>(initialSeed?.basedOn);
   const [error, setError] = useState<string | null>(null);
-  const [started, setStarted] = useState(false);
+  const [started, setStarted] = useState(Boolean(initialSeed));
 
-  const [fixedIds, setFixedIds] = useState<string[]>([]);
-  const [defaultLabels, setDefaultLabels] = useState<Record<string, string>>({});
-  const [defaultDescriptions, setDefaultDescriptions] = useState<Record<string, string>>({});
-  const [localSettings, setLocalSettings] = useState<SectionSettingsMap>({});
-  const [rowOrder, setRowOrder] = useState<string[]>([]);
+  const initialEditor = initialSeed
+    ? sectionsToEditorState(initialSeed.sections)
+    : null;
+  const [fixedIds, setFixedIds] = useState<string[]>(initialEditor?.fixedIds ?? []);
+  const [defaultLabels, setDefaultLabels] = useState<Record<string, string>>(
+    initialEditor?.defaultLabels ?? {},
+  );
+  const [defaultDescriptions, setDefaultDescriptions] = useState<Record<string, string>>(
+    initialEditor?.defaultDescriptions ?? {},
+  );
+  const [localSettings, setLocalSettings] = useState<SectionSettingsMap>(
+    initialEditor?.localSettings ?? {},
+  );
+  const [rowOrder, setRowOrder] = useState<string[]>(initialEditor?.rowOrder ?? []);
 
   const [sampleFiles, setSampleFiles] = useState<UploadedSourceFile[]>([]);
   const [pendingSuggestions, setPendingSuggestions] = useState<PendingSuggestedSection[]>([]);
@@ -523,8 +579,12 @@ function CreateDocumentTypePanel({
       value: `template:${template.id}`,
       label: template.name,
     }));
-    return [...builtin, ...custom];
-  }, [templates]);
+    const community = communityTemplates.map((template) => ({
+      value: `community:${template.id}`,
+      label: `${template.name} (${sharedByLabel(template.created_by_name)})`,
+    }));
+    return [...builtin, ...custom, ...community];
+  }, [templates, communityTemplates]);
 
   const requestSuggestions = useCallback(async (files: UploadedSourceFile[]) => {
     const trimmedName = nameRef.current.trim();
@@ -672,6 +732,20 @@ function CreateDocumentTypePanel({
       return;
     }
 
+    if (cloneSource.startsWith("community:")) {
+      const templateId = cloneSource.slice("community:".length);
+      const source = communityTemplates.find((template) => template.id === templateId);
+      if (!source) {
+        setError("Could not find the selected shared template to clone.");
+        return;
+      }
+      seedFromSections(
+        communitySectionsToCustom(source.sections),
+        sharedByLabel(source.created_by_name),
+      );
+      return;
+    }
+
     setError("Select a source to clone from.");
   };
 
@@ -783,6 +857,31 @@ function CreateDocumentTypePanel({
     try {
       saveDocumentTypeTemplate(template);
       onSaved(template);
+      void (async () => {
+        try {
+          const token = await getToken();
+          if (!token) {
+            console.warn("Could not publish document type template: missing auth token");
+            return;
+          }
+          const createdByName =
+            user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "";
+          await publishDocumentTypeTemplate(token, {
+            name: template.name,
+            description: template.description ?? "",
+            sections: template.sections.map((section) => ({
+              id: section.id,
+              name: section.name,
+              description: section.description ?? "",
+              order: section.order,
+            })),
+            based_on: template.basedOn ?? "",
+            created_by_name: createdByName,
+          });
+        } catch (publishErr) {
+          console.warn("Could not publish document type template to community", publishErr);
+        }
+      })();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save template.");
     }
@@ -1142,6 +1241,7 @@ function CreateDocumentTypePanel({
 }
 
 export default function Home() {
+  const { getToken } = useAuth();
   const [selectedType, setSelectedType] = useState<SelectedType>({
     kind: "builtin",
     id: "PATENT_PROVISIONAL",
@@ -1149,6 +1249,10 @@ export default function Home() {
   const [templates, setTemplates] = useState<DocumentTypeTemplate[]>(() =>
     listDocumentTypeTemplates(),
   );
+  const [communityTemplates, setCommunityTemplates] = useState<
+    CommunityDocumentTypeTemplate[]
+  >([]);
+  const [createSeed, setCreateSeed] = useState<CreateDocumentTypeSeed | null>(null);
   const [templatePendingDelete, setTemplatePendingDelete] = useState<{
     id: string;
     name: string;
@@ -1158,6 +1262,42 @@ export default function Home() {
   const grant = useGrantWorkflow();
   const sow = useSowWorkflow();
   const ada = useAdaWorkflow();
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const listed = await listCommunityDocumentTypeTemplates(token);
+        if (!cancelled) {
+          setCommunityTemplates(listed);
+        }
+      } catch {
+        if (!cancelled) {
+          setCommunityTemplates([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken]);
+
+  const sharedTeamTemplates = useMemo(
+    () => communityTemplates.filter((template) => !template.mine),
+    [communityTemplates],
+  );
+
+  // Picking a document type (including "Create new document type") swaps the
+  // right-hand panel in place — no route change, so the browser never
+  // scrolls anywhere. If the user had scrolled down (e.g. to "Shared by your
+  // team"), the new panel would render off-screen above them. Bring it into
+  // view every time the selection changes.
+  const contentSectionRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    contentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [selectedType]);
 
   const selectedBuiltin =
     selectedType.kind === "builtin"
@@ -1239,6 +1379,7 @@ export default function Home() {
   })();
 
   const handleTemplateSaved = (template: DocumentTypeTemplate) => {
+    setCreateSeed(null);
     setTemplates(listDocumentTypeTemplates());
     setSelectedType({ kind: "custom", templateId: template.id });
   };
@@ -1252,6 +1393,33 @@ export default function Home() {
     if (selectedType.kind === "custom" && selectedType.templateId === id) {
       setSelectedType({ kind: "builtin", id: "PATENT_PROVISIONAL" });
     }
+  };
+
+  const handleAddCommunityToMyList = (template: CommunityDocumentTypeTemplate) => {
+    const localTemplate: DocumentTypeTemplate = {
+      id: generateDocumentTypeTemplateId(template.name),
+      name: template.name,
+      description: template.description?.trim() || undefined,
+      sections: communitySectionsToCustom(template.sections),
+      createdAt: new Date().toISOString(),
+      basedOn: sharedByLabel(template.created_by_name),
+    };
+    try {
+      saveDocumentTypeTemplate(localTemplate);
+      setTemplates(listDocumentTypeTemplates());
+    } catch (err) {
+      console.warn("Could not add shared template to my list", err);
+    }
+  };
+
+  const handleCloneCommunityCustomize = (template: CommunityDocumentTypeTemplate) => {
+    setCreateSeed({
+      name: template.name,
+      description: template.description?.trim() || undefined,
+      sections: communitySectionsToCustom(template.sections),
+      basedOn: sharedByLabel(template.created_by_name),
+    });
+    setSelectedType({ kind: "creating" });
   };
 
   return (
@@ -1383,10 +1551,13 @@ export default function Home() {
 
               <button
                 type="button"
-                onClick={() => setSelectedType({ kind: "creating" })}
-                aria-pressed={selectedType.kind === "creating"}
+                onClick={() => {
+                  setCreateSeed(null);
+                  setSelectedType({ kind: "creating" });
+                }}
+                aria-pressed={selectedType.kind === "creating" && !createSeed}
                 className={`p-5 rounded-xl border text-left transition-all border-dashed ${
-                  selectedType.kind === "creating"
+                  selectedType.kind === "creating" && !createSeed
                     ? "border-2 border-primary bg-primary/5 shadow-sm"
                     : "border border-outline-variant bg-surface-container-lowest hover:border-primary/40"
                 }`}
@@ -1402,19 +1573,78 @@ export default function Home() {
                 </p>
               </button>
             </div>
+
+            {sharedTeamTemplates.length > 0 && (
+              <div className="space-y-3 pt-4">
+                <h2 className="font-title-md text-title-md text-primary">
+                  Shared by your team
+                </h2>
+                <div className="flex flex-col gap-3">
+                  {sharedTeamTemplates.map((template) => (
+                    <div
+                      key={template.id}
+                      data-testid={`community-template-card-${template.id}`}
+                      className="p-5 rounded-xl border border-outline-variant bg-surface-container-lowest space-y-3"
+                    >
+                      <div>
+                        <span className="material-symbols-outlined text-primary text-3xl mb-3 block">
+                          group
+                        </span>
+                        <h3 className="font-title-md text-title-md text-primary mb-1">
+                          {template.name}
+                        </h3>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant">
+                          {template.description?.trim() ||
+                            "Shared document type template"}
+                        </p>
+                        <p className="font-body-sm text-body-sm text-on-surface-variant mt-1">
+                          {sharedByLabel(template.created_by_name)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleAddCommunityToMyList(template)}
+                          className="px-3 py-2 rounded-lg border border-outline-variant font-label-sm text-label-sm text-on-surface hover:bg-surface-container-high transition-all active:scale-95"
+                        >
+                          Add to my list
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCloneCommunityCustomize(template)}
+                          className="px-3 py-2 rounded-lg bg-primary text-on-primary font-label-sm text-label-sm hover:bg-primary-container transition-all active:scale-95"
+                        >
+                          Clone &amp; customize
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </aside>
 
-          <section className="flex-1 min-w-0 space-y-4 w-full">
+          <section ref={contentSectionRef} className="flex-1 min-w-0 space-y-4 w-full">
             <h2 className="font-title-md text-title-md text-primary">
               {selectedType.kind === "creating" ? "Create template." : "Configure sections."}
             </h2>
             {selectedType.kind === "creating" ? (
               <CreateDocumentTypePanel
-                templates={templates}
-                onSaved={handleTemplateSaved}
-                onCancel={() =>
-                  setSelectedType({ kind: "builtin", id: "PATENT_PROVISIONAL" })
+                key={
+                  createSeed
+                    ? `seed-${createSeed.name}-${createSeed.basedOn}-${createSeed.sections
+                        .map((section) => section.id)
+                        .join("-")}`
+                    : "create-blank"
                 }
+                templates={templates}
+                communityTemplates={communityTemplates}
+                initialSeed={createSeed}
+                onSaved={handleTemplateSaved}
+                onCancel={() => {
+                  setCreateSeed(null);
+                  setSelectedType({ kind: "builtin", id: "PATENT_PROVISIONAL" });
+                }}
               />
             ) : selectedType.kind === "custom" && selectedTemplate ? (
               <CustomTypeSectionsPanel

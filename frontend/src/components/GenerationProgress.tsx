@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface GenerationProgressProps {
   active: boolean;
@@ -9,6 +9,7 @@ interface GenerationProgressProps {
 
 export function GenerationProgress({ active, label, step }: GenerationProgressProps) {
   const [elapsed, setElapsed] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!active) {
@@ -22,12 +23,24 @@ export function GenerationProgress({ active, label, step }: GenerationProgressPr
     return () => window.clearInterval(id);
   }, [active]);
 
+  // Most pages scroll inside a nested overflow container rather than the
+  // window, so a plain window.scrollTo wouldn't reach this banner. Whenever
+  // generation starts, scroll every scrollable ancestor (whichever one it
+  // actually is) so the "in progress" state is immediately visible instead
+  // of silently running off-screen while the user stays scrolled down.
+  useEffect(() => {
+    if (active) {
+      rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [active]);
+
   if (!active) return null;
 
   const stepLabel = step ? ` (${step.current} of ${step.total})` : "";
 
   return (
     <div
+      ref={rootRef}
       className="rounded-lg border border-outline-variant bg-surface-container-low p-4 space-y-2"
       role="status"
       aria-live="polite"

@@ -103,6 +103,57 @@ describe("resolveCitationPreviewSource", () => {
       }),
     ).toBeNull();
   });
+
+  it("resolves Imported Draft labels from pastedText markers", () => {
+    const draftId = "abc-123";
+    const title = "Night Transit Hub";
+    const body = "## Summary\n\nReliable off-peak routing for care access.";
+    const pastedText = [
+      "--- Imported Draft: Night Transit Hub [id=abc-123] ---",
+      body,
+      "--- End Imported Draft: Night Transit Hub [id=abc-123] ---",
+    ].join("\n");
+
+    const result = resolveCitationPreviewSource(
+      `Imported Draft: ${title} [id=${draftId}]`,
+      { pastedText },
+    );
+
+    expect(result).toEqual({
+      title: "Night Transit Hub",
+      subtitle: "Imported draft",
+      content: body,
+    });
+  });
+
+  it("returns null for malformed imported-draft-looking labels", () => {
+    const pastedText = [
+      "--- Imported Draft: Night Transit Hub [id=abc-123] ---",
+      "Body content",
+      "--- End Imported Draft: Night Transit Hub [id=abc-123] ---",
+    ].join("\n");
+
+    expect(
+      resolveCitationPreviewSource("Imported Draft: Missing Id Only", {
+        pastedText,
+      }),
+    ).toBeNull();
+    expect(
+      resolveCitationPreviewSource("Imported Draft: [id=]", { pastedText }),
+    ).toBeNull();
+    expect(
+      resolveCitationPreviewSource(
+        "Imported Draft: Ghost Draft [id=does-not-exist]",
+        { pastedText },
+      ),
+    ).toBeNull();
+    expect(
+      resolveCitationPreviewSource(
+        "End Imported Draft: Night Transit Hub [id=abc-123]",
+        { pastedText },
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("buildReviewFieldValues", () => {

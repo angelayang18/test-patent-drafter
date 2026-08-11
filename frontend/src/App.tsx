@@ -1,4 +1,7 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import { RequireAuth } from "./components/RequireAuth";
+import SignInPage from "./pages/auth/SignInPage";
+import SignUpPage from "./pages/auth/SignUpPage";
 import { PatentWorkflowProvider } from "./context/PatentWorkflowContext";
 import { GrantWorkflowProvider } from "./context/GrantWorkflowContext";
 import { SowWorkflowProvider } from "./context/SowWorkflowContext";
@@ -38,46 +41,57 @@ export default function App() {
           <AdaWorkflowProvider>
             <BrowserRouter>
               <Routes>
-                <Route path="/" element={<Home />} />
+                <Route path="/sign-in/*" element={<SignInPage />} />
+                <Route path="/sign-up/*" element={<SignUpPage />} />
 
-                <Route path="/patent" element={<InputPage />} />
-                <Route path="/patent/review" element={<Review />} />
-                <Route path="/patent/draft" element={<Draft />} />
-                <Route path="/patent/figures" element={<Figures />} />
-                <Route path="/patent/export" element={<Export />} />
+                <Route
+                  element={
+                    <RequireAuth>
+                      <Outlet />
+                    </RequireAuth>
+                  }
+                >
+                  <Route path="/" element={<Home />} />
 
-                <Route path="/review" element={<Navigate to="/patent/review" replace />} />
-                <Route path="/draft" element={<Navigate to="/patent/draft" replace />} />
-                <Route path="/figures" element={<Navigate to="/patent/figures" replace />} />
-                <Route path="/export" element={<Navigate to="/patent/export" replace />} />
+                  <Route path="/patent" element={<InputPage />} />
+                  <Route path="/patent/review" element={<Review />} />
+                  <Route path="/patent/draft" element={<Draft />} />
+                  <Route path="/patent/figures" element={<Figures />} />
+                  <Route path="/patent/export" element={<Export />} />
 
-                <Route path="/grant" element={<GrantLanding />} />
-                <Route path="/grant/input" element={<GrantInput />} />
-                <Route path="/grant/review" element={<GrantReview />} />
-                <Route path="/grant/draft" element={<GrantDraft />} />
-                <Route path="/grant/export" element={<GrantExport />} />
+                  <Route path="/review" element={<Navigate to="/patent/review" replace />} />
+                  <Route path="/draft" element={<Navigate to="/patent/draft" replace />} />
+                  <Route path="/figures" element={<Navigate to="/patent/figures" replace />} />
+                  <Route path="/export" element={<Navigate to="/patent/export" replace />} />
 
-                <Route path="/sow" element={<SowLanding />} />
-                <Route path="/sow/input" element={<SowInput />} />
-                <Route path="/sow/review" element={<SowReview />} />
-                <Route path="/sow/draft" element={<SowDraft />} />
-                <Route path="/sow/export" element={<SowExport />} />
+                  <Route path="/grant" element={<GrantLanding />} />
+                  <Route path="/grant/input" element={<GrantInput />} />
+                  <Route path="/grant/review" element={<GrantReview />} />
+                  <Route path="/grant/draft" element={<GrantDraft />} />
+                  <Route path="/grant/export" element={<GrantExport />} />
 
-                <Route path="/ada" element={<AdaLanding />} />
-                <Route path="/ada/input" element={<AdaInput />} />
-                <Route path="/ada/review" element={<AdaReview />} />
-                <Route path="/ada/draft" element={<AdaDraft />} />
-                <Route path="/ada/export" element={<AdaExport />} />
+                  <Route path="/sow" element={<SowLanding />} />
+                  <Route path="/sow/input" element={<SowInput />} />
+                  <Route path="/sow/review" element={<SowReview />} />
+                  <Route path="/sow/draft" element={<SowDraft />} />
+                  <Route path="/sow/export" element={<SowExport />} />
 
-                <Route path="/custom/:templateId" element={<GenericWorkflowLayout />}>
-                  <Route index element={<Navigate to="input" replace />} />
-                  <Route path="input" element={<GenericInput />} />
-                  <Route path="review" element={<GenericReview />} />
-                  <Route path="draft" element={<GenericDraft />} />
-                  <Route path="export" element={<GenericExport />} />
+                  <Route path="/ada" element={<AdaLanding />} />
+                  <Route path="/ada/input" element={<AdaInput />} />
+                  <Route path="/ada/review" element={<AdaReview />} />
+                  <Route path="/ada/draft" element={<AdaDraft />} />
+                  <Route path="/ada/export" element={<AdaExport />} />
+
+                  <Route path="/custom/:templateId" element={<GenericWorkflowLayout />}>
+                    <Route index element={<Navigate to="input" replace />} />
+                    <Route path="input" element={<GenericInput />} />
+                    <Route path="review" element={<GenericReview />} />
+                    <Route path="draft" element={<GenericDraft />} />
+                    <Route path="export" element={<GenericExport />} />
+                  </Route>
+
+                  <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
-
-                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </BrowserRouter>
           </AdaWorkflowProvider>

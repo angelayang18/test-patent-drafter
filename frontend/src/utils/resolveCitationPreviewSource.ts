@@ -26,6 +26,9 @@ export interface ResolveCitationPreviewOptions {
 
 const REVIEWED_FIELD_PREFIX = "Your reviewed ";
 
+/** Citation labels from imported-draft chunk headers in pastedText. */
+const IMPORTED_DRAFT_LABEL_RE = /^Imported Draft: (.+) \[id=([^\]]+)\]$/;
+
 /**
  * Build a bare-field-label → value map for review-field citation previews.
  * Empty / whitespace-only values are omitted so they are not previewable.
@@ -88,6 +91,7 @@ function findLabeledChunkBody(combined: string, label: string): string | null {
  * Labels come from ``--- {label} ---`` headers in combined source text:
  * - uploaded files → filename
  * - pasted text → ``Pasted text``
+ * - imported saved drafts → ``Imported Draft: {title} [id={id}]`` (body in pastedText)
  * - website scrapes → URL
  * - Confluence pages → page title (bodies live inside ``cachedRemoteSources.confluence.content``)
  * - Review-tab fields → ``Your reviewed {Field Label}`` (values from ``reviewFieldValues``)
@@ -116,6 +120,22 @@ export function resolveCitationPreviewSource(
       subtitle: "Text entered on the Input step",
       content: pasted,
     };
+  }
+
+  const importedMatch = trimmedLabel.match(IMPORTED_DRAFT_LABEL_RE);
+  if (importedMatch && pasted) {
+    const title = importedMatch[1]?.trim() ?? "";
+    const draftId = importedMatch[2]?.trim() ?? "";
+    if (title && draftId) {
+      const body = findLabeledChunkBody(pasted, trimmedLabel);
+      if (body) {
+        return {
+          title,
+          subtitle: "Imported draft",
+          content: body,
+        };
+      }
+    }
   }
 
   const websites = options.cachedRemoteSources?.website ?? [];

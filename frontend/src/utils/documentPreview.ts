@@ -1,4 +1,5 @@
 import {
+  ADA_SECTION_LABELS,
   GRANT_SECTION_IDS,
   GRANT_SECTION_LABELS,
   PATENT_SECTION_IDS,
@@ -139,7 +140,19 @@ export function splitParagraphs(text: string): string[] {
   return paragraphs;
 }
 
-export function draftPreviewSectionKeys(sections: Record<string, string>): string[] {
+/**
+ * Resolve which section keys to show in a document preview.
+ * When `sectionOrder` is provided (SOW/ADA/Generic/custom), use that order and
+ * keep only keys with non-empty content. When omitted, preserve Patent/Grant sniffing.
+ */
+export function draftPreviewSectionKeys(
+  sections: Record<string, string>,
+  sectionOrder?: readonly string[],
+): string[] {
+  if (sectionOrder) {
+    return sectionOrder.filter((key) => Boolean(sections[key]?.trim()));
+  }
+
   const hasGrantSections = GRANT_SECTION_IDS.some((key) => Boolean(sections[key]?.trim()));
   if (hasGrantSections) {
     return GRANT_SECTION_IDS.filter((key) => Boolean(sections[key]?.trim()));
@@ -153,8 +166,11 @@ export function draftPreviewSectionKeys(sections: Record<string, string>): strin
   );
 }
 
-export function orderedPreviewSectionKeys(sections: Record<string, string>): string[] {
-  return draftPreviewSectionKeys(sections).filter(
+export function orderedPreviewSectionKeys(
+  sections: Record<string, string>,
+  sectionOrder?: readonly string[],
+): string[] {
+  return draftPreviewSectionKeys(sections, sectionOrder).filter(
     (key) => STATIC_SECTION_KEYS.has(key) || Boolean(sections[key]?.trim()),
   );
 }
@@ -166,5 +182,11 @@ export function sectionDisplayTitle(key: string): string {
   if (key in SOW_SECTION_LABELS) {
     return SOW_SECTION_LABELS[key as keyof typeof SOW_SECTION_LABELS].toUpperCase();
   }
+  if (key in ADA_SECTION_LABELS) {
+    return ADA_SECTION_LABELS[key as keyof typeof ADA_SECTION_LABELS].toUpperCase();
+  }
   return DOCUMENT_SECTION_TITLES[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+export const DEFAULT_DOCUMENT_LABEL = "Provisional Patent Application Draft";
+export const DEFAULT_PREVIEW_SUBTITLE = "Live preview of your provisional application as you draft";

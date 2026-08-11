@@ -75,8 +75,18 @@ async function parseErrorMessage(response: Response): Promise<string> {
   return response.statusText || "Request failed";
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  token?: string,
+): Promise<T> {
+  let nextInit = init;
+  if (token) {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    nextInit = { ...init, headers };
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, nextInit);
   if (!response.ok) {
     const message = await parseErrorMessage(response);
     throw new ApiError(message, response.status);
@@ -393,6 +403,34 @@ export async function suggestGenericTitles(
   return { titles: data.titles, citations: data.citations ?? [] };
 }
 
+export interface RelatedApplicationCandidate {
+  application_number: string;
+  invention_title: string;
+  filing_date: string;
+  status: string;
+  patent_number: string;
+}
+
+/**
+ * Look up an applicant's prior USPTO filings as cross-reference candidates.
+ * These are bibliographic matches on applicant name only — the caller is
+ * responsible for deciding (and wording) whether any candidate is actually
+ * legally related before adding it to the filing field.
+ */
+export async function suggestRelatedApplications(
+  applicantName: string,
+): Promise<RelatedApplicationCandidate[]> {
+  const data = await requestJson<{ candidates?: RelatedApplicationCandidate[] }>(
+    "/export/suggest-related-applications",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ applicant_name: applicantName }),
+    },
+  );
+  return Array.isArray(data.candidates) ? data.candidates : [];
+}
+
 export interface SuggestedDocumentSection {
   name: string;
   description: string;
@@ -428,6 +466,67 @@ export async function suggestDocumentTypeSections(
         ? data.style_note.trim()
         : null,
   };
+}
+
+export interface CommunityDocumentTypeSection {
+  id: string;
+  name: string;
+  description: string;
+  order: number;
+}
+
+export interface CommunityDocumentTypeTemplate {
+  id: string;
+  name: string;
+  description: string;
+  sections: CommunityDocumentTypeSection[];
+  created_by_user_id: string;
+  created_by_name: string;
+  based_on: string;
+  created_at: string;
+  mine: boolean;
+}
+
+export interface PublishDocumentTypeTemplatePayload {
+  name: string;
+  description?: string;
+  sections?: CommunityDocumentTypeSection[];
+  based_on?: string;
+  created_by_name?: string;
+}
+
+/** List shared community document-type templates for the authenticated user. */
+export async function listCommunityDocumentTypeTemplates(
+  token: string,
+): Promise<CommunityDocumentTypeTemplate[]> {
+  const data = await requestJson<{ templates?: CommunityDocumentTypeTemplate[] }>(
+    "/document-types/community",
+    { method: "GET" },
+    token,
+  );
+  return Array.isArray(data.templates) ? data.templates : [];
+}
+
+/** Publish a document-type template to the shared community store. */
+export async function publishDocumentTypeTemplate(
+  token: string,
+  payload: PublishDocumentTypeTemplatePayload,
+): Promise<{ id: string; created_at: string }> {
+  return requestJson<{ id: string; created_at: string }>(
+    "/document-types/community",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: payload.name,
+        description: payload.description ?? "",
+        sections: payload.sections ?? [],
+        based_on: payload.based_on ?? "",
+        created_by_name: payload.created_by_name ?? "",
+      }),
+    },
+    token,
+  );
 }
 
 export async function getGenericTitleCitations(
