@@ -18,6 +18,11 @@ export interface DocumentTypeTemplate {
   builtFromSamples?: boolean;
   /** Short note about sample provenance (filenames or summary). */
   sampleNote?: string;
+  /**
+   * Whether this template is shared with the team.
+   * Defaults to true when absent (templates saved before this field existed).
+   */
+  shared?: boolean;
 }
 
 const TEMPLATES_KEY = "patent-drafter-custom-document-types";
@@ -83,6 +88,8 @@ function normalizeTemplate(raw: Partial<DocumentTypeTemplate> | null | undefined
       typeof raw.sampleNote === "string" && raw.sampleNote.trim()
         ? raw.sampleNote.trim()
         : undefined,
+    // Safe default for templates saved before this field existed.
+    shared: raw.shared !== false,
   };
 }
 

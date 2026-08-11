@@ -6,6 +6,7 @@ import {
   saveDocumentTypeTemplate,
   type DocumentTypeTemplate,
 } from "../utils/documentTypeTemplates";
+import { getStorageKey } from "../utils/userScopedStorage";
 import Home from "./Home";
 
 const TEMPLATES_KEY = "patent-drafter-custom-document-types";
@@ -111,6 +112,7 @@ vi.mock("react-router-dom", async () => {
   return {
     ...actual,
     useNavigate: () => vi.fn(),
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null, key: "default" }),
     Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
       <a href={to}>{children}</a>
     ),
@@ -131,6 +133,7 @@ describe("Home custom document type delete", () => {
   beforeEach(() => {
     localStorage.clear();
     saveDocumentTypeTemplate(CUSTOM_TEMPLATE);
+    Element.prototype.scrollIntoView = vi.fn();
   });
 
   afterEach(() => {
@@ -180,7 +183,7 @@ describe("Home custom document type delete", () => {
     expect(screen.queryByText(CUSTOM_TEMPLATE.name)).not.toBeInTheDocument();
     expect(screen.queryByTestId(`custom-template-card-${CUSTOM_TEMPLATE.id}`)).toBeNull();
     expect(listDocumentTypeTemplates()).toHaveLength(0);
-    expect(localStorage.getItem(TEMPLATES_KEY)).toBe("[]");
+    expect(localStorage.getItem(getStorageKey(TEMPLATES_KEY))).toBe("[]");
   });
 
   it("resets selection away from a deleted custom template", async () => {

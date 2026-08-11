@@ -7,6 +7,7 @@ import { GrantWorkflowProvider } from "./context/GrantWorkflowContext";
 import { SowWorkflowProvider } from "./context/SowWorkflowContext";
 import { AdaWorkflowProvider } from "./context/AdaWorkflowContext";
 import Home from "./pages/Home";
+import SharedDocumentTypes from "./pages/SharedDocumentTypes";
 import InputPage from "./pages/Input";
 import Draft from "./pages/Draft";
 import Figures from "./pages/Figures";
@@ -52,6 +53,7 @@ export default function App() {
                   }
                 >
                   <Route path="/" element={<Home />} />
+                  <Route path="/shared-document-types" element={<SharedDocumentTypes />} />
 
                   <Route path="/patent" element={<InputPage />} />
                   <Route path="/patent/review" element={<Review />} />
