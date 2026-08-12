@@ -9,6 +9,11 @@ import type {
   SOWDetails,
   ADADetails,
 } from "../types/patent";
+import type {
+  GenericFigure,
+  GenericFiguresResult,
+  RegenerateGenericFigureResult,
+} from "../types/genericFigures";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? import.meta.env.REACT_APP_API_URL ?? "http://localhost:8000";
@@ -23,6 +28,9 @@ export type {
   FiguresResult,
   RegenerateFigureResult,
   SectionCitation,
+  GenericFigure,
+  GenericFiguresResult,
+  RegenerateGenericFigureResult,
 };
 
 export interface SourceContent {
@@ -889,6 +897,58 @@ export async function renderFigurePng(mermaid: string): Promise<Blob> {
   return response.blob();
 }
 
+export async function generateGenericFigures(
+  token: string | null | undefined,
+  options: {
+    documentTypeLabel: string;
+    documentTitle: string;
+    combinedText: string;
+    numFigures: number;
+  },
+): Promise<GenericFiguresResult> {
+  return requestJson<GenericFiguresResult>(
+    "/figures/generate/generic",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_type_label: options.documentTypeLabel,
+        document_title: options.documentTitle,
+        combined_text: options.combinedText,
+        num_figures: options.numFigures,
+      }),
+    },
+    token ?? undefined,
+  );
+}
+
+export async function regenerateGenericFigure(
+  token: string | null | undefined,
+  options: {
+    documentTypeLabel: string;
+    documentTitle: string;
+    combinedText: string;
+    figureNumber: number;
+    existingFigures: GenericFigure[];
+  },
+): Promise<RegenerateGenericFigureResult> {
+  return requestJson<RegenerateGenericFigureResult>(
+    "/figures/regenerate-one/generic",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_type_label: options.documentTypeLabel,
+        document_title: options.documentTitle,
+        combined_text: options.combinedText,
+        figure_number: options.figureNumber,
+        existing_figures: options.existingFigures,
+      }),
+    },
+    token ?? undefined,
+  );
+}
+
 export async function prerenderExportFigures(
   figures: PatentDraft["figures"],
 ): Promise<Record<string, string>> {
@@ -983,6 +1043,7 @@ export async function exportGrantDocx(
   sections: Record<string, string>,
   projectTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/grant/docx`, {
     method: "POST",
@@ -991,6 +1052,7 @@ export async function exportGrantDocx(
       sections,
       project_title: projectTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1006,6 +1068,7 @@ export async function exportGrantPdf(
   sections: Record<string, string>,
   projectTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/grant/pdf`, {
     method: "POST",
@@ -1014,6 +1077,7 @@ export async function exportGrantPdf(
       sections,
       project_title: projectTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1029,6 +1093,7 @@ export async function exportSowDocx(
   sections: Record<string, string>,
   engagementTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/sow/docx`, {
     method: "POST",
@@ -1037,6 +1102,7 @@ export async function exportSowDocx(
       sections,
       engagement_title: engagementTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1052,6 +1118,7 @@ export async function exportSowPdf(
   sections: Record<string, string>,
   engagementTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/sow/pdf`, {
     method: "POST",
@@ -1060,6 +1127,7 @@ export async function exportSowPdf(
       sections,
       engagement_title: engagementTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1075,6 +1143,7 @@ export async function exportAdaDocx(
   sections: Record<string, string>,
   studyTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/ada/docx`, {
     method: "POST",
@@ -1083,6 +1152,7 @@ export async function exportAdaDocx(
       sections,
       study_title: studyTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1098,6 +1168,7 @@ export async function exportAdaPdf(
   sections: Record<string, string>,
   studyTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/ada/pdf`, {
     method: "POST",
@@ -1106,6 +1177,7 @@ export async function exportAdaPdf(
       sections,
       study_title: studyTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1184,6 +1256,7 @@ export async function exportGenericDocx(
   documentTitle?: string,
   sectionOrder?: string[],
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/generic/docx`, {
     method: "POST",
@@ -1193,6 +1266,7 @@ export async function exportGenericDocx(
       document_title: documentTitle ?? "",
       section_order: sectionOrder ?? [],
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1209,6 +1283,7 @@ export async function exportGenericPdf(
   documentTitle?: string,
   sectionOrder?: string[],
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/generic/pdf`, {
     method: "POST",
@@ -1218,6 +1293,7 @@ export async function exportGenericPdf(
       document_title: documentTitle ?? "",
       section_order: sectionOrder ?? [],
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 

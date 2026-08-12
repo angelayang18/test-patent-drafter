@@ -32,6 +32,7 @@ export default function GenericExport() {
     template,
     details,
     sections,
+    figures,
     sectionSettings,
     getWorkflowSnapshot,
     clearWorkflow,
@@ -55,9 +56,9 @@ export default function GenericExport() {
 
   useEffect(() => {
     if (!isGenericStepAccessible("export", getWorkflowSnapshot())) {
-      navigate(paths.draft, { replace: true });
+      navigate(paths.figures, { replace: true });
     }
-  }, [getWorkflowSnapshot, navigate, paths.draft]);
+  }, [getWorkflowSnapshot, navigate, paths.figures]);
 
   const includedIds = useMemo(
     () =>
@@ -90,6 +91,7 @@ export default function GenericExport() {
         documentTitle,
         includedIds,
         sectionLabelsPayload,
+        figures,
       );
       downloadBlob(blob, "custom-document.docx");
       setDocxState("idle");
@@ -110,6 +112,7 @@ export default function GenericExport() {
         documentTitle,
         includedIds,
         sectionLabelsPayload,
+        figures,
       );
       downloadBlob(blob, "custom-document.pdf");
       setPdfState("idle");
@@ -125,7 +128,7 @@ export default function GenericExport() {
       step="export"
       layout="document"
       mainClassName="px-margin-desktop pt-10 pb-28"
-      footer={<WorkflowFooter left={<WorkflowBackLink to={paths.draft} />} />}
+      footer={<WorkflowFooter left={<WorkflowBackLink to={paths.figures} />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
         {(docxState === "preparing" || pdfState === "preparing") && (
@@ -160,10 +163,10 @@ export default function GenericExport() {
                     .join(", ") || "at least one section"}
                 </p>
                 <Link
-                  to={paths.draft}
+                  to={paths.figures}
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md"
                 >
-                  Back to Draft
+                  Back to Figures
                 </Link>
               </>
             )}

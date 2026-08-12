@@ -25,7 +25,12 @@ from drafter.grant_sections import (
     draft_all_grant_sections_parallel,
     draft_single_grant_section,
 )
-from drafter.figures import generate_patent_figures, regenerate_patent_figure
+from drafter.figures import (
+    generate_generic_figures,
+    generate_patent_figures,
+    regenerate_generic_figure,
+    regenerate_patent_figure,
+)
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
 from drafter.prompts import PATENT_SECTIONS
 from drafter.selection_regenerate import regenerate_selection
@@ -245,8 +250,17 @@ class GrantDraftAllRequest(GrantDetails):
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
+class GenericFigureModel(BaseModel):
+    number: int
+    title: str
+    brief_description: str
+    reference_numerals: dict[str, str] = Field(default_factory=dict)
+    mermaid: str
+
+
 class GrantExportRequest(BaseModel):
     sections: dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     project_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -295,6 +309,7 @@ class SOWDraftAllRequest(SOWDetails):
 
 class SOWExportRequest(BaseModel):
     sections: Dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     engagement_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -343,6 +358,7 @@ class ADADraftAllRequest(ADADetails):
 
 class ADAExportRequest(BaseModel):
     sections: Dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     study_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -373,6 +389,7 @@ class GenericDraftAllRequest(BaseModel):
 class GenericExportRequest(BaseModel):
     document_title: str = ""
     sections: dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     section_order: list[str] = Field(default_factory=list)
     section_labels: dict[str, str] = Field(default_factory=dict)
 
@@ -436,10 +453,25 @@ class GenerateFiguresRequest(InventionDetails):
     num_figures: int = Field(default=3, ge=1, le=8)
 
 
+class GenerateGenericFiguresRequest(BaseModel):
+    document_type_label: str = ""
+    document_title: str = ""
+    combined_text: str = ""
+    num_figures: int = Field(default=3, ge=1, le=8)
+
+
 class RegenerateFigureRequest(InventionDetails):
     figure_number: int
     description_text: str = ""
     existing_figures: list[PatentFigureModel] = Field(default_factory=list)
+
+
+class RegenerateGenericFigureRequest(BaseModel):
+    document_type_label: str = ""
+    document_title: str = ""
+    combined_text: str = ""
+    figure_number: int
+    existing_figures: list[GenericFigureModel] = Field(default_factory=list)
 
 
 class RenderMermaidRequest(BaseModel):
@@ -1549,6 +1581,30 @@ async def generate_figures(body: GenerateFiguresRequest) -> dict:
     return result
 
 
+@app.post("/figures/generate/generic")
+async def generate_generic_figures_route(body: GenerateGenericFiguresRequest) -> dict:
+    """Generate supporting Mermaid diagrams for Grant/SOW/ADA/Generic documents."""
+    try:
+        result = await generate_generic_figures(
+            body.document_type_label,
+            body.document_title,
+            body.combined_text,
+            num_figures=body.num_figures,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Generic figure generation failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to generate figures: {exc}",
+        ) from exc
+
+    return result
+
+
 @app.post("/figures/regenerate-one")
 def regenerate_one_figure(body: RegenerateFigureRequest) -> dict:
     """Regenerate a single patent figure with a unique Mermaid diagram type."""
@@ -1569,6 +1625,32 @@ def regenerate_one_figure(body: RegenerateFigureRequest) -> dict:
         raise
     except Exception as exc:
         log.exception("Single figure regeneration failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to regenerate figure: {exc}",
+        ) from exc
+
+    return result
+
+
+@app.post("/figures/regenerate-one/generic")
+def regenerate_generic_figure_route(body: RegenerateGenericFigureRequest) -> dict:
+    """Regenerate a single supporting Mermaid diagram for a non-patent document."""
+    existing = [fig.model_dump() for fig in body.existing_figures]
+    try:
+        result = regenerate_generic_figure(
+            body.document_type_label,
+            body.document_title,
+            body.combined_text,
+            body.figure_number,
+            existing,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Generic single figure regeneration failed")
         raise HTTPException(
             status_code=502,
             detail=f"Failed to regenerate figure: {exc}",
@@ -1731,8 +1813,10 @@ def export_grant_docx_endpoint(body: GrantExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_grant_docx(
             body.sections,
+            figure_dicts,
             project_title=body.project_title,
             section_labels=body.section_labels,
         )
@@ -1757,8 +1841,10 @@ def export_grant_pdf_endpoint(body: GrantExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_grant_pdf(
             body.sections,
+            figure_dicts,
             project_title=body.project_title,
             section_labels=body.section_labels,
         )
@@ -1783,8 +1869,10 @@ def export_sow_docx_endpoint(body: SOWExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_sow_docx(
             body.sections,
+            figure_dicts,
             engagement_title=body.engagement_title,
             section_labels=body.section_labels,
         )
@@ -1809,8 +1897,10 @@ def export_sow_pdf_endpoint(body: SOWExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_sow_pdf(
             body.sections,
+            figure_dicts,
             engagement_title=body.engagement_title,
             section_labels=body.section_labels,
         )
@@ -1835,8 +1925,10 @@ def export_ada_docx_endpoint(body: ADAExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_ada_docx(
             body.sections,
+            figure_dicts,
             study_title=body.study_title,
             section_labels=body.section_labels,
         )
@@ -1861,8 +1953,10 @@ def export_ada_pdf_endpoint(body: ADAExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_ada_pdf(
             body.sections,
+            figure_dicts,
             study_title=body.study_title,
             section_labels=body.section_labels,
         )
@@ -1887,8 +1981,10 @@ def export_generic_docx_endpoint(body: GenericExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_generic_docx(
             body.sections,
+            figure_dicts,
             document_title=body.document_title,
             section_order=body.section_order,
             section_labels=body.section_labels,
@@ -1914,8 +2010,10 @@ def export_generic_pdf_endpoint(body: GenericExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_generic_pdf(
             body.sections,
+            figure_dicts,
             document_title=body.document_title,
             section_order=body.section_order,
             section_labels=body.section_labels,

@@ -376,7 +376,7 @@ export default function SowDraft() {
                 onRedo={redo}
               />
               <WorkflowNextLink
-                to="/sow/export"
+                to="/sow/figures"
                 disabled={
                   isGenerating ||
                   sectionIds.some(
@@ -390,7 +390,7 @@ export default function SowDraft() {
                   saveToStorage();
                 }}
               >
-                Next: Export
+                Next: Figures
               </WorkflowNextLink>
             </>
           }

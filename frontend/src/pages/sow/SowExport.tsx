@@ -31,6 +31,7 @@ export default function SowExport() {
   const {
     sowDetails,
     sections,
+    figures,
     sectionSettings,
     getWorkflowSnapshot,
     clearWorkflow,
@@ -42,7 +43,7 @@ export default function SowExport() {
 
   useEffect(() => {
     if (!isSowStepAccessible("export", getWorkflowSnapshot())) {
-      navigate("/sow/draft", { replace: true });
+      navigate("/sow/figures", { replace: true });
     }
   }, [getWorkflowSnapshot, navigate]);
 
@@ -94,7 +95,12 @@ export default function SowExport() {
     setError(null);
     setDocxState("preparing");
     try {
-      const blob = await exportSowDocx(sections, engagementTitle, sectionLabelsPayload);
+      const blob = await exportSowDocx(
+        sections,
+        engagementTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "sow-contract.docx");
       setDocxState("idle");
     } catch (err) {
@@ -109,7 +115,12 @@ export default function SowExport() {
     setError(null);
     setPdfState("preparing");
     try {
-      const blob = await exportSowPdf(sections, engagementTitle, sectionLabelsPayload);
+      const blob = await exportSowPdf(
+        sections,
+        engagementTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "sow-contract.pdf");
       setPdfState("idle");
     } catch (err) {
@@ -124,7 +135,7 @@ export default function SowExport() {
       step="export"
       layout="document"
       mainClassName="px-margin-desktop pt-10 pb-28"
-      footer={<WorkflowFooter left={<WorkflowBackLink to="/sow/draft" />} />}
+      footer={<WorkflowFooter left={<WorkflowBackLink to="/sow/figures" />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
         {(docxState === "preparing" || pdfState === "preparing") && (
@@ -157,10 +168,10 @@ export default function SowExport() {
                     .join(", ")}
                 </p>
                 <Link
-                  to="/sow/draft"
+                  to="/sow/figures"
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md"
                 >
-                  Back to Draft
+                  Back to Figures
                 </Link>
               </>
             )}

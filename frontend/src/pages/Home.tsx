@@ -95,17 +95,17 @@ const DOCUMENT_TYPES: {
   {
     id: "GRANT_APPLICATION",
     title: "Grant Application",
-    steps: "4 steps: Input → Review → Draft → Export",
+    steps: "5 steps: Input → Review → Draft → Figures → Export",
   },
   {
     id: "SOW_CONTRACT",
     title: "SOW Contract",
-    steps: "4 steps: Input → Review → Draft → Export",
+    steps: "5 steps: Input → Review → Draft → Figures → Export",
   },
   {
     id: "ADA_BIOANALYTICAL_REPORT",
     title: "ADA Bioanalytical Report",
-    steps: "4 steps: Input → Review → Draft → Export",
+    steps: "5 steps: Input → Review → Draft → Figures → Export",
   },
 ];
 
@@ -1440,7 +1440,7 @@ export default function Home() {
                       </h3>
                       <p className="font-body-sm text-body-sm text-on-surface-variant">
                         {template.description?.trim() ||
-                          "4 steps: Input → Review → Draft → Export"}
+                          "5 steps: Input → Review → Draft → Figures → Export"}
                       </p>
                     </button>
                     <button

@@ -8,6 +8,7 @@ import {
 } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import type { SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import { getDocumentTypeTemplate } from "../utils/documentTypeTemplates";
 import {
   clearActiveGenericWorkflow,
@@ -101,6 +102,7 @@ function GenericWorkflowProviderInner({
   const [cachedRemoteSources, setCachedRemoteSourcesState] = useState<CachedRemoteSources>(
     initial.cachedRemoteSources ?? {},
   );
+  const [figures, setFiguresState] = useState<GenericFigure[]>(initial.figures ?? []);
   const [completedSteps, setCompletedStepsState] = useState<GenericWorkflowStep[]>(
     initial.completedSteps ?? [],
   );
@@ -199,6 +201,7 @@ function GenericWorkflowProviderInner({
       setUploadedFilesState(next.uploadedFiles);
       setInputSourcesState(next.inputSources);
       setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
+      setFiguresState(next.figures ?? []);
       setCompletedStepsState(next.completedSteps ?? []);
       setExtractionSourceKeyState(next.extractionSourceKey ?? null);
       setAutoDraftPendingState(next.autoDraftPending ?? false);
@@ -218,6 +221,7 @@ function GenericWorkflowProviderInner({
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
@@ -233,6 +237,7 @@ function GenericWorkflowProviderInner({
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
@@ -257,6 +262,7 @@ function GenericWorkflowProviderInner({
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
+    figures,
     completedSteps,
     extractionSourceKey,
     autoDraftPending,
@@ -331,6 +337,16 @@ function GenericWorkflowProviderInner({
 
   const setDetails = useCallback((next: GenericDocumentDetails) => {
     setDetailsState(next);
+  }, []);
+
+  const setFigures = useCallback((next: GenericFigure[]) => {
+    setFiguresState(next);
+  }, []);
+
+  const updateFigure = useCallback((number: number, patch: Partial<GenericFigure>) => {
+    setFiguresState((prev) =>
+      prev.map((fig) => (fig.number === number ? { ...fig, ...patch } : fig)),
+    );
   }, []);
 
   const setSection = useCallback((sectionId: string, content: string) => {
@@ -478,11 +494,14 @@ function GenericWorkflowProviderInner({
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
       workflowResetting,
       setDetails,
+      setFigures,
+      updateFigure,
       setSection,
       setSections,
       setSectionCitations,
@@ -521,11 +540,14 @@ function GenericWorkflowProviderInner({
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
       workflowResetting,
       setDetails,
+      setFigures,
+      updateFigure,
       setSection,
       setSections,
       setSectionCitations,

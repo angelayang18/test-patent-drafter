@@ -1,18 +1,26 @@
 import { defaultSowDetails, type SOWDetails, type SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { InputSources, UploadedSourceFile } from "../context/sowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
 import { getStorageKey } from "./userScopedStorage";
 
-export type SowWorkflowStep = "input" | "review" | "draft" | "export";
+export type SowWorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
-export const SOW_STEP_ORDER: SowWorkflowStep[] = ["input", "review", "draft", "export"];
+export const SOW_STEP_ORDER: SowWorkflowStep[] = [
+  "input",
+  "review",
+  "draft",
+  "figures",
+  "export",
+];
 
 export const SOW_STEP_PATHS: Record<SowWorkflowStep, string> = {
   input: "/sow/input",
   review: "/sow/review",
   draft: "/sow/draft",
+  figures: "/sow/figures",
   export: "/sow/export",
 };
 
@@ -30,6 +38,7 @@ export interface SowWorkflowSnapshot {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
+  figures?: GenericFigure[];
   completedSteps?: SowWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
@@ -132,6 +141,7 @@ export function normalizeSowWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
+    figures: Array.isArray(raw?.figures) ? raw.figures : [],
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
@@ -154,6 +164,10 @@ export function getSowCompletedSteps(workflow: SowWorkflowSnapshot): Set<SowWork
   if (hasSowDraftSections(workflow.sections)) {
     completed.add("review");
   }
+  if ((workflow.figures?.length ?? 0) > 0) {
+    completed.add("draft");
+    completed.add("figures");
+  }
   return completed;
 }
 
@@ -165,7 +179,7 @@ export function isSowStepAccessible(
     return true;
   }
   if (step === "export") {
-    return (workflow.completedSteps ?? []).includes("draft");
+    return (workflow.completedSteps ?? []).includes("figures");
   }
   const stepIndex = SOW_STEP_ORDER.indexOf(step);
   if (stepIndex <= 0) {
@@ -217,10 +231,14 @@ export function sowWorkflowHasProgress(workflow: SowWorkflowSnapshot): boolean {
   if (workflow.uploadedFiles.length > 0) return true;
   if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
+  if ((workflow.figures?.length ?? 0) > 0) return true;
   return false;
 }
 
 export function getSowResumePath(workflow: SowWorkflowSnapshot): string {
+  if ((workflow.figures?.length ?? 0) > 0) {
+    return SOW_STEP_PATHS.figures;
+  }
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
     return SOW_STEP_PATHS.draft;
   }

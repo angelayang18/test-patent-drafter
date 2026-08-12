@@ -7,3 +7,11 @@ __pycache__/
 venv/
 .DS_Store
 backend/data/
+
+# Local tool caches / scratch (do not commit)
+.agents/
+.cursor/
+.pnpm-store/
+_tmp_*
+frontend/_tmp_*
+skills-lock.json

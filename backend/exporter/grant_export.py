@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -10,6 +11,8 @@ from docx.shared import Pt
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
+from exporter.figure_png import prerender_figure_pngs
+from exporter.figure_sheets import add_drawing_sheets_docx, add_drawing_sheets_pdf
 from exporter.text_format import split_paragraphs
 
 GRANT_SECTION_ORDER = [
@@ -86,6 +89,7 @@ def _resolve_grant_label(
 
 def export_grant_docx(
     sections: dict[str, str],
+    figures: list[dict[str, Any]] | None = None,
     *,
     project_title: str = "",
     section_labels: dict[str, str] | None = None,
@@ -111,6 +115,11 @@ def export_grant_docx(
             for run in body.runs:
                 run.font.size = Pt(11)
 
+    figure_list = figures or []
+    if figure_list:
+        png_by_number = prerender_figure_pngs(figure_list)
+        add_drawing_sheets_docx(doc, figure_list, png_by_number)
+
     buffer = BytesIO()
     doc.save(buffer)
     buffer.seek(0)
@@ -119,6 +128,7 @@ def export_grant_docx(
 
 def export_grant_pdf(
     sections: dict[str, str],
+    figures: list[dict[str, Any]] | None = None,
     *,
     project_title: str = "",
     section_labels: dict[str, str] | None = None,
@@ -152,6 +162,11 @@ def export_grant_pdf(
             pdf.multi_cell(0, LINE_HEIGHT, _sanitize_text(paragraph), **_MULTI_CELL_KW)
             pdf.ln(2)
         pdf.ln(4)
+
+    figure_list = figures or []
+    if figure_list:
+        png_by_number = prerender_figure_pngs(figure_list)
+        add_drawing_sheets_pdf(pdf, figure_list, png_by_number)
 
     buffer = BytesIO()
     pdf.output(buffer)

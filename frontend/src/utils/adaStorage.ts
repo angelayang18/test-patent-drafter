@@ -1,18 +1,26 @@
 import { defaultAdaDetails, type ADADetails, type SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { InputSources, UploadedSourceFile } from "../context/adaContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
 import { getStorageKey } from "./userScopedStorage";
 
-export type AdaWorkflowStep = "input" | "review" | "draft" | "export";
+export type AdaWorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
-export const ADA_STEP_ORDER: AdaWorkflowStep[] = ["input", "review", "draft", "export"];
+export const ADA_STEP_ORDER: AdaWorkflowStep[] = [
+  "input",
+  "review",
+  "draft",
+  "figures",
+  "export",
+];
 
 export const ADA_STEP_PATHS: Record<AdaWorkflowStep, string> = {
   input: "/ada/input",
   review: "/ada/review",
   draft: "/ada/draft",
+  figures: "/ada/figures",
   export: "/ada/export",
 };
 
@@ -30,6 +38,7 @@ export interface AdaWorkflowSnapshot {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
+  figures?: GenericFigure[];
   completedSteps?: AdaWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
@@ -132,6 +141,7 @@ export function normalizeAdaWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
+    figures: Array.isArray(raw?.figures) ? raw.figures : [],
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
@@ -154,6 +164,10 @@ export function getAdaCompletedSteps(workflow: AdaWorkflowSnapshot): Set<AdaWork
   if (hasAdaDraftSections(workflow.sections)) {
     completed.add("review");
   }
+  if ((workflow.figures?.length ?? 0) > 0) {
+    completed.add("draft");
+    completed.add("figures");
+  }
   return completed;
 }
 
@@ -165,7 +179,7 @@ export function isAdaStepAccessible(
     return true;
   }
   if (step === "export") {
-    return (workflow.completedSteps ?? []).includes("draft");
+    return (workflow.completedSteps ?? []).includes("figures");
   }
   const stepIndex = ADA_STEP_ORDER.indexOf(step);
   if (stepIndex <= 0) {
@@ -217,10 +231,14 @@ export function adaWorkflowHasProgress(workflow: AdaWorkflowSnapshot): boolean {
   if (workflow.uploadedFiles.length > 0) return true;
   if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
+  if ((workflow.figures?.length ?? 0) > 0) return true;
   return false;
 }
 
 export function getAdaResumePath(workflow: AdaWorkflowSnapshot): string {
+  if ((workflow.figures?.length ?? 0) > 0) {
+    return ADA_STEP_PATHS.figures;
+  }
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
     return ADA_STEP_PATHS.draft;
   }

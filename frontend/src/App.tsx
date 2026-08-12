@@ -18,20 +18,24 @@ import GrantInput from "./pages/grant/GrantInput";
 import GrantReview from "./pages/grant/GrantReview";
 import GrantDraft from "./pages/grant/GrantDraft";
 import GrantExport from "./pages/grant/GrantExport";
+import GrantFigures from "./pages/grant/GrantFigures";
 import SowLanding from "./pages/sow/SowLanding";
 import SowInput from "./pages/sow/SowInput";
 import SowReview from "./pages/sow/SowReview";
 import SowDraft from "./pages/sow/SowDraft";
+import SowFigures from "./pages/sow/SowFigures";
 import SowExport from "./pages/sow/SowExport";
 import AdaLanding from "./pages/ada/AdaLanding";
 import AdaInput from "./pages/ada/AdaInput";
 import AdaReview from "./pages/ada/AdaReview";
 import AdaDraft from "./pages/ada/AdaDraft";
+import AdaFigures from "./pages/ada/AdaFigures";
 import AdaExport from "./pages/ada/AdaExport";
 import GenericWorkflowLayout from "./pages/generic/GenericWorkflowLayout";
 import GenericInput from "./pages/generic/GenericInput";
 import GenericReview from "./pages/generic/GenericReview";
 import GenericDraft from "./pages/generic/GenericDraft";
+import GenericFigures from "./pages/generic/GenericFigures";
 import GenericExport from "./pages/generic/GenericExport";
 
 export default function App() {
@@ -70,18 +74,21 @@ export default function App() {
                   <Route path="/grant/input" element={<GrantInput />} />
                   <Route path="/grant/review" element={<GrantReview />} />
                   <Route path="/grant/draft" element={<GrantDraft />} />
+                  <Route path="/grant/figures" element={<GrantFigures />} />
                   <Route path="/grant/export" element={<GrantExport />} />
 
                   <Route path="/sow" element={<SowLanding />} />
                   <Route path="/sow/input" element={<SowInput />} />
                   <Route path="/sow/review" element={<SowReview />} />
                   <Route path="/sow/draft" element={<SowDraft />} />
+                  <Route path="/sow/figures" element={<SowFigures />} />
                   <Route path="/sow/export" element={<SowExport />} />
 
                   <Route path="/ada" element={<AdaLanding />} />
                   <Route path="/ada/input" element={<AdaInput />} />
                   <Route path="/ada/review" element={<AdaReview />} />
                   <Route path="/ada/draft" element={<AdaDraft />} />
+                  <Route path="/ada/figures" element={<AdaFigures />} />
                   <Route path="/ada/export" element={<AdaExport />} />
 
                   <Route path="/custom/:templateId" element={<GenericWorkflowLayout />}>
@@ -89,6 +96,7 @@ export default function App() {
                     <Route path="input" element={<GenericInput />} />
                     <Route path="review" element={<GenericReview />} />
                     <Route path="draft" element={<GenericDraft />} />
+                    <Route path="figures" element={<GenericFigures />} />
                     <Route path="export" element={<GenericExport />} />
                   </Route>
 

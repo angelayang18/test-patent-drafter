@@ -376,7 +376,7 @@ export default function GrantDraft() {
                 onRedo={redo}
               />
               <WorkflowNextLink
-                to="/grant/export"
+                to="/grant/figures"
                 disabled={isGenerating}
                 onClick={() => {
                   setSection(activeSection, draftText);
@@ -384,7 +384,7 @@ export default function GrantDraft() {
                   saveToStorage();
                 }}
               >
-                Next: Export
+                Next: Figures
               </WorkflowNextLink>
             </>
           }

@@ -407,7 +407,7 @@ export default function GenericDraft() {
                 onRedo={redo}
               />
               <WorkflowNextLink
-                to={paths.export}
+                to={paths.figures}
                 disabled={
                   isGenerating ||
                   sectionIds.length === 0 ||
@@ -422,7 +422,7 @@ export default function GenericDraft() {
                   saveToStorage();
                 }}
               >
-                Next: Export
+                Next: Figures
               </WorkflowNextLink>
             </>
           }

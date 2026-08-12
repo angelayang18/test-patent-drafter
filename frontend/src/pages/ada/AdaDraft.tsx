@@ -372,7 +372,7 @@ export default function AdaDraft() {
                 onRedo={redo}
               />
               <WorkflowNextLink
-                to="/ada/export"
+                to="/ada/figures"
                 disabled={
                   isGenerating ||
                   sectionIds.some(
@@ -386,7 +386,7 @@ export default function AdaDraft() {
                   saveToStorage();
                 }}
               >
-                Next: Export
+                Next: Figures
               </WorkflowNextLink>
             </>
           }

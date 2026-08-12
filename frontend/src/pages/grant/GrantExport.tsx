@@ -31,6 +31,7 @@ export default function GrantExport() {
   const {
     grantDetails,
     sections,
+    figures,
     sectionSettings,
     getWorkflowSnapshot,
     clearWorkflow,
@@ -42,7 +43,7 @@ export default function GrantExport() {
 
   useEffect(() => {
     if (!isGrantStepAccessible("export", getWorkflowSnapshot())) {
-      navigate("/grant/draft", { replace: true });
+      navigate("/grant/figures", { replace: true });
     }
   }, [getWorkflowSnapshot, navigate]);
 
@@ -95,7 +96,12 @@ export default function GrantExport() {
     setError(null);
     setDocxState("preparing");
     try {
-      const blob = await exportGrantDocx(sections, projectTitle, sectionLabelsPayload);
+      const blob = await exportGrantDocx(
+        sections,
+        projectTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "grant-application.docx");
       setDocxState("idle");
     } catch (err) {
@@ -110,7 +116,12 @@ export default function GrantExport() {
     setError(null);
     setPdfState("preparing");
     try {
-      const blob = await exportGrantPdf(sections, projectTitle, sectionLabelsPayload);
+      const blob = await exportGrantPdf(
+        sections,
+        projectTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "grant-application.pdf");
       setPdfState("idle");
     } catch (err) {
@@ -125,7 +136,7 @@ export default function GrantExport() {
       step="export"
       layout="document"
       mainClassName="px-margin-desktop pt-10 pb-28"
-      footer={<WorkflowFooter left={<WorkflowBackLink to="/grant/draft" />} />}
+      footer={<WorkflowFooter left={<WorkflowBackLink to="/grant/figures" />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
         {(docxState === "preparing" || pdfState === "preparing") && (
@@ -162,10 +173,10 @@ export default function GrantExport() {
                     .join(", ")}
                 </p>
                 <Link
-                  to="/grant/draft"
+                  to="/grant/figures"
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md"
                 >
-                  Back to Draft
+                  Back to Figures
                 </Link>
               </>
             )}
