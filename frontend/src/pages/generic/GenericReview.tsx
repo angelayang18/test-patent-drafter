@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GenericAppShell } from "../../components/GenericAppShell";
+import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SuggestTitlesButton, TitleSuggestionsList } from "../../components/TitleSuggestions";
+import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { useGenericWorkflow } from "../../context/GenericWorkflowContext";
+import { useUndoRedo } from "../../hooks/useUndoRedo";
 import {
   ApiError,
   extractionNotesFromSources,
@@ -34,24 +37,53 @@ export default function GenericReview() {
   } = useGenericWorkflow();
 
   const paths = GENERIC_STEP_PATHS(templateId);
-  const [title, setTitle] = useState(details?.title ?? "");
+  const {
+    value: title,
+    replace: setTitle,
+    push: pushTitle,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset: resetTitle,
+  } = useUndoRedo(details?.title ?? "");
   const [titleSuggestions, setTitleSuggestions] = useState<string[]>([]);
   const [suggestingTitles, setSuggestingTitles] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
+  const initialSynced = useRef(false);
+  const suppressSavedIndicator = useRef(true);
+  const hasDetailsRef = useRef(Boolean(details));
+  hasDetailsRef.current = Boolean(details);
 
   useEffect(() => {
     if (!details?.title?.trim()) {
       navigate(paths.input, { replace: true });
       return;
     }
-    setTitle(details.title);
-  }, [details, navigate, paths.input]);
+    if (!initialSynced.current) {
+      resetTitle(details.title);
+      initialSynced.current = true;
+      window.setTimeout(() => {
+        suppressSavedIndicator.current = false;
+      }, 0);
+    }
+  }, [details, navigate, paths.input, resetTitle]);
 
   useEffect(() => {
     if (!details) return;
     setDetails({ title });
     saveToStorage();
   }, [title, details, setDetails, saveToStorage]);
+
+  useEffect(() => {
+    if (!hasDetailsRef.current || suppressSavedIndicator.current) {
+      return;
+    }
+    flashSavedRef.current();
+  }, [title]);
 
   const pastedText = inputSources.pastedText.trim();
   const websiteSources = cachedRemoteSources.website ?? [];
@@ -63,6 +95,7 @@ export default function GenericReview() {
   const hasAnySource = hasUploaded || hasPasted || hasWebsite || hasConfluence;
   const titleTrimmed = title.trim();
   const extractionNotes = extractionNotesFromSources(inputSources);
+  const isBusy = suggestingTitles;
 
   // Cheap, LLM-free citation refresh whenever the title changes (debounced).
   useEffect(() => {
@@ -139,18 +172,27 @@ export default function GenericReview() {
         <WorkflowFooter
           left={<WorkflowBackLink to={paths.input} />}
           right={
-            <WorkflowNextLink
-              to={paths.draft}
-              disabled={!titleTrimmed || !hasAnySource || suggestingTitles}
-              onClick={() => {
-                setDetails({ title: titleTrimmed });
-                markStepComplete("review");
-                requestAutoDraft();
-                saveToStorage();
-              }}
-            >
-              Next: Draft
-            </WorkflowNextLink>
+            <>
+              <SavedIndicator visible={savedVisible} />
+              <UndoRedoToolbar
+                canUndo={canUndo && !isBusy}
+                canRedo={canRedo && !isBusy}
+                onUndo={undo}
+                onRedo={redo}
+              />
+              <WorkflowNextLink
+                to={paths.draft}
+                disabled={!titleTrimmed || !hasAnySource || suggestingTitles}
+                onClick={() => {
+                  setDetails({ title: titleTrimmed });
+                  markStepComplete("review");
+                  requestAutoDraft();
+                  saveToStorage();
+                }}
+              >
+                Next: Draft
+              </WorkflowNextLink>
+            </>
           }
         />
       }
@@ -194,7 +236,7 @@ export default function GenericReview() {
             <TitleSuggestionsList
               suggestions={titleSuggestions}
               onSelect={(suggestion) => {
-                setTitle(suggestion);
+                pushTitle(suggestion);
                 setTitleSuggestions([]);
               }}
             />
@@ -206,7 +248,12 @@ export default function GenericReview() {
               disabled={!hasAnySource}
             />
           </div>
-          <SectionCitationsPanel citations={titleCitations} uploadedFiles={uploadedFiles} />
+          <SectionCitationsPanel
+            citations={titleCitations}
+            uploadedFiles={uploadedFiles}
+            pastedText={inputSources.pastedText}
+            cachedRemoteSources={cachedRemoteSources}
+          />
         </div>
 
         <div className="space-y-4">

@@ -55,6 +55,7 @@ import {
   listSavedSowDrafts,
   type SavedSowDraftRecord,
 } from "./sowStorage";
+import { getStorageKey } from "./userScopedStorage";
 
 export { DRAFTS_CHANGED_EVENT, notifyDraftsChanged } from "./draftLibraryEvents";
 
@@ -321,7 +322,7 @@ export function isWorkflowStepAccessible(
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -331,7 +332,7 @@ function readJson<T>(key: string): T | null {
 
 function writeJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     // quota exceeded — caller may surface an error
     throw new Error("Could not save draft. Browser storage may be full.");
@@ -342,8 +343,8 @@ function writeJson(key: string, value: unknown): void {
 export function readActiveWorkflow(): WorkflowSnapshot {
   try {
     const legacy = sessionStorage.getItem(LEGACY_SESSION_KEY);
-    if (legacy && !localStorage.getItem(ACTIVE_WORKFLOW_KEY)) {
-      localStorage.setItem(ACTIVE_WORKFLOW_KEY, legacy);
+    if (legacy && !localStorage.getItem(getStorageKey(ACTIVE_WORKFLOW_KEY))) {
+      localStorage.setItem(getStorageKey(ACTIVE_WORKFLOW_KEY), legacy);
       sessionStorage.removeItem(LEGACY_SESSION_KEY);
     }
   } catch {
@@ -366,7 +367,7 @@ export function createEmptyWorkflowSnapshot(): WorkflowSnapshot {
 export function clearActiveWorkflow(): void {
   try {
     sessionStorage.removeItem(LEGACY_SESSION_KEY);
-    localStorage.removeItem(ACTIVE_WORKFLOW_KEY);
+    localStorage.removeItem(getStorageKey(ACTIVE_WORKFLOW_KEY));
   } catch {
     // ignore quota / private-mode errors
   }
@@ -595,11 +596,56 @@ function serializeSectionsBlock(
   return parts.join("\n\n");
 }
 
-/** Stable per-draft-id markers so multiple same-mode drafts can coexist in pastedText. */
-function importedDraftMarkers(draftId: string): { start: string; end: string } {
+/** Normalize draft titles for use inside ``--- … ---`` chunk headers. */
+export function sanitizeImportedDraftTitle(title: string): string {
+  const normalized = title.replace(/\s+/g, " ").replace(/---/g, "—").trim();
+  return normalized || "Untitled draft";
+}
+
+/**
+ * Stable per-draft markers so multiple drafts can coexist in pastedText.
+ * The header label (text between ``---``) becomes the citation source label.
+ */
+export function importedDraftMarkers(
+  draftId: string,
+  title: string,
+): { start: string; end: string } {
+  const safeTitle = sanitizeImportedDraftTitle(title);
   return {
-    start: `--- Imported Draft [id=${draftId}] ---`,
-    end: `--- End Imported Draft [id=${draftId}] ---`,
+    start: `--- Imported Draft: ${safeTitle} [id=${draftId}] ---`,
+    end: `--- End Imported Draft: ${safeTitle} [id=${draftId}] ---`,
+  };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Locate start/end marker lines for a draft id when the title is unknown
+ * (inject/strip/detect only receive the draft id).
+ */
+function findImportedDraftMarkersById(
+  pastedText: string,
+  draftId: string,
+): { start: string; end: string; startIdx: number; endIdx: number } | null {
+  const idPattern = escapeRegExp(draftId);
+  const startRe = new RegExp(
+    `--- Imported Draft: .+? \\[id=${idPattern}\\] ---`,
+  );
+  const endRe = new RegExp(
+    `--- End Imported Draft: .+? \\[id=${idPattern}\\] ---`,
+  );
+  const startMatch = startRe.exec(pastedText);
+  if (!startMatch) return null;
+  const startIdx = startMatch.index;
+  const endMatch = endRe.exec(pastedText.slice(startIdx));
+  if (!endMatch) return null;
+  return {
+    start: startMatch[0],
+    end: endMatch[0],
+    startIdx,
+    endIdx: startIdx + endMatch.index,
   };
 }
 
@@ -636,7 +682,7 @@ function buildImportSummaryFromSections(params: {
     kind: params.kind,
     savedAt: params.savedAt,
     sections: sectionPreviews,
-    serializedText: wrapImportedDraftBlock(params.id, body),
+    serializedText: wrapImportedDraftBlock(params.id, body, params.title),
     contentSource: "sections",
   };
 }
@@ -673,14 +719,18 @@ function buildImportSummaryFromDetails(params: {
     kind: params.kind,
     savedAt: params.savedAt,
     sections: previews,
-    serializedText: wrapImportedDraftBlock(params.id, parts.join("\n\n")),
+    serializedText: wrapImportedDraftBlock(params.id, parts.join("\n\n"), params.title),
     contentSource: "details",
   };
 }
 
-/** Wrap serialized draft sections in per-draft-id markers for toggle inject/remove. */
-export function wrapImportedDraftBlock(draftId: string, body: string): string {
-  const markers = importedDraftMarkers(draftId);
+/** Wrap serialized draft sections in per-draft markers for toggle inject/remove. */
+export function wrapImportedDraftBlock(
+  draftId: string,
+  body: string,
+  title: string,
+): string {
+  const markers = importedDraftMarkers(draftId, title);
   return `${markers.start}\n${body.trim()}\n${markers.end}`;
 }
 
@@ -689,17 +739,12 @@ export function stripImportedDraftBlock(
   pastedText: string,
   draftId: string,
 ): string {
-  const markers = importedDraftMarkers(draftId);
-  const startIdx = pastedText.indexOf(markers.start);
-  if (startIdx === -1) {
+  const found = findImportedDraftMarkersById(pastedText, draftId);
+  if (!found) {
     return pastedText;
   }
-  const endIdx = pastedText.indexOf(markers.end, startIdx);
-  if (endIdx === -1) {
-    return pastedText;
-  }
-  const before = pastedText.slice(0, startIdx);
-  const after = pastedText.slice(endIdx + markers.end.length);
+  const before = pastedText.slice(0, found.startIdx);
+  const after = pastedText.slice(found.endIdx + found.end.length);
   return `${before}${after}`.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -929,10 +974,7 @@ export function pastedTextHasImportedDraft(
   pastedText: string,
   draftId: string,
 ): boolean {
-  const markers = importedDraftMarkers(draftId);
-  return (
-    pastedText.includes(markers.start) && pastedText.includes(markers.end)
-  );
+  return findImportedDraftMarkersById(pastedText, draftId) !== null;
 }
 
 /** Append (or replace existing) imported draft block for a specific draft id. */

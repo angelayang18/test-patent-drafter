@@ -28,6 +28,7 @@ export default function AdaExport() {
   const {
     adaDetails,
     sections,
+    figures,
     sectionSettings,
     getWorkflowSnapshot,
     clearWorkflow,
@@ -38,7 +39,7 @@ export default function AdaExport() {
 
   useEffect(() => {
     if (!isAdaStepAccessible("export", getWorkflowSnapshot())) {
-      navigate("/ada/draft", { replace: true });
+      navigate("/ada/figures", { replace: true });
     }
   }, [getWorkflowSnapshot, navigate]);
 
@@ -69,7 +70,12 @@ export default function AdaExport() {
     setError(null);
     setDocxState("preparing");
     try {
-      const blob = await exportAdaDocx(sections, studyTitle, sectionLabelsPayload);
+      const blob = await exportAdaDocx(
+        sections,
+        studyTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "ada-bioanalytical-report.docx");
       setDocxState("idle");
     } catch (err) {
@@ -84,7 +90,12 @@ export default function AdaExport() {
     setError(null);
     setPdfState("preparing");
     try {
-      const blob = await exportAdaPdf(sections, studyTitle, sectionLabelsPayload);
+      const blob = await exportAdaPdf(
+        sections,
+        studyTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "ada-bioanalytical-report.pdf");
       setPdfState("idle");
     } catch (err) {
@@ -99,7 +110,7 @@ export default function AdaExport() {
       step="export"
       layout="document"
       mainClassName="px-margin-desktop pt-10 pb-28"
-      footer={<WorkflowFooter left={<WorkflowBackLink to="/ada/draft" />} />}
+      footer={<WorkflowFooter left={<WorkflowBackLink to="/ada/figures" />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
         {(docxState === "preparing" || pdfState === "preparing") && (
@@ -136,10 +147,10 @@ export default function AdaExport() {
                     .join(", ")}
                 </p>
                 <Link
-                  to="/ada/draft"
+                  to="/ada/figures"
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md"
                 >
-                  Back to Draft
+                  Back to Figures
                 </Link>
               </>
             )}

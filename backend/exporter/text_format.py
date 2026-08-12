@@ -5,6 +5,12 @@ from __future__ import annotations
 import re
 
 from drafter.prompts import PATENT_SECTIONS
+from drafter.review_field_sources import (
+    ADA_REVIEW_FIELD_LABELS,
+    GRANT_REVIEW_FIELD_LABELS,
+    PATENT_REVIEW_FIELD_LABELS,
+    SOW_REVIEW_FIELD_LABELS,
+)
 
 _HEADING_RE = re.compile(r"^#{1,6}\s+", re.MULTILINE)
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*")
@@ -343,38 +349,187 @@ def validate_section_output(section: str, text: str) -> list[str]:
 
 
 _EMPTY_SECTION_MESSAGE = "Section is empty."
+_INSUFFICIENT_SOURCE_MESSAGE = (
+    "This section states the source material was insufficient — review before filing."
+)
+_QA_CATEGORY_FORMAT = "Format"
+
+# Section id → Review-tab field label(s) most likely to fill sparse source material.
+# Labels match ``*_REVIEW_FIELD_LABELS`` in ``drafter.review_field_sources`` exactly.
+# Unmapped sections intentionally keep the generic insufficient-source message.
+PATENT_SECTION_SOURCE_HINTS: dict[str, list[str]] = {
+    "field": [PATENT_REVIEW_FIELD_LABELS["technical_field"]],
+    "background": [PATENT_REVIEW_FIELD_LABELS["problem_being_solved"]],
+    "summary": [
+        PATENT_REVIEW_FIELD_LABELS["core_technical_solution"],
+        PATENT_REVIEW_FIELD_LABELS["novel_mechanism"],
+    ],
+    "description": [
+        PATENT_REVIEW_FIELD_LABELS["core_technical_solution"],
+        PATENT_REVIEW_FIELD_LABELS["key_components"],
+    ],
+    "claims": [
+        PATENT_REVIEW_FIELD_LABELS["core_technical_solution"],
+        PATENT_REVIEW_FIELD_LABELS["novel_mechanism"],
+    ],
+    "abstract": [PATENT_REVIEW_FIELD_LABELS["core_technical_solution"]],
+}
+
+GRANT_SECTION_SOURCE_HINTS: dict[str, list[str]] = {
+    "executive_summary": [
+        GRANT_REVIEW_FIELD_LABELS["problem_statement"],
+        GRANT_REVIEW_FIELD_LABELS["proposed_solution"],
+    ],
+    "problem_statement": [GRANT_REVIEW_FIELD_LABELS["problem_statement"]],
+    "project_description": [
+        GRANT_REVIEW_FIELD_LABELS["proposed_solution"],
+        GRANT_REVIEW_FIELD_LABELS["innovation_and_impact"],
+    ],
+    "methodology": [GRANT_REVIEW_FIELD_LABELS["proposed_solution"]],
+    "evaluation": [GRANT_REVIEW_FIELD_LABELS["evaluation_plan"]],
+    "budget_narrative": [GRANT_REVIEW_FIELD_LABELS["budget_overview"]],
+    "organizational_capacity": [GRANT_REVIEW_FIELD_LABELS["team_qualifications"]],
+}
+
+SOW_SECTION_SOURCE_HINTS: dict[str, list[str]] = {
+    "purpose": [SOW_REVIEW_FIELD_LABELS["purpose_and_background"]],
+    "objectives": [SOW_REVIEW_FIELD_LABELS["objectives"]],
+    "scope_of_work": [SOW_REVIEW_FIELD_LABELS["scope_of_work"]],
+    "deliverables": [SOW_REVIEW_FIELD_LABELS["deliverables"]],
+    "development_areas_effort_schedule": [SOW_REVIEW_FIELD_LABELS["timeline_and_effort"]],
+    "responsibilities_required_inputs": [
+        SOW_REVIEW_FIELD_LABELS["responsibilities_and_inputs"],
+    ],
+    "commercial_terms": [SOW_REVIEW_FIELD_LABELS["commercial_terms"]],
+}
+
+ADA_SECTION_SOURCE_HINTS: dict[str, list[str]] = {
+    "study_overview": [
+        ADA_REVIEW_FIELD_LABELS["study_title"],
+        ADA_REVIEW_FIELD_LABELS["study_objective"],
+    ],
+    "method_summary": [ADA_REVIEW_FIELD_LABELS["assay_platform"]],
+    "study_samples": [ADA_REVIEW_FIELD_LABELS["sample_matrix"]],
+    "cut_point_determination": [ADA_REVIEW_FIELD_LABELS["cut_point_methodology"]],
+    "sensitivity": [ADA_REVIEW_FIELD_LABELS["sensitivity_data"]],
+    "specificity_selectivity": [ADA_REVIEW_FIELD_LABELS["specificity_data"]],
+    "precision_reproducibility_robustness": [ADA_REVIEW_FIELD_LABELS["precision_data"]],
+    "stability": [ADA_REVIEW_FIELD_LABELS["stability_data"]],
+    "sample_analysis_results": [ADA_REVIEW_FIELD_LABELS["results_summary"]],
+    "data_analysis_conclusion": [ADA_REVIEW_FIELD_LABELS["results_summary"]],
+}
+
+_SECTION_SOURCE_HINTS_BY_DOCUMENT_TYPE: dict[str, dict[str, list[str]]] = {
+    "patent": PATENT_SECTION_SOURCE_HINTS,
+    "grant": GRANT_SECTION_SOURCE_HINTS,
+    "sow": SOW_SECTION_SOURCE_HINTS,
+    "ada": ADA_SECTION_SOURCE_HINTS,
+}
+
+# Phrases the section agents are instructed to emit when source material is too sparse.
+_INSUFFICIENT_SOURCE_PATTERNS = (
+    re.compile(r"does\s+not\s+provide\s+sufficient\s+detail", re.IGNORECASE),
+    re.compile(r"insufficient\s+(?:detail|documentation|source|information|material)", re.IGNORECASE),
+    re.compile(r"source\s+material\s+(?:was\s+|is\s+)?insufficient", re.IGNORECASE),
+    re.compile(r"too\s+sparse\s+to\s+(?:describe|draft)", re.IGNORECASE),
+    re.compile(r"not\s+enough\s+(?:detail|information|documentation)\s+to\s+draft", re.IGNORECASE),
+)
 
 
-def _ordered_section_keys(sections: dict[str, str]) -> list[str]:
-    """Always validate every core patent section, even when missing from the payload."""
-    ordered = list(PATENT_SECTIONS)
+def _has_insufficient_source_language(text: str) -> bool:
+    """Return True when section text admits source material was insufficient to draft."""
+    return any(pattern.search(text) for pattern in _INSUFFICIENT_SOURCE_PATTERNS)
+
+
+def _format_review_field_hint_phrase(field_labels: list[str]) -> str:
+    """Format Review field label(s) for the actionable insufficient-source message."""
+    if len(field_labels) == 1:
+        return f"the {field_labels[0]} field"
+    if len(field_labels) == 2:
+        return f"the {field_labels[0]} and {field_labels[1]} fields"
+    # Defensive: hint maps are capped at two fields, but keep wording correct.
+    leading = ", ".join(field_labels[:-1])
+    return f"the {leading}, and {field_labels[-1]} fields"
+
+
+def _insufficient_source_message(section: str, document_type: str) -> str:
+    """Return insufficient-source warning, with Review-tab field hint when mapped."""
+    hints = _SECTION_SOURCE_HINTS_BY_DOCUMENT_TYPE.get(document_type, {}).get(section)
+    if not hints:
+        return _INSUFFICIENT_SOURCE_MESSAGE
+    fields_phrase = _format_review_field_hint_phrase(hints)
+    return (
+        f"{_INSUFFICIENT_SOURCE_MESSAGE} "
+        f"Try adding more detail to {fields_phrase} on the Review tab, "
+        f"or uploading a source document that covers it."
+    )
+
+
+def _ordered_section_keys(
+    sections: dict[str, str],
+    canonical_sections: list[str] | None = None,
+) -> list[str]:
+    """Order keys for QA: canonical list first, then any extra payload keys.
+
+    Defaults to PATENT_SECTIONS so patent callers keep full-coverage empty checks
+    even when the client omits untouched section keys. Grant/SOW pass their own
+    canonical lists so they are not padded with patent section ids.
+    """
+    ordered = list(canonical_sections if canonical_sections is not None else PATENT_SECTIONS)
+    known = set(ordered)
     for key in sections:
-        if key not in PATENT_SECTIONS:
+        if key not in known:
             ordered.append(key)
     return ordered
 
 
-def get_format_qa_report(sections: dict[str, str]) -> list[dict]:
-    """Run format validation on each draft section and summarize pass/warn/fail status."""
+def get_format_qa_report(
+    sections: dict[str, str],
+    *,
+    canonical_sections: list[str] | None = None,
+    document_type: str = "patent",
+) -> list[dict]:
+    """Run format validation on each draft section and summarize pass/warn/fail status.
+
+    Generic over ``dict[str, str]``. Patent-specific claim/abstract validators only
+    apply when those section keys are present. Pass ``canonical_sections`` for
+    non-patent document types (e.g. grant/SOW) so missing patent keys are not warned.
+
+    ``document_type`` selects Review-tab field hints for insufficient-source warnings
+    (``patent``, ``grant``, ``sow``, or ``ada``).
+    """
     report: list[dict] = []
 
-    for section in _ordered_section_keys(sections):
+    for section in _ordered_section_keys(sections, canonical_sections):
         text = sections.get(section, "")
         if not text or not text.strip():
             report.append(
                 {
                     "section": section,
+                    "category": _QA_CATEGORY_FORMAT,
                     "status": "warn",
                     "messages": [_EMPTY_SECTION_MESSAGE],
                 }
             )
             continue
 
-        messages = validate_section_output(section, text)
+        messages = list(validate_section_output(section, text))
+        has_format_errors = bool(messages)
+        if _has_insufficient_source_language(text):
+            messages.append(_insufficient_source_message(section, document_type))
+
+        if has_format_errors:
+            status = "fail"
+        elif messages:
+            status = "warn"
+        else:
+            status = "pass"
+
         report.append(
             {
                 "section": section,
-                "status": "fail" if messages else "pass",
+                "category": _QA_CATEGORY_FORMAT,
+                "status": status,
                 "messages": messages,
             }
         )

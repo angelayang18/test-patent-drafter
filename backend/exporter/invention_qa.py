@@ -202,12 +202,15 @@ def _check_title_alignment(invention_title: str, sections: dict[str, str]) -> di
     }
 
 
+_QA_CATEGORY_ALIGNMENT = "Alignment"
+
+
 def get_invention_alignment_qa_report(
     sections: dict[str, str],
     invention: dict[str, object],
 ) -> list[dict]:
     """Return QA entries that compare draft sections to Review-step invention requirements."""
-    return [
+    report = [
         _check_title_alignment(str(invention.get("invention_title", "")), sections),
         _alignment_entry(
             section="background",
@@ -258,3 +261,6 @@ def get_invention_alignment_qa_report(
             ),
         ),
     ]
+    for entry in report:
+        entry["category"] = _QA_CATEGORY_ALIGNMENT
+    return report

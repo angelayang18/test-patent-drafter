@@ -207,11 +207,11 @@ REQUIREMENTS:
 - Use formal patent language throughout
 - End with the phrase: 'Accordingly, there remains a need for improved methods and systems
   that address these deficiencies.'
-
-Focus especially on the specific technical limitations of:
-1. Fixed-size/sentence-boundary chunking methods and their loss of structural context
-2. How structural context loss degrades downstream retrieval quality in RAG systems
-3. The failure of existing vector indexing approaches to preserve document hierarchy
+- Ground the background exclusively in the invention details above (especially Technical Field
+  and Problem Being Solved). Do not introduce domain-specific prior-art themes (e.g. RAG,
+  chunking, vector indexing, or any other technology) unless those themes appear in the
+  invention details. If the details are largely missing, marked 'N/A', or too sparse to
+  identify a real technical problem, state that plainly instead of inventing prior-art context.
 
 Draft the section now:"""
 
@@ -304,12 +304,16 @@ PATENT LANGUAGE CONVENTIONS (use throughout):
 - 'in one embodiment...', 'in another embodiment...' for variations
 
 TECHNICAL SPECIFICITY REQUIRED:
-- Reference transformer architecture, attention mechanisms, tokenization where applicable
-- Specify the structural metadata schema stored with each chunk (section type, position,
-  parent-child relationships, contextual markers)
-- Describe the vector embedding process and how metadata is stored alongside embeddings
-- Explain hybrid search mechanics (vector similarity + structural metadata filtering)
-- Reference specific data structures (e.g. JSON schema for chunk metadata)
+- Be highly specific about concrete mechanisms, data structures, algorithms, interfaces,
+  and processing steps — avoid vague business language
+- Scope all technical detail exclusively to the domain described in the invention details
+  above. When those details actually describe an AI/ML invention, reference transformers,
+  embeddings, RAG, tokenization, etc. as applicable; do not default to AI/ML (or any other)
+  themes when the details do not support them
+- Name specific schemas, data structures, and algorithms only when grounded in the
+  invention details — do not invent domain-specific technical detail
+- If the invention details are largely missing, marked 'N/A', or too sparse to enable a
+  technical description, state that plainly instead of inventing plausible technical content
 - Do not copy internal chunk delimiter syntax or template braces from source documents
   (write 'qa' not '%%qa'; never leave {{item_1_desc}}-style placeholders)
 - For numbered method or component lists, put each item on its own line. Use a short
@@ -861,6 +865,208 @@ REQUIREMENTS:
 - Use a Mermaid diagram type that is NOT already used by any other figure
 - Extract reference numerals and component names from the detailed description and use them exactly
 - Each reference numeral (200, 202, 204, ...) designates exactly ONE part across ALL figures
+- Keep the diagram black-and-white with no classDef, style directives, or colors
+- Maximum 12 nodes/participants per diagram
+- {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
+
+Output ONLY the JSON object, no markdown fences."""
+
+
+# ─────────────────────────────────────────────────────────────
+#  Generic (non-patent) figures (Mermaid diagrams)
+# ─────────────────────────────────────────────────────────────
+
+GENERIC_FIGURES_SYSTEM = (
+    "You are an expert technical illustrator. You produce clean black-and-white "
+    "line-art diagrams as valid Mermaid syntax to accompany a written document section. "
+) + MERMAID_NO_HTML_RULES + MERMAID_GRAPH_TD_SUBGRAPH_RULE + DIAGRAM_TYPE_DIVERSITY_RULES
+
+
+def get_generic_figures_prompt(
+    document_type_label: str,
+    document_title: str,
+    combined_text: str,
+    num_figures: int,
+) -> str:
+    """
+    Returns the LLM prompt for generating supporting diagrams for a non-patent document.
+    """
+    text_block = ""
+    if combined_text.strip():
+        text_block = f"""
+DOCUMENT CONTENT (use for consistency of names, steps, and structure):
+{combined_text.strip()[:12000]}
+"""
+
+    title = document_title.strip() or "(untitled)"
+    label = document_type_label.strip() or "document"
+
+    return f"""{text_block}
+
+TASK: Generate {num_figures} supporting diagram(s) for a {label} titled "{title}".
+
+Return a JSON object with exactly this key:
+- figures: list of objects, each with:
+  - number: int (consecutive Arabic numerals starting at 1)
+  - title: str (short title, e.g. "System architecture")
+  - brief_description: str (single sentence describing what the diagram shows)
+  - reference_numerals: object (optional; may be empty {{}})
+  - mermaid: str — valid Mermaid diagram for clean black-and-white line art
+
+REQUIREMENTS:
+- Generate exactly {num_figures} figure(s)
+- Use varied diagram types across figures when more than one is requested —
+  prefer a mix of flowchart, graph, sequenceDiagram, and classDiagram
+- Each figure must cover a DISTINCT aspect of the document — do not repeat the
+  same overview in different diagram types
+- Do NOT require reference numerals; leave reference_numerals empty unless
+  numerals naturally appear in the source text
+- Mermaid rules:
+{MERMAID_NO_HTML_RULES}
+  - Each figure's mermaid must start with its diagram type on the first non-comment line
+  - No classDef, no style directives, no colors, no subgraph styling
+  - Maximum 12 nodes/participants/entities per diagram
+  - Limit nodes per row to 4 in flowcharts and graph diagrams
+  - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
+  - When using subgraphs in Mermaid, always give them a quoted display title using bracket
+    syntax, e.g. `subgraph ingestion [Ingestion Layer]`
+- Prefer tall/vertical layouts suitable for letter-size portrait paper
+
+Output ONLY the JSON object, no markdown fences."""
+
+
+def get_generic_single_figure_prompt(
+    document_type_label: str,
+    document_title: str,
+    combined_text: str,
+    figure_number: int,
+    total_figures: int,
+) -> str:
+    """
+    Returns the prompt for generating a single supporting diagram for a non-patent document.
+    """
+    text_block = ""
+    if combined_text.strip():
+        text_block = f"""
+DOCUMENT CONTENT (use for consistency of names, steps, and structure):
+{combined_text.strip()[:12000]}
+"""
+
+    title = document_title.strip() or "(untitled)"
+    label = document_type_label.strip() or "document"
+    type_hints = {
+        1: "graph TD or flowchart TD (architecture / overview)",
+        2: "flowchart TD (process / method steps)",
+        3: "sequenceDiagram or flowchart TD (interactions / data flow)",
+        4: "classDiagram (entities / relationships)",
+    }
+    preferred = type_hints.get(
+        figure_number,
+        "classDiagram or flowchart TD (distinct supporting view)",
+    )
+
+    return f"""{text_block}
+
+TASK: Generate figure {figure_number} of {total_figures} supporting diagram(s) for a
+{label} titled "{title}". You are generating figure {figure_number} of {total_figures} only.
+
+Return a JSON object with exactly this key:
+- figure: object with:
+  - number: int (must be {figure_number})
+  - title: str (short title)
+  - brief_description: str (single sentence describing what the diagram shows)
+  - reference_numerals: object (optional; may be empty {{}})
+  - mermaid: str — valid Mermaid diagram for clean black-and-white line art
+
+REQUIREMENTS:
+- Prefer diagram type: {preferred}
+- Cover a distinct aspect appropriate to this figure number among the set of {total_figures}
+- Do NOT require reference numerals; leave reference_numerals empty unless numerals
+  naturally appear in the source text
+- Mermaid rules:
+{MERMAID_NO_HTML_RULES}
+  - The mermaid field must start with its diagram type on the first non-comment line
+  - No classDef, no style directives, no colors, no subgraph styling
+  - Maximum 12 nodes/participants/entities per diagram
+  - Limit nodes per row to 4 in flowcharts and graph diagrams
+  - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
+  - When using subgraphs in Mermaid, always give them a quoted display title using bracket
+    syntax, e.g. `subgraph ingestion [Ingestion Layer]`
+- Prefer tall/vertical layouts suitable for letter-size portrait paper
+
+Output ONLY the JSON object, no markdown fences."""
+
+
+def get_generic_regenerate_figure_prompt(
+    document_type_label: str,
+    document_title: str,
+    combined_text: str,
+    figure_number: int,
+    existing_figures: list[dict],
+    used_diagram_types: list[str],
+) -> str:
+    """
+    Returns the prompt for regenerating a single supporting diagram with a unique type.
+    """
+    text_block = ""
+    if combined_text.strip():
+        text_block = f"""
+DOCUMENT CONTENT (use for consistency of names, steps, and structure):
+{combined_text.strip()[:12000]}
+"""
+
+    title = document_title.strip() or "(untitled)"
+    label = document_type_label.strip() or "document"
+
+    other_figures_lines: list[str] = []
+    for fig in sorted(existing_figures, key=lambda f: int(f.get("number", 0))):
+        num = int(fig.get("number", 0))
+        if num == figure_number:
+            continue
+        fig_title = str(fig.get("title", "")).strip()
+        mermaid = str(fig.get("mermaid", "")).strip()
+        first_line = next(
+            (
+                line.strip()
+                for line in mermaid.splitlines()
+                if line.strip() and not line.strip().startswith("%%")
+            ),
+            "(unknown)",
+        )
+        other_figures_lines.append(
+            f"  - Figure {num}: {fig_title} — diagram type: {first_line}"
+        )
+
+    other_figures_block = (
+        "\n".join(other_figures_lines) if other_figures_lines else "  (none)"
+    )
+    used_types_str = ", ".join(used_diagram_types) if used_diagram_types else "(none yet)"
+
+    return f"""{text_block}
+
+TASK: Regenerate ONLY figure {figure_number} for a {label} titled "{title}".
+
+OTHER EXISTING FIGURES (do NOT duplicate their diagram types or subject matter):
+{other_figures_block}
+
+DIAGRAM TYPES ALREADY IN USE (you MUST NOT reuse any of these):
+{used_types_str}
+
+Return a JSON object with exactly this key:
+- figure: object with:
+  - number: int (must be {figure_number})
+  - title: str (short title)
+  - brief_description: str (single sentence describing what the diagram shows)
+  - reference_numerals: object (optional; may be empty {{}})
+  - mermaid: str — valid Mermaid diagram using a diagram type NOT in the used-types list above
+
+REQUIREMENTS:
+{MERMAID_NO_HTML_RULES}
+- Regenerate figure {figure_number} only — cover a distinct aspect not already depicted
+- Use a Mermaid diagram type that is NOT already used by any other figure
+  (prefer among flowchart, graph, sequenceDiagram, classDiagram)
+- Do NOT require reference numerals; leave reference_numerals empty unless numerals
+  naturally appear in the source text
 - Keep the diagram black-and-white with no classDef, style directives, or colors
 - Maximum 12 nodes/participants per diagram
 - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}

@@ -1,15 +1,18 @@
 import type { SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { InputSources, UploadedSourceFile } from "../context/genericContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
+import { getStorageKey } from "./userScopedStorage";
 
-export type GenericWorkflowStep = "input" | "review" | "draft" | "export";
+export type GenericWorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
 export const GENERIC_STEP_ORDER: GenericWorkflowStep[] = [
   "input",
   "review",
   "draft",
+  "figures",
   "export",
 ];
 
@@ -29,6 +32,7 @@ export const GENERIC_STEP_PATHS = (
   input: `/custom/${templateId}/input`,
   review: `/custom/${templateId}/review`,
   draft: `/custom/${templateId}/draft`,
+  figures: `/custom/${templateId}/figures`,
   export: `/custom/${templateId}/export`,
 });
 
@@ -44,6 +48,7 @@ export interface GenericWorkflowSnapshot {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
+  figures?: GenericFigure[];
   completedSteps?: GenericWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
@@ -152,6 +157,7 @@ export function normalizeGenericWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
+    figures: Array.isArray(raw?.figures) ? raw.figures : [],
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
@@ -176,6 +182,10 @@ export function getGenericCompletedSteps(
   if (hasGenericDraftSections(workflow.sections)) {
     completed.add("review");
   }
+  if ((workflow.figures?.length ?? 0) > 0) {
+    completed.add("draft");
+    completed.add("figures");
+  }
   return completed;
 }
 
@@ -187,7 +197,7 @@ export function isGenericStepAccessible(
     return true;
   }
   if (step === "export") {
-    return (workflow.completedSteps ?? []).includes("draft");
+    return (workflow.completedSteps ?? []).includes("figures");
   }
   const stepIndex = GENERIC_STEP_ORDER.indexOf(step);
   if (stepIndex <= 0) {
@@ -198,7 +208,7 @@ export function isGenericStepAccessible(
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -219,7 +229,7 @@ export function writeActiveGenericWorkflow(
 ): void {
   try {
     localStorage.setItem(
-      activeGenericWorkflowKey(templateId),
+      getStorageKey(activeGenericWorkflowKey(templateId)),
       JSON.stringify(normalizeGenericWorkflow(workflow)),
     );
   } catch {
@@ -233,7 +243,7 @@ export function createEmptyGenericWorkflowSnapshot(): GenericWorkflowSnapshot {
 
 export function clearActiveGenericWorkflow(templateId: string): void {
   try {
-    localStorage.removeItem(activeGenericWorkflowKey(templateId));
+    localStorage.removeItem(getStorageKey(activeGenericWorkflowKey(templateId)));
   } catch {
     // ignore
   }
@@ -244,6 +254,7 @@ export function genericWorkflowHasProgress(workflow: GenericWorkflowSnapshot): b
   if (workflow.uploadedFiles.length > 0) return true;
   if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
+  if ((workflow.figures?.length ?? 0) > 0) return true;
   return false;
 }
 
@@ -252,6 +263,9 @@ export function getGenericResumePath(
   workflow: GenericWorkflowSnapshot,
 ): string {
   const paths = GENERIC_STEP_PATHS(templateId);
+  if ((workflow.figures?.length ?? 0) > 0) {
+    return paths.figures;
+  }
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
     return paths.draft;
   }
@@ -290,7 +304,7 @@ const GENERIC_DRAFT_FILE_VERSION = 1;
 
 function writeGenericJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save draft. Browser storage may be full.");
   }

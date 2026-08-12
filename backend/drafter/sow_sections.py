@@ -8,6 +8,10 @@ from typing import Iterable
 from .drafting_guidance import format_prior_draft_context
 from .llm_client import generate_text
 from .retrieval import citations_from_excerpts, format_excerpts_block, retrieve_relevant_excerpts
+from .review_field_sources import (
+    SOW_REVIEW_FIELD_LABELS,
+    append_review_fields_to_combined_text,
+)
 from .source_chunks import parse_source_chunks
 
 SOW_SECTIONS = [
@@ -91,7 +95,13 @@ _AGENT_CONVENTIONS = (
     "Write complete SOW prose for your assigned section only. "
     "Do not include the section title in your output. "
     "Ground obligations in the engagement details provided; do not invent unsupported "
-    "fees, dates, or scope."
+    "fees, dates, or scope. "
+    "If the engagement details are largely missing, marked 'N/A', or too sparse to "
+    "describe a real engagement, say so plainly in the section text (e.g., state that "
+    "the source material does not provide sufficient detail to draft this section) "
+    "rather than inventing placeholder values or generic filler. "
+    "Do not use bracket placeholders like [Client Name] or [insert X] — write complete "
+    "prose or state that the detail isn't available."
 )
 
 _DEFAULT_CUSTOM_DESCRIPTION = (
@@ -283,8 +293,8 @@ def draft_single_sow_section(
 ) -> tuple[str, list[dict]]:
     """Draft one SOW section via its isolated agent.
 
-    Returns ``(content, citations)``. When ``combined_text`` is empty, retrieval
-    is skipped and citations is ``[]``.
+    Returns ``(content, citations)``. When ``combined_text`` is empty and Review
+    fields are empty/N/A, retrieval is skipped and citations is ``[]``.
     """
     section = section_name.strip()
     custom_meta = _resolve_custom_meta(custom_sections, section)
@@ -292,6 +302,11 @@ def draft_single_sow_section(
         raise ValueError(
             f"Unknown section '{section}'. Must be one of: {SOW_SECTIONS}"
         )
+
+    # Make Review-tab fields citable via the same chunk/citation pipeline as uploads.
+    combined_text = append_review_fields_to_combined_text(
+        combined_text, sow, SOW_REVIEW_FIELD_LABELS
+    )
 
     excerpts = []
     query_terms: set[str] = set()

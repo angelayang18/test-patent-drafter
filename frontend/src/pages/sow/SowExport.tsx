@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { SowAppShell } from "../../components/SowAppShell";
 import { GenerationProgress } from "../../components/GenerationProgress";
+import { QAReportPanel } from "../../components/QAReportPanel";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink } from "../../components/WorkflowNavButtons";
 import { useSowWorkflow } from "../../context/SowWorkflowContext";
@@ -10,6 +11,8 @@ import {
   downloadBlob,
   exportSowDocx,
   exportSowPdf,
+  fetchFormatQAReport,
+  type QAReportEntry,
 } from "../../services/api";
 import { SOW_SECTION_IDS, SOW_SECTION_LABELS } from "../../types/patent";
 import {
@@ -28,6 +31,7 @@ export default function SowExport() {
   const {
     sowDetails,
     sections,
+    figures,
     sectionSettings,
     getWorkflowSnapshot,
     clearWorkflow,
@@ -35,10 +39,11 @@ export default function SowExport() {
   const [docxState, setDocxState] = useState<DownloadState>("idle");
   const [pdfState, setPdfState] = useState<DownloadState>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [qaReport, setQaReport] = useState<QAReportEntry[]>([]);
 
   useEffect(() => {
     if (!isSowStepAccessible("export", getWorkflowSnapshot())) {
-      navigate("/sow/draft", { replace: true });
+      navigate("/sow/figures", { replace: true });
     }
   }, [getWorkflowSnapshot, navigate]);
 
@@ -63,12 +68,39 @@ export default function SowExport() {
   const exportDisabled = exporting || !isComplete;
   const engagementTitle = sowDetails?.engagement_title ?? "";
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadQa = async () => {
+      try {
+        const report = await fetchFormatQAReport(sections, "sow");
+        if (!cancelled) {
+          setQaReport(report);
+        }
+      } catch {
+        if (!cancelled) {
+          setQaReport([]);
+        }
+      }
+    };
+
+    void loadQa();
+    return () => {
+      cancelled = true;
+    };
+  }, [sections]);
+
   const handleDownloadDocx = async () => {
     if (!isComplete) return;
     setError(null);
     setDocxState("preparing");
     try {
-      const blob = await exportSowDocx(sections, engagementTitle, sectionLabelsPayload);
+      const blob = await exportSowDocx(
+        sections,
+        engagementTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "sow-contract.docx");
       setDocxState("idle");
     } catch (err) {
@@ -83,7 +115,12 @@ export default function SowExport() {
     setError(null);
     setPdfState("preparing");
     try {
-      const blob = await exportSowPdf(sections, engagementTitle, sectionLabelsPayload);
+      const blob = await exportSowPdf(
+        sections,
+        engagementTitle,
+        sectionLabelsPayload,
+        figures,
+      );
       downloadBlob(blob, "sow-contract.pdf");
       setPdfState("idle");
     } catch (err) {
@@ -98,7 +135,7 @@ export default function SowExport() {
       step="export"
       layout="document"
       mainClassName="px-margin-desktop pt-10 pb-28"
-      footer={<WorkflowFooter left={<WorkflowBackLink to="/sow/draft" />} />}
+      footer={<WorkflowFooter left={<WorkflowBackLink to="/sow/figures" />} />}
     >
       <div className="max-w-[800px] mx-auto w-full space-y-8">
         {(docxState === "preparing" || pdfState === "preparing") && (
@@ -131,10 +168,10 @@ export default function SowExport() {
                     .join(", ")}
                 </p>
                 <Link
-                  to="/sow/draft"
+                  to="/sow/figures"
                   className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg border border-outline font-label-md text-label-md"
                 >
-                  Back to Draft
+                  Back to Figures
                 </Link>
               </>
             )}
@@ -143,6 +180,15 @@ export default function SowExport() {
           {error && (
             <div className="mx-10 mt-6 p-4 rounded-lg bg-error-container/20 text-error text-sm">{error}</div>
           )}
+
+          <QAReportPanel
+            report={qaReport}
+            sectionOrder={SOW_SECTION_IDS}
+            description="Automated checks for empty sections and insufficient source-content language before export."
+            onSelectSection={(sectionId) =>
+              navigate(`/sow/draft?section=${encodeURIComponent(sectionId)}`)
+            }
+          />
 
           <section className="p-10">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter">

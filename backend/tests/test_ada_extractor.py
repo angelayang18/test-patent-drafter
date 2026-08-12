@@ -11,6 +11,7 @@ from drafter.ada_extractor import (
     extract_ada_details,
     extract_ada_field,
 )
+from drafter.extract_context import EMPTY_FIELD_FALLBACK
 
 
 def test_normalize_extraction_uses_canonical_keys():
@@ -118,6 +119,58 @@ def test_extract_ada_field_returns_single_key():
     assert "citations" in result
     assert "sensitivity_data" in result["citations"]
     assert isinstance(result["citations"]["sensitivity_data"], list)
+
+
+def test_extract_grouped_applies_fallback_for_empty_fields_after_gap_fill():
+    """Insufficient sources must not leave silent empty strings (incl. title)."""
+
+    def fake_generate_json(_system: str, _user: str) -> dict:
+        # Model finds nothing usable (e.g. single-character source).
+        return {}
+
+    with patch("drafter.ada_extractor.generate_json", side_effect=fake_generate_json):
+        merged = _extract_grouped("system", "x")
+
+    assert set(merged) == EXTRACTABLE_ADA_FIELDS
+    for field in EXTRACTABLE_ADA_FIELDS:
+        assert merged[field] == EMPTY_FIELD_FALLBACK, field
+    assert merged["study_title"] == EMPTY_FIELD_FALLBACK
+
+
+def test_extract_grouped_fallback_only_fills_still_empty_fields():
+    """Preserve model text; only replace fields left blank after gap-fill."""
+
+    def fake_generate_json(_system: str, user: str) -> dict:
+        if "exactly one key" in _system:
+            # Gap-fill cannot recover the blank title.
+            return {"study_title": ""}
+        if "study_title" in user and "cut_point_methodology" not in user:
+            return {
+                "study_title": "",
+                "study_objective": "Validate ADA assay for Drug X.",
+                "assay_platform": "Bridging ELISA.",
+                "sample_matrix": "Human serum.",
+            }
+        if "cut_point_methodology" in user and "precision_data" not in user:
+            return {
+                "cut_point_methodology": "Floating screening cut point.",
+                "sensitivity_data": "100 ng/mL.",
+                "specificity_data": "Drug tolerance 250 ug/mL.",
+            }
+        if "precision_data" in user:
+            return {
+                "precision_data": "Intra-assay %CV < 15%.",
+                "stability_data": "3 freeze-thaw cycles acceptable.",
+                "results_summary": "2.1% confirmed ADA positive.",
+            }
+        return {}
+
+    with patch("drafter.ada_extractor.generate_json", side_effect=fake_generate_json):
+        merged = _extract_grouped("system", "x")
+
+    assert merged["study_title"] == EMPTY_FIELD_FALLBACK
+    assert merged["study_objective"] == "Validate ADA assay for Drug X."
+    assert merged["results_summary"] == "2.1% confirmed ADA positive."
 
 
 def test_extract_ada_details_empty_combined_text_raises():

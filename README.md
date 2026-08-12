@@ -10,11 +10,14 @@ Supported builtin types: **Patent Provisional**, **Grant Application**, **SOW Co
 - **Multi-source input** — Upload PDF, DOCX, or PPTX files; connect to Confluence; scrape web pages; or paste freeform text; resume drafts from a local library
 - **Type-specific AI extraction** — Extracts structured fields for patents, grants, SOWs, ADA reports, or custom templates
 - **Parallel section agents** — Isolated LLM agents draft sections (single-section and draft-all modes); patents follow the US provisional filing template with baseline USPTO/opAIda drafting rules
-- **Patent figures** — Mermaid-based patent figures with PNG rendering (patent workflow only)
+- **Figures (all types)** — Mermaid-based diagrams with PNG rendering on Draft → Figures → Export for patent, grant, SOW, ADA, and custom templates
+- **Clerk authentication** — Sign-in required for the app; backend verifies Clerk session JWTs via JWKS
+- **Community document types** — Browse shared templates at `/shared-document-types`; opt-in share when creating a custom type
+- **USPTO ODP cross-reference** (patent Export) — Suggest related prior applications for an applicant via the USPTO Open Data Portal API
 - **Review & edit** — Verify and refine extracted details and drafted sections before export; selection-based regenerate supported
 - **Attorney feedback & org-wide learning** (patent) — Per-section notes on Draft and global notes on Export; optional submission of finalized drafts to a SQLite corpus that distills org-wide guidelines (baseline rules apply even before the first submission)
 - **QA report** (patent) — Invention QA checks before export
-- **Export** — Download the finished document as `.docx` or `.pdf`; patent exports support an optional cover sheet (PTO/SB/16-style)
+- **Export** — Download the finished document as `.docx` or `.pdf`; patent exports support an optional cover sheet (PTO/SB/16-style); figures embed as PNG drawing sheets when present
 - **Filing guide** (patent) — Header **Filing guide** (info icon) opens step-by-step US provisional submission instructions, checklists, and USPTO links
 
 ## Workflows
@@ -25,16 +28,16 @@ Shared pattern for every document type:
 2. **Input** — Add source documents and context
 3. **Review** — Verify and edit extracted details
 4. **Draft** — Generate sections (per-section regenerate supported)
-5. **Figures** — Patent only: generate and preview figures
+5. **Figures** — Generate and preview Mermaid diagrams (embedded as PNG on export)
 6. **Export** — Download DOCX/PDF
 
 | Type | Steps |
 |------|--------|
 | Patent Provisional | Input → Review → Draft → Figures → Export |
-| Grant Application | Input → Review → Draft → Export |
-| SOW Contract | Input → Review → Draft → Export |
-| ADA Bioanalytical Report | Input → Review → Draft → Export |
-| Custom template | Input → Review → Draft → Export |
+| Grant Application | Input → Review → Draft → Figures → Export |
+| SOW Contract | Input → Review → Draft → Figures → Export |
+| ADA Bioanalytical Report | Input → Review → Draft → Figures → Export |
+| Custom template | Input → Review → Draft → Figures → Export |
 
 Legacy patent routes (`/review`, `/draft`, `/figures`, `/export`) redirect to `/patent/...`.
 
@@ -98,6 +101,25 @@ Open **Filing guide** in the app header for the full walkthrough (filing package
 
 Compare exports to the [deftio provisional template example PDF](https://github.com/deftio/provisional-patent-template/blob/master/Prov-Patent-Template-Example.pdf). USPTO: [provisional overview](https://www.uspto.gov/patents/basics/types-patent-applications/provisional-application-patent), [Inventors Assistance Center](https://www.uspto.gov/learning-and-resources/support/contact-us/inventors-assistance-center).
 
+## Authentication (Clerk)
+
+Sign-in is required. Create a Clerk application, then configure:
+
+1. **Backend** (repo root `.env`): `CLERK_SECRET_KEY`, `CLERK_JWKS_URL`
+2. **Frontend** (`frontend/.env` — Vite only reads env from the frontend root): `VITE_CLERK_PUBLISHABLE_KEY`
+
+See `.env.example` and `frontend/.env.example` for key names (never commit real secrets). JWKS URL is derived from your Clerk Frontend API domain (Dashboard → API Keys).
+
+Protected API routes expect a Bearer session JWT; the backend verifies it with PyJWT against the Clerk JWKS endpoint.
+
+## Community document-type templates
+
+Custom templates can be **shared with the team** (opt-in checkbox when creating). Authenticated users can browse shared types at **Shared document types** (`/shared-document-types`) and start a draft from a community template. Related APIs: `GET/POST /document-types/community`, `POST /document-types/suggest-sections`.
+
+## USPTO Open Data Portal (related applications)
+
+On patent **Export**, the app can suggest cross-reference candidates for an applicant name via USPTO ODP. Set `USPTO_ODP_API_KEY` in the root `.env` (obtain from [data.uspto.gov](https://data.uspto.gov/) with a USPTO.gov account / ID.me). This is a lookup aid only—it does not establish legal relatedness (priority, continuation, etc.). Endpoint: `POST /export/suggest-related-applications`.
+
 ## Tech Stack
 
 | Layer | Technologies |
@@ -130,9 +152,10 @@ cd report-drafter
 
 ```bash
 cp .env.example .env
+cp frontend/.env.example frontend/.env
 ```
 
-Edit `.env` with your values:
+Edit both files with your values (key **names** only in the examples—never commit real secrets):
 
 | Variable | Description |
 |----------|-------------|
@@ -145,7 +168,7 @@ Edit `.env` with your values:
 | `LLM_RETRY_BACKOFF_SECONDS` | Initial retry backoff; doubles each retry (default: `5`) |
 | `LLM_HEALTH_PROBE_TIMEOUT_SECONDS` | Timeout for `/health` LLM reachability probe (default: `10`) |
 | `EXTRACT_MODE` | Extraction strategy: `grouped` (default), `single`, or `parallel` |
-| `EXTRACT_MAX_SOURCE_CHARS` | Max source text sent to extraction LLM (default: `80000`) |
+| `EXTRACT_MAX_SOURCE_CHARS` | Short-doc ceiling for extraction (default: `80000`); longer sources use retrieve-then-extract |
 | `MMDC_PATH` | Optional path to `mmdc` if not on `PATH` |
 | `KROKI_BASE_URL` | Optional Kroki base URL for Mermaid PNG (default: `https://kroki.io`) |
 | `LEARNING_ENABLED` | Enable org-wide learning corpus and guideline retrieval (default: `true`) |
@@ -155,13 +178,17 @@ Edit `.env` with your values:
 | `CONFLUENCE_USERNAME` | Confluence account email |
 | `CONFLUENCE_API_TOKEN` | Confluence API token |
 | `CONFLUENCE_CLOUD_ID` | Atlassian cloud ID |
+| `CLERK_SECRET_KEY` | Clerk secret key for backend session verification |
+| `CLERK_JWKS_URL` | Clerk JWKS URL for verifying session JWTs |
+| `USPTO_ODP_API_KEY` | USPTO Open Data Portal API key (related-application suggestions on patent Export) |
 | `BACKEND_HOST` | Suggested backend bind host (default: `127.0.0.1`; set via uvicorn CLI) |
 | `BACKEND_PORT` | Suggested backend port (default: `8000`; set via uvicorn CLI) |
 
-Optional frontend override (set when starting the Vite app, not required in root `.env`):
+Frontend env (`frontend/.env` — copy from `frontend/.env.example`):
 
 | Variable | Description |
 |----------|-------------|
+| `VITE_CLERK_PUBLISHABLE_KEY` | Clerk publishable key (required for sign-in) |
 | `VITE_API_URL` | Backend origin (default: `http://localhost:8000`) |
 
 ### 3. Start the backend
@@ -214,10 +241,11 @@ report-drafter/
 │       ├── pages/
 │       │   ├── Home.tsx        # Document-type picker
 │       │   ├── Input.tsx … Export.tsx   # Patent workflow
-│       │   ├── grant/          # Grant Application
-│       │   ├── sow/            # SOW Contract
-│       │   ├── ada/            # ADA Bioanalytical Report
-│       │   └── generic/        # Custom templates
+│       │   ├── grant/          # Grant Application (+ Figures)
+│       │   ├── sow/            # SOW Contract (+ Figures)
+│       │   ├── ada/            # ADA Bioanalytical Report (+ Figures)
+│       │   ├── generic/        # Custom templates (+ Figures)
+│       │   └── SharedDocumentTypes.tsx  # Community templates browse
 │       ├── components/         # AppShell, filing guide, attorney feedback, section editors
 │       ├── constants/          # Document types, patent submission guide copy
 │       ├── context/            # Per-type workflow state
@@ -248,9 +276,15 @@ report-drafter/
 | `POST` | `/draft` | Draft one section |
 | `POST` | `/draft/all` | Draft multiple sections in parallel |
 | `POST` | `/figures/generate` | Generate patent figure definitions |
-| `POST` | `/figures/regenerate-one` | Regenerate a single figure |
+| `POST` | `/figures/generate/generic` | Generate figures for grant/SOW/ADA/custom |
+| `POST` | `/figures/regenerate-one` | Regenerate a single patent figure |
+| `POST` | `/figures/regenerate-one/generic` | Regenerate a single non-patent figure |
 | `POST` | `/figures/render` | Render a Mermaid diagram to PNG |
 | `POST` | `/export/prerender-figures` | Pre-render figures for export |
+| `POST` | `/export/suggest-related-applications` | USPTO ODP related-application suggestions |
+| `GET` | `/document-types/community` | List shared community document-type templates |
+| `POST` | `/document-types/community` | Publish a document-type template to the community |
+| `POST` | `/document-types/suggest-sections` | Suggest sections for a custom document type |
 | `POST` | `/qa-report` | Run invention QA report |
 | `POST` | `/export/docx` | Export patent application as DOCX |
 | `POST` | `/export/pdf` | Export patent application as PDF |

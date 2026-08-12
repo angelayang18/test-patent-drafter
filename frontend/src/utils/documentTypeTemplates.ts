@@ -1,3 +1,5 @@
+import { getStorageKey } from "./userScopedStorage";
+
 export interface CustomSectionDef {
   id: string;
   name: string;
@@ -12,13 +14,22 @@ export interface DocumentTypeTemplate {
   sections: CustomSectionDef[];
   createdAt: string;
   basedOn?: string;
+  /** True when the type was configured with uploaded sample reports. */
+  builtFromSamples?: boolean;
+  /** Short note about sample provenance (filenames or summary). */
+  sampleNote?: string;
+  /**
+   * Whether this template is shared with the team.
+   * Defaults to true when absent (templates saved before this field existed).
+   */
+  shared?: boolean;
 }
 
 const TEMPLATES_KEY = "patent-drafter-custom-document-types";
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -28,7 +39,7 @@ function readJson<T>(key: string): T | null {
 
 function writeJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save template. Browser storage may be full.");
   }
@@ -71,6 +82,14 @@ function normalizeTemplate(raw: Partial<DocumentTypeTemplate> | null | undefined
         : new Date().toISOString(),
     basedOn:
       typeof raw.basedOn === "string" && raw.basedOn.trim() ? raw.basedOn.trim() : undefined,
+    // Safe default for templates saved before this field existed.
+    builtFromSamples: raw.builtFromSamples === true,
+    sampleNote:
+      typeof raw.sampleNote === "string" && raw.sampleNote.trim()
+        ? raw.sampleNote.trim()
+        : undefined,
+    // Safe default for templates saved before this field existed.
+    shared: raw.shared !== false,
   };
 }
 

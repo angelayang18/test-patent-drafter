@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import type { ADADetails, SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import { ADA_SECTION_IDS } from "../types/patent";
 import {
   clearActiveAdaWorkflow,
@@ -68,6 +69,7 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
   const [cachedRemoteSources, setCachedRemoteSourcesState] = useState<CachedRemoteSources>(
     initial.cachedRemoteSources ?? {},
   );
+  const [figures, setFiguresState] = useState<GenericFigure[]>(initial.figures ?? []);
   const [completedSteps, setCompletedStepsState] = useState<AdaWorkflowStep[]>(
     initial.completedSteps ?? [],
   );
@@ -162,6 +164,7 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
     setUploadedFilesState(next.uploadedFiles);
     setInputSourcesState(next.inputSources);
     setCachedRemoteSourcesState(next.cachedRemoteSources ?? {});
+    setFiguresState(next.figures ?? []);
     setCompletedStepsState(next.completedSteps ?? []);
     setExtractionSourceKeyState(next.extractionSourceKey ?? null);
     setAutoDraftPendingState(next.autoDraftPending ?? false);
@@ -179,6 +182,7 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
@@ -194,6 +198,7 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
@@ -217,6 +222,7 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
     uploadedFiles,
     inputSources,
     cachedRemoteSources,
+    figures,
     completedSteps,
     extractionSourceKey,
     autoDraftPending,
@@ -283,6 +289,16 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
 
   const setAdaDetails = useCallback((details: ADADetails) => {
     setAdaDetailsState(details);
+  }, []);
+
+  const setFigures = useCallback((next: GenericFigure[]) => {
+    setFiguresState(next);
+  }, []);
+
+  const updateFigure = useCallback((number: number, patch: Partial<GenericFigure>) => {
+    setFiguresState((prev) =>
+      prev.map((fig) => (fig.number === number ? { ...fig, ...patch } : fig)),
+    );
   }, []);
 
   const setSection = useCallback((sectionId: string, content: string) => {
@@ -421,11 +437,14 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
       workflowResetting,
       setAdaDetails,
+      setFigures,
+      updateFigure,
       setSection,
       setSections,
       setSectionCitations,
@@ -462,11 +481,14 @@ export function AdaWorkflowProvider({ children }: { children: ReactNode }) {
       uploadedFiles,
       inputSources,
       cachedRemoteSources,
+      figures,
       completedSteps,
       extractionSourceKey,
       autoDraftPending,
       workflowResetting,
       setAdaDetails,
+      setFigures,
+      updateFigure,
       setSection,
       setSections,
       setSectionCitations,

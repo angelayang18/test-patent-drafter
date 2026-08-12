@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AppShell } from "../components/AppShell";
 import { AttorneyFeedbackPanel } from "../components/AttorneyFeedbackPanel";
 import { PatentNotesSidebar } from "../components/PatentNotesSidebar";
@@ -14,6 +14,10 @@ import { UndoRedoToolbar } from "../components/UndoRedoToolbar";
 import { WorkflowBackLink, WorkflowNextLink } from "../components/WorkflowNavButtons";
 import { WorkflowFooter } from "../components/WorkflowFooter";
 import { getDocumentTypeConfig } from "../constants/documentTypes";
+import {
+  GRANT_CITATION_FIELD_LABELS,
+  PATENT_CITATION_FIELD_LABELS,
+} from "../constants/reviewFieldCitationLabels";
 import { defaultGrantDetails, defaultInvention } from "../types/patent";
 import { usePatentWorkflow } from "../context/PatentWorkflowContext";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
@@ -42,10 +46,13 @@ import {
   resolveSectionLabel,
   resolveSectionOrder,
 } from "../utils/sectionSettings";
+import { buildReviewFieldValues } from "../utils/resolveCitationPreviewSource";
+import { resolveInitialActiveSection } from "../utils/resolveInitialActiveSection";
 import "../styles/patent-drafter.css";
 
 export default function Draft() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     workflowMode,
     invention,
@@ -71,10 +78,20 @@ export default function Draft() {
     workflowResetting,
     gatherSourceText,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
   } = usePatentWorkflow();
 
   const isGrant = workflowMode === "grant";
   const reviewDetails = isGrant ? grantDetails : invention;
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        isGrant ? GRANT_CITATION_FIELD_LABELS : PATENT_CITATION_FIELD_LABELS,
+        (reviewDetails ?? undefined) as Record<string, unknown> | undefined,
+      ),
+    [isGrant, reviewDetails],
+  );
   const fixedIds = isGrant ? GRANT_SECTION_IDS : PATENT_SECTION_IDS;
   const sectionIds = isGrant
     ? resolveSectionOrder(effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings), sectionSettings)
@@ -93,7 +110,9 @@ export default function Draft() {
     [fixedIds, sectionSettings],
   );
 
-  const [activeSection, setActiveSection] = useState<string>(sectionIds[0]);
+  const [activeSection, setActiveSection] = useState<string>(() =>
+    resolveInitialActiveSection(sectionIds, searchParams.get("section")),
+  );
   const [parallelDrafting, setParallelDrafting] = useState(false);
   const [parallelAgentCount, setParallelAgentCount] = useState(0);
   const [pendingSectionIds, setPendingSectionIds] = useState<string[]>([]);
@@ -107,6 +126,8 @@ export default function Draft() {
   const [confirmingRegenerateAll, setConfirmingRegenerateAll] = useState(false);
   const [manageSectionsOpen, setManageSectionsOpen] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
   const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
 
   const activeSectionRef = useRef(activeSection);
@@ -115,6 +136,8 @@ export default function Draft() {
   const autoDraftStarted = useRef(false);
   const suppressSavedIndicator = useRef(true);
   const prevActiveSectionRef = useRef(activeSection);
+  const saveToStorageRef = useRef(saveToStorage);
+  saveToStorageRef.current = saveToStorage;
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -295,6 +318,27 @@ export default function Draft() {
     sectionIds,
   ]);
 
+  // Flash immediately on draft edits so a prior hide timer cannot blank the indicator
+  // during a debounce gap. Persist stays debounced separately.
+  useEffect(() => {
+    if (workflowResetting || !invention || suppressSavedIndicator.current) {
+      return;
+    }
+    if (pendingSectionIds.includes(activeSection) || regeneratingSections.has(activeSection)) {
+      return;
+    }
+    flashSavedRef.current();
+  }, [
+    draftText,
+    activeSection,
+    pendingSectionIds,
+    regeneratingSections,
+    invention,
+    workflowResetting,
+  ]);
+
+  // Debounce persist only. Read saveToStorage from a ref so post-flush identity churn
+  // cannot cancel the debounce.
   useEffect(() => {
     if (workflowResetting || !invention) {
       return;
@@ -304,10 +348,7 @@ export default function Draft() {
         return;
       }
       flushActiveSection(activeSection, draftText);
-      saveToStorage();
-      if (!suppressSavedIndicator.current) {
-        flashSaved();
-      }
+      saveToStorageRef.current();
     }, 500);
     return () => window.clearTimeout(timer);
   }, [
@@ -316,8 +357,6 @@ export default function Draft() {
     pendingSectionIds,
     regeneratingSections,
     flushActiveSection,
-    saveToStorage,
-    flashSaved,
     invention,
     workflowResetting,
   ]);
@@ -789,7 +828,7 @@ export default function Draft() {
                     <p className="font-body-sm text-body-sm text-on-surface-variant text-center max-w-md">
                       {parallelDrafting
                         ? "Each section uses an isolated agent and the provisional filing template. You can switch sections while drafting continues."
-                        : "This usually takes 15–60 seconds."}
+                        : "This usually takes 30 seconds to a few minutes, depending on source length."}
                     </p>
                   </div>
                 )}
@@ -812,6 +851,9 @@ export default function Draft() {
             <SectionCitationsPanel
               citations={sectionCitations[activeSection] ?? []}
               uploadedFiles={uploadedFiles}
+              pastedText={inputSources.pastedText}
+              cachedRemoteSources={cachedRemoteSources}
+              reviewFieldValues={reviewFieldValues}
             />
 
             <div className="flex justify-end items-center px-2">

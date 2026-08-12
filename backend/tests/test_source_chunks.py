@@ -46,3 +46,40 @@ def test_parse_skips_header_with_empty_body():
     assert len(chunks) == 1
     assert chunks[0].label == "filled.pdf"
     assert chunks[0].text == "Actual content here."
+
+
+def test_parse_imported_draft_markers_skips_empty_end_chunk():
+    """Frontend draftStorage wraps imports with start/end markers.
+
+    The end marker matches the chunk-header pattern but has an empty body,
+    so it must not become a citable chunk.
+    """
+    draft_id = "abc-123"
+    title = "Night Transit Hub"
+    text = (
+        f"--- Imported Draft: {title} [id={draft_id}] ---\n"
+        "## Summary\n\n"
+        "Reliable off-peak routing for care access.\n"
+        f"--- End Imported Draft: {title} [id={draft_id}] ---\n"
+    )
+    chunks = parse_source_chunks(text)
+    assert len(chunks) == 1
+    assert chunks[0].label == f"Imported Draft: {title} [id={draft_id}]"
+    assert "Reliable off-peak routing" in chunks[0].text
+    assert all(not chunk.label.startswith("End Imported Draft") for chunk in chunks)
+
+
+def test_parse_imported_draft_alongside_pasted_text_chunk():
+    text = (
+        "--- Pasted text ---\n"
+        "Freeform invention notes.\n\n"
+        "--- Imported Draft: Alpha [id=d1] ---\n"
+        "Imported section body.\n"
+        "--- End Imported Draft: Alpha [id=d1] ---\n"
+    )
+    chunks = parse_source_chunks(text)
+    assert [chunk.label for chunk in chunks] == [
+        "Pasted text",
+        "Imported Draft: Alpha [id=d1]",
+    ]
+    assert chunks[1].text == "Imported section body."

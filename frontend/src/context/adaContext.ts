@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { ADADetails, SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { CachedRemoteSources, GatheredSourceText, GatherSourceTextOptions } from "../utils/gatherSourceText";
 import type { AdaWorkflowSnapshot, AdaWorkflowStep, SavedAdaDraftRecord } from "../utils/adaStorage";
 import type { SectionSettingsMap } from "../utils/sectionSettings";
@@ -31,11 +32,14 @@ export interface AdaWorkflowContextValue {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources: CachedRemoteSources;
+  figures: GenericFigure[];
   completedSteps: AdaWorkflowStep[];
   extractionSourceKey: string | null;
   autoDraftPending: boolean;
   workflowResetting: boolean;
   setAdaDetails: (details: ADADetails) => void;
+  setFigures: (figures: GenericFigure[]) => void;
+  updateFigure: (number: number, patch: Partial<GenericFigure>) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
   setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;

@@ -1,17 +1,26 @@
 import { defaultSowDetails, type SOWDetails, type SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { InputSources, UploadedSourceFile } from "../context/sowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
+import { getStorageKey } from "./userScopedStorage";
 
-export type SowWorkflowStep = "input" | "review" | "draft" | "export";
+export type SowWorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
-export const SOW_STEP_ORDER: SowWorkflowStep[] = ["input", "review", "draft", "export"];
+export const SOW_STEP_ORDER: SowWorkflowStep[] = [
+  "input",
+  "review",
+  "draft",
+  "figures",
+  "export",
+];
 
 export const SOW_STEP_PATHS: Record<SowWorkflowStep, string> = {
   input: "/sow/input",
   review: "/sow/review",
   draft: "/sow/draft",
+  figures: "/sow/figures",
   export: "/sow/export",
 };
 
@@ -29,6 +38,7 @@ export interface SowWorkflowSnapshot {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
+  figures?: GenericFigure[];
   completedSteps?: SowWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
@@ -131,6 +141,7 @@ export function normalizeSowWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
+    figures: Array.isArray(raw?.figures) ? raw.figures : [],
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
@@ -153,6 +164,10 @@ export function getSowCompletedSteps(workflow: SowWorkflowSnapshot): Set<SowWork
   if (hasSowDraftSections(workflow.sections)) {
     completed.add("review");
   }
+  if ((workflow.figures?.length ?? 0) > 0) {
+    completed.add("draft");
+    completed.add("figures");
+  }
   return completed;
 }
 
@@ -164,7 +179,7 @@ export function isSowStepAccessible(
     return true;
   }
   if (step === "export") {
-    return (workflow.completedSteps ?? []).includes("draft");
+    return (workflow.completedSteps ?? []).includes("figures");
   }
   const stepIndex = SOW_STEP_ORDER.indexOf(step);
   if (stepIndex <= 0) {
@@ -175,7 +190,7 @@ export function isSowStepAccessible(
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -190,7 +205,10 @@ export function readActiveSowWorkflow(): SowWorkflowSnapshot {
 
 export function writeActiveSowWorkflow(workflow: SowWorkflowSnapshot): void {
   try {
-    localStorage.setItem(ACTIVE_SOW_WORKFLOW_KEY, JSON.stringify(normalizeSowWorkflow(workflow)));
+    localStorage.setItem(
+      getStorageKey(ACTIVE_SOW_WORKFLOW_KEY),
+      JSON.stringify(normalizeSowWorkflow(workflow)),
+    );
   } catch {
     // quota exceeded — workflow still lives in memory
   }
@@ -202,7 +220,7 @@ export function createEmptySowWorkflowSnapshot(): SowWorkflowSnapshot {
 
 export function clearActiveSowWorkflow(): void {
   try {
-    localStorage.removeItem(ACTIVE_SOW_WORKFLOW_KEY);
+    localStorage.removeItem(getStorageKey(ACTIVE_SOW_WORKFLOW_KEY));
   } catch {
     // ignore
   }
@@ -213,10 +231,14 @@ export function sowWorkflowHasProgress(workflow: SowWorkflowSnapshot): boolean {
   if (workflow.uploadedFiles.length > 0) return true;
   if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
+  if ((workflow.figures?.length ?? 0) > 0) return true;
   return false;
 }
 
 export function getSowResumePath(workflow: SowWorkflowSnapshot): string {
+  if ((workflow.figures?.length ?? 0) > 0) {
+    return SOW_STEP_PATHS.figures;
+  }
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
     return SOW_STEP_PATHS.draft;
   }
@@ -256,7 +278,7 @@ const SOW_DRAFT_FILE_VERSION = 1;
 
 function writeSowJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save draft. Browser storage may be full.");
   }

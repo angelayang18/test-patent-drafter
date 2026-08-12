@@ -7,12 +7,14 @@ import {
 import MermaidPreview from "./MermaidPreview";
 import {
   crossReferenceBody,
+  DEFAULT_DOCUMENT_LABEL,
   draftPreviewSectionKeys,
   orderedPreviewSectionKeys,
   SECTIONS_REQUIRING_PAGE_BREAK_BEFORE,
   sectionDisplayTitle,
   parseNumberedListItemHeader,
   splitParagraphs,
+  STATIC_SECTION_KEYS,
 } from "../utils/documentPreview";
 
 export interface PatentDocumentPreviewProps {
@@ -22,6 +24,10 @@ export interface PatentDocumentPreviewProps {
   pendingSectionIds?: string[];
   figures?: PatentFigure[];
   includeEmptySections?: boolean;
+  /** Explicit section order for non-patent docs (SOW/ADA/Generic). */
+  sectionOrder?: readonly string[];
+  /** Cover/header label; defaults to provisional patent copy. */
+  documentLabel?: string;
   onSectionClick?: (sectionId: string) => void;
 }
 
@@ -40,6 +46,17 @@ function hasCoverSheetData(
   );
 }
 
+function isClickableSection(
+  key: string,
+  sectionOrder: readonly string[] | undefined,
+): boolean {
+  if (STATIC_SECTION_KEYS.has(key)) return false;
+  if (sectionOrder) {
+    return sectionOrder.includes(key);
+  }
+  return (PATENT_SECTION_IDS as readonly string[]).includes(key);
+}
+
 export function PatentDocumentPreview({
   inventionTitle,
   filingInfo,
@@ -47,12 +64,14 @@ export function PatentDocumentPreview({
   pendingSectionIds = [],
   figures = [],
   includeEmptySections = true,
+  sectionOrder,
+  documentLabel = DEFAULT_DOCUMENT_LABEL,
   onSectionClick,
 }: PatentDocumentPreviewProps) {
   const pending = new Set(pendingSectionIds);
   const sectionKeys = includeEmptySections
-    ? draftPreviewSectionKeys(sections)
-    : orderedPreviewSectionKeys(sections).filter(
+    ? draftPreviewSectionKeys(sections, sectionOrder)
+    : orderedPreviewSectionKeys(sections, sectionOrder).filter(
         (key) => Boolean(sections[key]?.trim()) || pending.has(key),
       );
 
@@ -126,7 +145,7 @@ export function PatentDocumentPreview({
       {!showCoverSheet && (
         <header className="text-center border-b border-outline-variant/50 pb-8 mb-10">
           <p className="font-label-sm text-label-sm uppercase tracking-[0.2em] text-on-surface-variant mb-3">
-            Provisional Patent Application Draft
+            {documentLabel}
           </p>
           <h1 className="font-headline-lg text-headline-lg text-primary leading-tight">
             {inventionTitle?.trim() || "Untitled Invention"}
@@ -148,9 +167,10 @@ export function PatentDocumentPreview({
             const isPending = pending.has(key);
             const isEmpty = !body.trim();
             const paragraphs = splitParagraphs(body);
-            const isDraftSection = (PATENT_SECTION_IDS as readonly string[]).includes(key);
             const sectionClickHandler =
-              isDraftSection && onSectionClick ? onSectionClick : undefined;
+              isClickableSection(key, sectionOrder) && onSectionClick
+                ? onSectionClick
+                : undefined;
             const clickable = sectionClickHandler !== undefined;
             const needsPageBreak = SECTIONS_REQUIRING_PAGE_BREAK_BEFORE.has(key);
 

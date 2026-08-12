@@ -13,6 +13,7 @@ const STEP_LABELS: Record<GenericWorkflowStep, string> = {
   input: "Input",
   review: "Review",
   draft: "Draft",
+  figures: "Figures",
   export: "Export",
 };
 

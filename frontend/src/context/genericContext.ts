@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { DocumentTypeTemplate } from "../utils/documentTypeTemplates";
 import type {
   CachedRemoteSources,
@@ -44,11 +45,14 @@ export interface GenericWorkflowContextValue {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources: CachedRemoteSources;
+  figures: GenericFigure[];
   completedSteps: GenericWorkflowStep[];
   extractionSourceKey: string | null;
   autoDraftPending: boolean;
   workflowResetting: boolean;
   setDetails: (details: GenericDocumentDetails) => void;
+  setFigures: (figures: GenericFigure[]) => void;
+  updateFigure: (number: number, patch: Partial<GenericFigure>) => void;
   setSection: (sectionId: string, content: string) => void;
   setSections: (sections: Record<string, string>) => void;
   setSectionCitations: (citations: Record<string, SectionCitation[]>) => void;

@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+from drafter.extract_context import EMPTY_FIELD_FALLBACK
 from drafter.sow_extractor import (
     EXTRACTABLE_SOW_FIELDS,
     _extract_grouped,
@@ -112,6 +113,17 @@ def test_extract_sow_field_returns_single_key():
     assert "citations" in result
     assert "deliverables" in result["citations"]
     assert isinstance(result["citations"]["deliverables"], list)
+
+
+def test_extract_grouped_applies_fallback_for_empty_fields_after_gap_fill():
+    """Insufficient sources must not leave silent empty strings."""
+
+    with patch("drafter.sow_extractor.generate_json", return_value={}):
+        merged = _extract_grouped("system", "x")
+
+    assert set(merged) == EXTRACTABLE_SOW_FIELDS
+    for field in EXTRACTABLE_SOW_FIELDS:
+        assert merged[field] == EMPTY_FIELD_FALLBACK, field
 
 
 def test_extract_sow_details_empty_combined_text_raises():

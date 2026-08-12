@@ -5,28 +5,45 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
+from auth import get_current_user
+from community_templates import create_template, list_templates
 from drafter.extractor import extract_invention_details, extract_invention_field
 from drafter.ada_extractor import extract_ada_details, extract_ada_field
 from drafter.ada_sections import draft_all_ada_sections_parallel, draft_single_ada_section
 from drafter.grant_extractor import extract_grant_details, extract_grant_field
-from drafter.grant_sections import draft_all_grant_sections_parallel, draft_single_grant_section
-from drafter.figures import generate_patent_figures, regenerate_patent_figure
+from drafter.grant_sections import (
+    GRANT_SECTIONS,
+    draft_all_grant_sections_parallel,
+    draft_single_grant_section,
+)
+from drafter.figures import (
+    generate_generic_figures,
+    generate_patent_figures,
+    regenerate_generic_figure,
+    regenerate_patent_figure,
+)
 from drafter.llm_client import LLMUnavailableError, get_llm_base_url, get_llm_model, probe_llm_reachable
+from drafter.prompts import PATENT_SECTIONS
 from drafter.selection_regenerate import regenerate_selection
 from drafter.sections import draft_all_sections_parallel, draft_section
 from drafter.sow_extractor import extract_sow_details, extract_sow_field
-from drafter.sow_sections import draft_all_sow_sections_parallel, draft_single_sow_section
+from drafter.sow_sections import (
+    SOW_SECTIONS,
+    draft_all_sow_sections_parallel,
+    draft_single_sow_section,
+)
 from drafter.generic_sections import draft_generic_section, draft_generic_sections_parallel
 from drafter.retrieval import citations_for_generic_title
+from drafter.sections_suggest import suggest_sections_from_samples
 from drafter.titles import suggest_generic_titles, suggest_titles
 from learning.config import is_learning_enabled
 from learning.guidelines import distill_guidelines_for_submission
@@ -45,9 +62,21 @@ from parsers.confluence import ConfluenceClient
 from parsers.docx_parser import extract_text_from_docx
 from parsers.pdf_parser import extract_text_from_pdf
 from parsers.pptx_parser import extract_text_from_pptx
+from parsers.uspto_odp import ODPConfigError, ODPRequestError, search_related_applications
 from parsers.web_scraper import scrape_url
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+# force=True so INFO app logs appear even when uvicorn already configured logging.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    force=True,
+)
+# Keep common HTTP client loggers quiet unless they warn.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("openai").setLevel(logging.WARNING)
 
 log = logging.getLogger(__name__)
 
@@ -93,6 +122,12 @@ class ConfluenceConnectRequest(BaseModel):
 
 class ScrapeRequest(BaseModel):
     url: str
+
+
+class SuggestRelatedApplicationsRequest(BaseModel):
+    """Request body for looking up an applicant's prior USPTO filings."""
+
+    applicant_name: str
 
 
 class ExtractRequest(BaseModel):
@@ -166,6 +201,40 @@ class ExtractGenericTitleCitationsRequest(BaseModel):
     title: str = ""
 
 
+class SuggestDocumentTypeSectionsRequest(BaseModel):
+    """Request body for inferring a custom document-type section outline."""
+
+    combined_text: str
+    document_type_name: str
+    description: str = ""
+
+
+class CommunityTemplateSection(BaseModel):
+    """One section definition within a shared community document-type template."""
+
+    id: str
+    name: str
+    description: str = ""
+    order: int = 0
+
+
+class CommunityTemplateCreateRequest(BaseModel):
+    """Request body for publishing a document-type template to the community store."""
+
+    name: str
+    description: str = ""
+    sections: list[CommunityTemplateSection] = Field(default_factory=list)
+    based_on: str = ""
+    created_by_name: str = ""
+
+
+class CommunityTemplateCreateResponse(BaseModel):
+    """Response after creating a community document-type template."""
+
+    id: str
+    created_at: str
+
+
 class GrantDraftRequest(GrantDetails):
     section: str
     prior_draft: str = ""
@@ -181,8 +250,17 @@ class GrantDraftAllRequest(GrantDetails):
     custom_sections: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
+class GenericFigureModel(BaseModel):
+    number: int
+    title: str
+    brief_description: str
+    reference_numerals: dict[str, str] = Field(default_factory=dict)
+    mermaid: str
+
+
 class GrantExportRequest(BaseModel):
     sections: dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     project_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -231,6 +309,7 @@ class SOWDraftAllRequest(SOWDetails):
 
 class SOWExportRequest(BaseModel):
     sections: Dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     engagement_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -279,6 +358,7 @@ class ADADraftAllRequest(ADADetails):
 
 class ADAExportRequest(BaseModel):
     sections: Dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     study_title: str = ""
     section_labels: Dict[str, str] = Field(default_factory=dict)
 
@@ -309,6 +389,7 @@ class GenericDraftAllRequest(BaseModel):
 class GenericExportRequest(BaseModel):
     document_title: str = ""
     sections: dict[str, str] = Field(default_factory=dict)
+    figures: list[GenericFigureModel] = Field(default_factory=list)
     section_order: list[str] = Field(default_factory=list)
     section_labels: dict[str, str] = Field(default_factory=dict)
 
@@ -326,6 +407,8 @@ class SectionCitation(BaseModel):
     label: str
     location: str
     excerpt: str
+    # Full matched paragraph for preview highlighting; empty on legacy payloads.
+    full_excerpt: str = ""
 
 
 class DraftRequest(InventionDetails):
@@ -370,10 +453,25 @@ class GenerateFiguresRequest(InventionDetails):
     num_figures: int = Field(default=3, ge=1, le=8)
 
 
+class GenerateGenericFiguresRequest(BaseModel):
+    document_type_label: str = ""
+    document_title: str = ""
+    combined_text: str = ""
+    num_figures: int = Field(default=3, ge=1, le=8)
+
+
 class RegenerateFigureRequest(InventionDetails):
     figure_number: int
     description_text: str = ""
     existing_figures: list[PatentFigureModel] = Field(default_factory=list)
+
+
+class RegenerateGenericFigureRequest(BaseModel):
+    document_type_label: str = ""
+    document_title: str = ""
+    combined_text: str = ""
+    figure_number: int
+    existing_figures: list[GenericFigureModel] = Field(default_factory=list)
 
 
 class RenderMermaidRequest(BaseModel):
@@ -395,8 +493,22 @@ class QAReportRequest(BaseModel):
     invention: Optional[InventionDetails] = None
 
 
+class FormatQAReportRequest(BaseModel):
+    """Format-only QA for any document type (no invention-alignment checks)."""
+
+    sections: dict[str, str] = Field(default_factory=dict)
+    document_type: Literal["patent", "grant", "sow"] = "patent"
+
+
 class PrerenderFiguresRequest(BaseModel):
     figures: list[PatentFigureModel] = Field(default_factory=list)
+
+
+_FORMAT_QA_CANONICAL_SECTIONS: dict[str, list[str]] = {
+    "patent": list(PATENT_SECTIONS),
+    "grant": list(GRANT_SECTIONS),
+    "sow": list(SOW_SECTIONS),
+}
 
 
 def _confluence_base_url(url: str) -> str:
@@ -656,6 +768,108 @@ def extract_generic_title_citations(body: ExtractGenericTitleCitationsRequest) -
         body.title,
     )
     return {"citations": citations}
+
+
+@app.post("/document-types/suggest-sections")
+def suggest_document_type_sections(body: SuggestDocumentTypeSectionsRequest) -> dict:
+    """Suggest a reusable section outline from sample report text.
+
+    Returns ``{"sections": [{"name", "description"}, ...], "style_note": str | null}``.
+    Suggestions are not auto-applied — the client presents accept/edit/reject UI.
+    """
+    if not body.combined_text.strip():
+        raise HTTPException(status_code=400, detail="combined_text is required.")
+    if not body.document_type_name.strip():
+        raise HTTPException(status_code=400, detail="document_type_name is required.")
+
+    try:
+        return suggest_sections_from_samples(
+            body.combined_text,
+            body.document_type_name,
+            description=body.description,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception(
+            "Section suggestion failed for document type %s",
+            body.document_type_name,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to suggest sections: {exc}",
+        ) from exc
+
+
+@app.get("/document-types/community")
+def list_community_document_types(
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """List shared community document-type templates for the authenticated user.
+
+    Each template includes ``mine`` (true when the current user created it).
+    """
+    user_id = user["user_id"]
+    templates = []
+    for template in list_templates():
+        templates.append(
+            {
+                **template,
+                "mine": template.get("created_by_user_id") == user_id,
+            }
+        )
+    return {"templates": templates}
+
+
+@app.post("/document-types/community")
+def create_community_document_type(
+    body: CommunityTemplateCreateRequest,
+    user: dict = Depends(get_current_user),
+) -> CommunityTemplateCreateResponse:
+    """Publish a document-type template to the shared community store."""
+    if not body.name.strip():
+        raise HTTPException(status_code=400, detail="name is required.")
+
+    created_by_name = body.created_by_name.strip() or "Teammate"
+    section_dicts = [section.model_dump() for section in body.sections]
+    template_id = create_template(
+        name=body.name.strip(),
+        description=body.description,
+        sections=section_dicts,
+        created_by_user_id=user["user_id"],
+        created_by_name=created_by_name,
+        based_on=body.based_on,
+    )
+    created_at = ""
+    for template in list_templates():
+        if template["id"] == template_id:
+            created_at = template["created_at"] or ""
+            break
+    return CommunityTemplateCreateResponse(id=template_id, created_at=created_at)
+
+
+@app.post("/export/suggest-related-applications")
+def suggest_related_applications(body: SuggestRelatedApplicationsRequest) -> dict:
+    """Look up an applicant's prior USPTO filings as cross-reference candidates.
+
+    Returns ``{"candidates": [...]}``. Candidates are bibliographic matches on
+    applicant name only — this endpoint never determines or asserts that a
+    match is legally related (priority claim, continuation, etc.); that
+    determination is left to the user before it's added to the filing field.
+    """
+    if not body.applicant_name.strip():
+        raise HTTPException(status_code=400, detail="applicant_name is required.")
+
+    try:
+        candidates = search_related_applications(body.applicant_name)
+    except ODPConfigError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ODPRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return {"candidates": candidates}
 
 
 @app.post("/extract")
@@ -1367,6 +1581,30 @@ async def generate_figures(body: GenerateFiguresRequest) -> dict:
     return result
 
 
+@app.post("/figures/generate/generic")
+async def generate_generic_figures_route(body: GenerateGenericFiguresRequest) -> dict:
+    """Generate supporting Mermaid diagrams for Grant/SOW/ADA/Generic documents."""
+    try:
+        result = await generate_generic_figures(
+            body.document_type_label,
+            body.document_title,
+            body.combined_text,
+            num_figures=body.num_figures,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Generic figure generation failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to generate figures: {exc}",
+        ) from exc
+
+    return result
+
+
 @app.post("/figures/regenerate-one")
 def regenerate_one_figure(body: RegenerateFigureRequest) -> dict:
     """Regenerate a single patent figure with a unique Mermaid diagram type."""
@@ -1387,6 +1625,32 @@ def regenerate_one_figure(body: RegenerateFigureRequest) -> dict:
         raise
     except Exception as exc:
         log.exception("Single figure regeneration failed")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to regenerate figure: {exc}",
+        ) from exc
+
+    return result
+
+
+@app.post("/figures/regenerate-one/generic")
+def regenerate_generic_figure_route(body: RegenerateGenericFigureRequest) -> dict:
+    """Regenerate a single supporting Mermaid diagram for a non-patent document."""
+    existing = [fig.model_dump() for fig in body.existing_figures]
+    try:
+        result = regenerate_generic_figure(
+            body.document_type_label,
+            body.document_title,
+            body.combined_text,
+            body.figure_number,
+            existing,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LLMUnavailableError:
+        raise
+    except Exception as exc:
+        log.exception("Generic single figure regeneration failed")
         raise HTTPException(
             status_code=502,
             detail=f"Failed to regenerate figure: {exc}",
@@ -1445,13 +1709,39 @@ def prerender_figures(body: PrerenderFiguresRequest) -> dict:
 
 @app.post("/qa-report")
 def qa_report(body: QAReportRequest) -> List[Dict[str, Union[str, List[str]]]]:
-    """Return per-section format QA results for a patent draft."""
-    report = get_format_qa_report(body.sections)
+    """Return per-section format QA results for a patent draft.
+
+    When ``invention`` is provided, also append patent invention-alignment checks.
+    Grant/SOW clients should prefer ``/format-qa-report`` instead.
+    """
+    report = get_format_qa_report(body.sections, document_type="patent")
     if body.invention is not None:
         report.extend(
             get_invention_alignment_qa_report(body.sections, body.invention.model_dump())
         )
     return report
+
+
+@app.post("/format-qa-report")
+def format_qa_report(
+    body: FormatQAReportRequest,
+) -> List[Dict[str, Union[str, List[str]]]]:
+    """Return format-only QA (empty sections, claim/abstract rules, insufficient source).
+
+    Uses ``document_type`` to select the canonical section list so Grant/SOW drafts
+    are not padded with patent section ids. Does not run invention-alignment checks.
+    """
+    canonical = _FORMAT_QA_CANONICAL_SECTIONS.get(body.document_type)
+    if canonical is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported document_type '{body.document_type}'.",
+        )
+    return get_format_qa_report(
+        body.sections,
+        canonical_sections=canonical,
+        document_type=body.document_type,
+    )
 
 
 @app.post("/export/docx")
@@ -1523,8 +1813,10 @@ def export_grant_docx_endpoint(body: GrantExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_grant_docx(
             body.sections,
+            figure_dicts,
             project_title=body.project_title,
             section_labels=body.section_labels,
         )
@@ -1549,8 +1841,10 @@ def export_grant_pdf_endpoint(body: GrantExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_grant_pdf(
             body.sections,
+            figure_dicts,
             project_title=body.project_title,
             section_labels=body.section_labels,
         )
@@ -1575,8 +1869,10 @@ def export_sow_docx_endpoint(body: SOWExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_sow_docx(
             body.sections,
+            figure_dicts,
             engagement_title=body.engagement_title,
             section_labels=body.section_labels,
         )
@@ -1601,8 +1897,10 @@ def export_sow_pdf_endpoint(body: SOWExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_sow_pdf(
             body.sections,
+            figure_dicts,
             engagement_title=body.engagement_title,
             section_labels=body.section_labels,
         )
@@ -1627,8 +1925,10 @@ def export_ada_docx_endpoint(body: ADAExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_ada_docx(
             body.sections,
+            figure_dicts,
             study_title=body.study_title,
             section_labels=body.section_labels,
         )
@@ -1653,8 +1953,10 @@ def export_ada_pdf_endpoint(body: ADAExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_ada_pdf(
             body.sections,
+            figure_dicts,
             study_title=body.study_title,
             section_labels=body.section_labels,
         )
@@ -1679,8 +1981,10 @@ def export_generic_docx_endpoint(body: GenericExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_generic_docx(
             body.sections,
+            figure_dicts,
             document_title=body.document_title,
             section_order=body.section_order,
             section_labels=body.section_labels,
@@ -1706,8 +2010,10 @@ def export_generic_pdf_endpoint(body: GenericExportRequest) -> Response:
         raise HTTPException(status_code=400, detail="sections are required.")
 
     try:
+        figure_dicts = [fig.model_dump() for fig in body.figures]
         buffer = export_generic_pdf(
             body.sections,
+            figure_dicts,
             document_title=body.document_title,
             section_order=body.section_order,
             section_labels=body.section_labels,

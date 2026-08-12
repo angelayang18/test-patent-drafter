@@ -13,6 +13,7 @@ const STEP_LABELS: Record<SowWorkflowStep, string> = {
   input: "Input",
   review: "Review",
   draft: "Draft",
+  figures: "Figures",
   export: "Export",
 };
 

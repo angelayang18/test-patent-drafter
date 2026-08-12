@@ -9,6 +9,11 @@ import type {
   SOWDetails,
   ADADetails,
 } from "../types/patent";
+import type {
+  GenericFigure,
+  GenericFiguresResult,
+  RegenerateGenericFigureResult,
+} from "../types/genericFigures";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? import.meta.env.REACT_APP_API_URL ?? "http://localhost:8000";
@@ -23,6 +28,9 @@ export type {
   FiguresResult,
   RegenerateFigureResult,
   SectionCitation,
+  GenericFigure,
+  GenericFiguresResult,
+  RegenerateGenericFigureResult,
 };
 
 export interface SourceContent {
@@ -75,8 +83,18 @@ async function parseErrorMessage(response: Response): Promise<string> {
   return response.statusText || "Request failed";
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init);
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  token?: string,
+): Promise<T> {
+  let nextInit = init;
+  if (token) {
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    nextInit = { ...init, headers };
+  }
+  const response = await fetch(`${API_BASE_URL}${path}`, nextInit);
   if (!response.ok) {
     const message = await parseErrorMessage(response);
     throw new ApiError(message, response.status);
@@ -391,6 +409,132 @@ export async function suggestGenericTitles(
     },
   );
   return { titles: data.titles, citations: data.citations ?? [] };
+}
+
+export interface RelatedApplicationCandidate {
+  application_number: string;
+  invention_title: string;
+  filing_date: string;
+  status: string;
+  patent_number: string;
+}
+
+/**
+ * Look up an applicant's prior USPTO filings as cross-reference candidates.
+ * These are bibliographic matches on applicant name only — the caller is
+ * responsible for deciding (and wording) whether any candidate is actually
+ * legally related before adding it to the filing field.
+ */
+export async function suggestRelatedApplications(
+  applicantName: string,
+): Promise<RelatedApplicationCandidate[]> {
+  const data = await requestJson<{ candidates?: RelatedApplicationCandidate[] }>(
+    "/export/suggest-related-applications",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ applicant_name: applicantName }),
+    },
+  );
+  return Array.isArray(data.candidates) ? data.candidates : [];
+}
+
+export interface SuggestedDocumentSection {
+  name: string;
+  description: string;
+}
+
+export interface SuggestDocumentTypeSectionsResult {
+  sections: SuggestedDocumentSection[];
+  styleNote: string | null;
+}
+
+/** Infer a reusable section outline from sample report text for a custom document type. */
+export async function suggestDocumentTypeSections(
+  combinedText: string,
+  documentTypeName: string,
+  description?: string,
+): Promise<SuggestDocumentTypeSectionsResult> {
+  const data = await requestJson<{
+    sections: SuggestedDocumentSection[];
+    style_note?: string | null;
+  }>("/document-types/suggest-sections", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      combined_text: combinedText,
+      document_type_name: documentTypeName,
+      description: description?.trim() ?? "",
+    }),
+  });
+  return {
+    sections: Array.isArray(data.sections) ? data.sections : [],
+    styleNote:
+      typeof data.style_note === "string" && data.style_note.trim()
+        ? data.style_note.trim()
+        : null,
+  };
+}
+
+export interface CommunityDocumentTypeSection {
+  id: string;
+  name: string;
+  description: string;
+  order: number;
+}
+
+export interface CommunityDocumentTypeTemplate {
+  id: string;
+  name: string;
+  description: string;
+  sections: CommunityDocumentTypeSection[];
+  created_by_user_id: string;
+  created_by_name: string;
+  based_on: string;
+  created_at: string;
+  mine: boolean;
+}
+
+export interface PublishDocumentTypeTemplatePayload {
+  name: string;
+  description?: string;
+  sections?: CommunityDocumentTypeSection[];
+  based_on?: string;
+  created_by_name?: string;
+}
+
+/** List shared community document-type templates for the authenticated user. */
+export async function listCommunityDocumentTypeTemplates(
+  token: string,
+): Promise<CommunityDocumentTypeTemplate[]> {
+  const data = await requestJson<{ templates?: CommunityDocumentTypeTemplate[] }>(
+    "/document-types/community",
+    { method: "GET" },
+    token,
+  );
+  return Array.isArray(data.templates) ? data.templates : [];
+}
+
+/** Publish a document-type template to the shared community store. */
+export async function publishDocumentTypeTemplate(
+  token: string,
+  payload: PublishDocumentTypeTemplatePayload,
+): Promise<{ id: string; created_at: string }> {
+  return requestJson<{ id: string; created_at: string }>(
+    "/document-types/community",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: payload.name,
+        description: payload.description ?? "",
+        sections: payload.sections ?? [],
+        based_on: payload.based_on ?? "",
+        created_by_name: payload.created_by_name ?? "",
+      }),
+    },
+    token,
+  );
 }
 
 export async function getGenericTitleCitations(
@@ -753,6 +897,58 @@ export async function renderFigurePng(mermaid: string): Promise<Blob> {
   return response.blob();
 }
 
+export async function generateGenericFigures(
+  token: string | null | undefined,
+  options: {
+    documentTypeLabel: string;
+    documentTitle: string;
+    combinedText: string;
+    numFigures: number;
+  },
+): Promise<GenericFiguresResult> {
+  return requestJson<GenericFiguresResult>(
+    "/figures/generate/generic",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_type_label: options.documentTypeLabel,
+        document_title: options.documentTitle,
+        combined_text: options.combinedText,
+        num_figures: options.numFigures,
+      }),
+    },
+    token ?? undefined,
+  );
+}
+
+export async function regenerateGenericFigure(
+  token: string | null | undefined,
+  options: {
+    documentTypeLabel: string;
+    documentTitle: string;
+    combinedText: string;
+    figureNumber: number;
+    existingFigures: GenericFigure[];
+  },
+): Promise<RegenerateGenericFigureResult> {
+  return requestJson<RegenerateGenericFigureResult>(
+    "/figures/regenerate-one/generic",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        document_type_label: options.documentTypeLabel,
+        document_title: options.documentTitle,
+        combined_text: options.combinedText,
+        figure_number: options.figureNumber,
+        existing_figures: options.existingFigures,
+      }),
+    },
+    token ?? undefined,
+  );
+}
+
 export async function prerenderExportFigures(
   figures: PatentDraft["figures"],
 ): Promise<Record<string, string>> {
@@ -782,6 +978,8 @@ function exportPayloadBody(draft: PatentDraft): string {
 
 export interface QAReportEntry {
   section: string;
+  /** Distinguishes Format vs Alignment checks that share a section key. */
+  category?: string;
   status: string;
   messages: string[];
 }
@@ -794,6 +992,20 @@ export async function fetchQAReport(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sections, invention: invention ?? null }),
+  });
+}
+
+export type FormatQADocumentType = "patent" | "grant" | "sow";
+
+/** Format-only QA (empty sections, insufficient-source language). No patent alignment. */
+export async function fetchFormatQAReport(
+  sections: Record<string, string>,
+  documentType: FormatQADocumentType,
+): Promise<QAReportEntry[]> {
+  return requestJson<QAReportEntry[]>("/format-qa-report", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sections, document_type: documentType }),
   });
 }
 
@@ -831,6 +1043,7 @@ export async function exportGrantDocx(
   sections: Record<string, string>,
   projectTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/grant/docx`, {
     method: "POST",
@@ -839,6 +1052,7 @@ export async function exportGrantDocx(
       sections,
       project_title: projectTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -854,6 +1068,7 @@ export async function exportGrantPdf(
   sections: Record<string, string>,
   projectTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/grant/pdf`, {
     method: "POST",
@@ -862,6 +1077,7 @@ export async function exportGrantPdf(
       sections,
       project_title: projectTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -877,6 +1093,7 @@ export async function exportSowDocx(
   sections: Record<string, string>,
   engagementTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/sow/docx`, {
     method: "POST",
@@ -885,6 +1102,7 @@ export async function exportSowDocx(
       sections,
       engagement_title: engagementTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -900,6 +1118,7 @@ export async function exportSowPdf(
   sections: Record<string, string>,
   engagementTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/sow/pdf`, {
     method: "POST",
@@ -908,6 +1127,7 @@ export async function exportSowPdf(
       sections,
       engagement_title: engagementTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -923,6 +1143,7 @@ export async function exportAdaDocx(
   sections: Record<string, string>,
   studyTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/ada/docx`, {
     method: "POST",
@@ -931,6 +1152,7 @@ export async function exportAdaDocx(
       sections,
       study_title: studyTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -946,6 +1168,7 @@ export async function exportAdaPdf(
   sections: Record<string, string>,
   studyTitle?: string,
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/ada/pdf`, {
     method: "POST",
@@ -954,6 +1177,7 @@ export async function exportAdaPdf(
       sections,
       study_title: studyTitle ?? "",
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1032,6 +1256,7 @@ export async function exportGenericDocx(
   documentTitle?: string,
   sectionOrder?: string[],
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/generic/docx`, {
     method: "POST",
@@ -1041,6 +1266,7 @@ export async function exportGenericDocx(
       document_title: documentTitle ?? "",
       section_order: sectionOrder ?? [],
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 
@@ -1057,6 +1283,7 @@ export async function exportGenericPdf(
   documentTitle?: string,
   sectionOrder?: string[],
   sectionLabels?: Record<string, string>,
+  figures?: GenericFigure[],
 ): Promise<Blob> {
   const response = await fetch(`${API_BASE_URL}/export/generic/pdf`, {
     method: "POST",
@@ -1066,6 +1293,7 @@ export async function exportGenericPdf(
       document_title: documentTitle ?? "",
       section_order: sectionOrder ?? [],
       section_labels: sectionLabels ?? {},
+      figures: figures ?? [],
     }),
   });
 

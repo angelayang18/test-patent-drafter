@@ -62,7 +62,7 @@ export function SourceTextPreviewModal({
   }, [content, highlightText, hasContent]);
 
   useEffect(() => {
-    if (!highlightRange || !markRef.current) {
+    if (!highlightRange || !markRef.current?.scrollIntoView) {
       return;
     }
     markRef.current.scrollIntoView({ block: "center", behavior: "smooth" });

@@ -499,3 +499,144 @@ def regenerate_patent_figure(
     raise ValueError(
         f"Failed to regenerate figure {figure_number} with LLM ({get_llm_model()})."
     )
+
+
+async def generate_generic_single_figure(
+    document_type_label: str,
+    document_title: str,
+    combined_text: str,
+    figure_number: int,
+    total_figures: int,
+) -> dict[str, Any]:
+    """Generate one supporting diagram for a non-patent document asynchronously."""
+    from .prompts import GENERIC_FIGURES_SYSTEM, get_generic_single_figure_prompt
+
+    prompt = get_generic_single_figure_prompt(
+        document_type_label,
+        document_title,
+        combined_text,
+        figure_number,
+        total_figures,
+    )
+
+    last_error: ValueError | None = None
+    user_prompt = prompt
+    for attempt in range(3):
+        raw = await asyncio.to_thread(generate_json, GENERIC_FIGURES_SYSTEM, user_prompt)
+        try:
+            return _figure_from_regenerate_response(raw, figure_number)
+        except ValueError as exc:
+            last_error = exc
+            if attempt < 2 and "figure object" in str(exc).lower():
+                user_prompt = prompt + (
+                    "\n\nIMPORTANT: Return a JSON object with a figure key containing "
+                    "the generated figure. Do not omit the figure key."
+                )
+                continue
+            if attempt < 2:
+                continue
+            raise exc from None
+
+    if last_error:
+        raise last_error
+    raise ValueError(
+        f"Failed to generate figure {figure_number} with LLM ({get_llm_model()})."
+    )
+
+
+async def generate_generic_figures(
+    document_type_label: str,
+    document_title: str,
+    combined_text: str,
+    num_figures: int = 3,
+) -> dict[str, Any]:
+    """
+    Generate supporting Mermaid diagrams for a non-patent document.
+
+    Returns:
+        {
+            "figures": list[dict],
+            "warnings": list[str] | omitted,
+        }
+    """
+    if num_figures < 1:
+        raise ValueError("num_figures must be at least 1.")
+
+    tasks = [
+        generate_generic_single_figure(
+            document_type_label,
+            document_title,
+            combined_text,
+            i + 1,
+            num_figures,
+        )
+        for i in range(num_figures)
+    ]
+    figures = list(await asyncio.gather(*tasks))
+
+    diagram_warnings = validate_figure_diagram_types(figures)
+    result: dict[str, Any] = {"figures": figures}
+    if diagram_warnings:
+        result["warnings"] = diagram_warnings
+    return result
+
+
+def regenerate_generic_figure(
+    document_type_label: str,
+    document_title: str,
+    combined_text: str,
+    figure_number: int,
+    existing_figures: list[dict],
+) -> dict[str, Any]:
+    """
+    Regenerate a single supporting diagram using a diagram type not already in use.
+
+    Returns:
+        {
+            "figure": normalized figure dict,
+            "warnings": list[str] | omitted,
+        }
+    """
+    from .prompts import GENERIC_FIGURES_SYSTEM, get_generic_regenerate_figure_prompt
+
+    used_types = [
+        detect_mermaid_diagram_type(str(fig.get("mermaid", "")))
+        for fig in existing_figures
+        if int(fig.get("number", 0)) != figure_number
+    ]
+    prompt = get_generic_regenerate_figure_prompt(
+        document_type_label,
+        document_title,
+        combined_text,
+        figure_number,
+        existing_figures,
+        used_types,
+    )
+
+    last_error: ValueError | None = None
+    user_prompt = prompt
+    for attempt in range(3):
+        raw = generate_json(GENERIC_FIGURES_SYSTEM, user_prompt)
+        try:
+            figure = _figure_from_regenerate_response(raw, figure_number)
+            diagram_warnings = validate_figure_diagram_types([figure])
+            if diagram_warnings:
+                return {"figure": figure, "warnings": diagram_warnings}
+            return {"figure": figure}
+        except ValueError as exc:
+            last_error = exc
+            if attempt < 2 and "figure object" in str(exc).lower():
+                user_prompt = prompt + (
+                    "\n\nIMPORTANT: Return a JSON object with a figure key containing "
+                    "the regenerated figure. Do not omit the figure key."
+                )
+                continue
+            if attempt < 2:
+                continue
+            raise exc from None
+
+    if last_error:
+        raise last_error
+    raise ValueError(
+        f"Failed to regenerate figure {figure_number} with LLM ({get_llm_model()})."
+    )

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { AttorneyFeedbackPanel } from "../../components/AttorneyFeedbackPanel";
 import { AutoResizeTextarea } from "../../components/AutoResizeTextarea";
 import { CopyToClipboardButton } from "../../components/CopyToClipboardButton";
@@ -11,11 +11,14 @@ import { SelectionRegeneratePopover } from "../../components/SelectionRegenerate
 import { SectionCitationsPanel } from "../../components/SectionCitationsPanel";
 import { SectionManagerModal } from "../../components/SectionManagerModal";
 import { SavedIndicator, useSavedIndicator } from "../../components/SavedIndicator";
+import { UndoRedoToolbar } from "../../components/UndoRedoToolbar";
 import { WorkflowFooter } from "../../components/WorkflowFooter";
 import { WorkflowBackLink, WorkflowNextLink } from "../../components/WorkflowNavButtons";
 import { getDocumentTypeConfig } from "../../constants/documentTypes";
+import { SOW_CITATION_FIELD_LABELS } from "../../constants/reviewFieldCitationLabels";
 import { useSowWorkflow } from "../../context/SowWorkflowContext";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useUndoRedo } from "../../hooks/useUndoRedo";
 import { useTextareaSelectionRegenerate } from "../../hooks/useTextareaSelectionRegenerate";
 import {
   ApiError,
@@ -36,10 +39,13 @@ import {
   resolveSectionLabel,
   resolveSectionOrder,
 } from "../../utils/sectionSettings";
+import { buildReviewFieldValues } from "../../utils/resolveCitationPreviewSource";
+import { resolveInitialActiveSection } from "../../utils/resolveInitialActiveSection";
 import "../../styles/patent-drafter.css";
 
 export default function SowDraft() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const {
     sowDetails,
     sections,
@@ -57,11 +63,21 @@ export default function SowDraft() {
     clearAutoDraftPending,
     gatherSourceText,
     uploadedFiles,
+    inputSources,
+    cachedRemoteSources,
   } = useSowWorkflow();
 
   const sectionIds = resolveSectionOrder(
     effectiveSectionIds(SOW_SECTION_IDS, sectionSettings),
     sectionSettings,
+  );
+  const reviewFieldValues = useMemo(
+    () =>
+      buildReviewFieldValues(
+        SOW_CITATION_FIELD_LABELS,
+        (sowDetails ?? undefined) as Record<string, unknown> | undefined,
+      ),
+    [sowDetails],
   );
   const sowDefaultDescriptions = useMemo(() => {
     const map: Record<string, string> = {};
@@ -87,8 +103,19 @@ export default function SowDraft() {
     return map;
   }, [sectionSettings]);
 
-  const [activeSection, setActiveSection] = useState<string>(sectionIds[0]);
-  const [draftText, setDraftText] = useState("");
+  const [activeSection, setActiveSection] = useState<string>(() =>
+    resolveInitialActiveSection(sectionIds, searchParams.get("section")),
+  );
+  const {
+    value: draftText,
+    replace: setDraftText,
+    push: pushDraftText,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    reset: resetDraftHistory,
+  } = useUndoRedo("");
   const [parallelDrafting, setParallelDrafting] = useState(false);
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +124,8 @@ export default function SowDraft() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [manageSectionsOpen, setManageSectionsOpen] = useState(false);
   const { visible: savedVisible, flash: flashSaved } = useSavedIndicator();
+  const flashSavedRef = useRef(flashSaved);
+  flashSavedRef.current = flashSaved;
   const { copy: copyAll, copied: copiedAll } = useCopyToClipboard();
 
   const isGenerating = parallelDrafting || regenerating.size > 0 || regeneratingSelection;
@@ -109,6 +138,10 @@ export default function SowDraft() {
   const autoDraftStarted = useRef(false);
   const sectionsRef = useRef(sections);
   const activeSectionRef = useRef(activeSection);
+  const saveToStorageRef = useRef(saveToStorage);
+  saveToStorageRef.current = saveToStorage;
+  const suppressSavedIndicator = useRef(true);
+  const prevActiveSectionRef = useRef(activeSection);
 
   useEffect(() => {
     sectionsRef.current = sections;
@@ -125,8 +158,24 @@ export default function SowDraft() {
   }, [sowDetails, navigate]);
 
   useEffect(() => {
-    setDraftText(sections[activeSection] ?? "");
-  }, [activeSection, sections]);
+    resetDraftHistory(sectionsRef.current[activeSection] ?? "");
+    const timer = window.setTimeout(() => {
+      suppressSavedIndicator.current = false;
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // Load stored content for the initial section once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (prevActiveSectionRef.current === activeSection) return;
+    prevActiveSectionRef.current = activeSection;
+    suppressSavedIndicator.current = true;
+    const timer = window.setTimeout(() => {
+      suppressSavedIndicator.current = false;
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [activeSection]);
 
   const startParallelDraft = useCallback(
     async (ids: string[]) => {
@@ -145,7 +194,7 @@ export default function SowDraft() {
         setSections({ ...sectionsRef.current, ...drafted });
         setSectionCitations(citations);
         if (ids.includes(activeSectionRef.current)) {
-          setDraftText(drafted[activeSectionRef.current] ?? "");
+          resetDraftHistory(drafted[activeSectionRef.current] ?? "");
         }
         saveToStorage();
         flashSaved();
@@ -162,6 +211,7 @@ export default function SowDraft() {
       reviewerFeedback,
       setSections,
       setSectionCitations,
+      resetDraftHistory,
       saveToStorage,
       flashSaved,
     ],
@@ -186,8 +236,10 @@ export default function SowDraft() {
   ]);
 
   const selectSection = (sectionId: string) => {
+    if (sectionId === activeSection) return;
     setSection(activeSection, draftText);
     setActiveSection(sectionId);
+    resetDraftHistory(sectionsRef.current[sectionId] ?? "");
   };
 
   const handleDraftTextChange = (text: string) => {
@@ -196,26 +248,39 @@ export default function SowDraft() {
   };
 
   useEffect(() => {
-    const timer = window.setTimeout(() => saveToStorage(), 500);
+    if (!suppressSavedIndicator.current) {
+      flashSavedRef.current();
+    }
+  }, [draftText, activeSection]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSection(activeSection, draftText);
+      saveToStorageRef.current();
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [draftText, activeSection, saveToStorage]);
+  }, [draftText, activeSection, setSection]);
 
   const handleRegenerateSection = () => {
     if (!sowDetails || regenerating.has(activeSection) || parallelDrafting) return;
-    setRegenerating((prev) => new Set(prev).add(activeSection));
+    const sectionId = activeSection;
+    setRegenerating((prev) => new Set(prev).add(sectionId));
     setError(null);
+    pushDraftText(draftText);
     void (async () => {
       try {
         const { combined } = await gatherSourceText();
-        const { content, citations } = await draftSowSection(sowDetails, activeSection, {
+        const { content, citations } = await draftSowSection(sowDetails, sectionId, {
           priorDraft: draftText,
-          attorneyFeedback: reviewerFeedback[activeSection] ?? "",
+          attorneyFeedback: reviewerFeedback[sectionId] ?? "",
           combinedText: combined,
           customSections: customSectionsPayload,
         });
-        setDraftText(content);
-        setSection(activeSection, content);
-        setSectionCitations({ [activeSection]: citations });
+        if (activeSectionRef.current === sectionId) {
+          pushDraftText(content);
+        }
+        setSection(sectionId, content);
+        setSectionCitations({ [sectionId]: citations });
         saveToStorage();
         flashSaved();
       } catch (err) {
@@ -223,7 +288,7 @@ export default function SowDraft() {
       } finally {
         setRegenerating((prev) => {
           const next = new Set(prev);
-          next.delete(activeSection);
+          next.delete(sectionId);
           return next;
         });
       }
@@ -260,6 +325,7 @@ export default function SowDraft() {
     if (!textareaSelection || !sowDetails) return;
     setError(null);
     setRegeneratingSelection(true);
+    pushDraftText(draftText);
     void (async () => {
       try {
         const replacement = await regenerateSelection(
@@ -272,7 +338,7 @@ export default function SowDraft() {
           draftText.slice(0, textareaSelection.start) +
           replacement +
           draftText.slice(textareaSelection.end);
-        setDraftText(newText);
+        pushDraftText(newText);
         setSection(activeSection, newText);
         saveToStorage();
         flashSaved();
@@ -303,8 +369,14 @@ export default function SowDraft() {
           right={
             <>
               <SavedIndicator visible={savedVisible} />
+              <UndoRedoToolbar
+                canUndo={canUndo && !isGenerating}
+                canRedo={canRedo && !isGenerating}
+                onUndo={undo}
+                onRedo={redo}
+              />
               <WorkflowNextLink
-                to="/sow/export"
+                to="/sow/figures"
                 disabled={
                   isGenerating ||
                   sectionIds.some(
@@ -318,7 +390,7 @@ export default function SowDraft() {
                   saveToStorage();
                 }}
               >
-                Next: Export
+                Next: Figures
               </WorkflowNextLink>
             </>
           }
@@ -498,6 +570,9 @@ export default function SowDraft() {
             <SectionCitationsPanel
               citations={sectionCitations[activeSection] ?? []}
               uploadedFiles={uploadedFiles}
+              pastedText={inputSources.pastedText}
+              cachedRemoteSources={cachedRemoteSources}
+              reviewFieldValues={reviewFieldValues}
             />
           </div>
           </div>{/* end p-8 */}
@@ -518,6 +593,8 @@ export default function SowDraft() {
         inventionTitle={sowDetails?.engagement_title}
         sections={previewSections}
         pendingSectionIds={[]}
+        sectionOrder={sectionIds}
+        documentLabel="Statement of Work Draft"
         onSectionClick={(sectionId) => selectSection(sectionId)}
         footerNote="Click a section heading to jump back and edit it."
       />

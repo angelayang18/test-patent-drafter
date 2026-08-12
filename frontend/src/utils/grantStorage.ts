@@ -1,17 +1,26 @@
 import { defaultGrantDetails, type GrantDetails, type SectionCitation } from "../types/patent";
+import type { GenericFigure } from "../types/genericFigures";
 import type { InputSources, UploadedSourceFile } from "../context/grantContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
+import { getStorageKey } from "./userScopedStorage";
 
-export type GrantWorkflowStep = "input" | "review" | "draft" | "export";
+export type GrantWorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
-export const GRANT_STEP_ORDER: GrantWorkflowStep[] = ["input", "review", "draft", "export"];
+export const GRANT_STEP_ORDER: GrantWorkflowStep[] = [
+  "input",
+  "review",
+  "draft",
+  "figures",
+  "export",
+];
 
 export const GRANT_STEP_PATHS: Record<GrantWorkflowStep, string> = {
   input: "/grant/input",
   review: "/grant/review",
   draft: "/grant/draft",
+  figures: "/grant/figures",
   export: "/grant/export",
 };
 
@@ -29,6 +38,7 @@ export interface GrantWorkflowSnapshot {
   uploadedFiles: UploadedSourceFile[];
   inputSources: InputSources;
   cachedRemoteSources?: CachedRemoteSources;
+  figures?: GenericFigure[];
   completedSteps?: GrantWorkflowStep[];
   extractionSourceKey?: string | null;
   autoDraftPending?: boolean;
@@ -131,6 +141,7 @@ export function normalizeGrantWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
+    figures: Array.isArray(raw?.figures) ? raw.figures : [],
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,
@@ -153,6 +164,10 @@ export function getGrantCompletedSteps(workflow: GrantWorkflowSnapshot): Set<Gra
   if (hasGrantDraftSections(workflow.sections)) {
     completed.add("review");
   }
+  if ((workflow.figures?.length ?? 0) > 0) {
+    completed.add("draft");
+    completed.add("figures");
+  }
   return completed;
 }
 
@@ -164,7 +179,7 @@ export function isGrantStepAccessible(
     return true;
   }
   if (step === "export") {
-    return (workflow.completedSteps ?? []).includes("draft");
+    return (workflow.completedSteps ?? []).includes("figures");
   }
   const stepIndex = GRANT_STEP_ORDER.indexOf(step);
   if (stepIndex <= 0) {
@@ -175,7 +190,7 @@ export function isGrantStepAccessible(
 
 function readJson<T>(key: string): T | null {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(getStorageKey(key));
     if (!raw) return null;
     return JSON.parse(raw) as T;
   } catch {
@@ -190,7 +205,10 @@ export function readActiveGrantWorkflow(): GrantWorkflowSnapshot {
 
 export function writeActiveGrantWorkflow(workflow: GrantWorkflowSnapshot): void {
   try {
-    localStorage.setItem(ACTIVE_GRANT_WORKFLOW_KEY, JSON.stringify(normalizeGrantWorkflow(workflow)));
+    localStorage.setItem(
+      getStorageKey(ACTIVE_GRANT_WORKFLOW_KEY),
+      JSON.stringify(normalizeGrantWorkflow(workflow)),
+    );
   } catch {
     // quota exceeded — workflow still lives in memory
   }
@@ -202,7 +220,7 @@ export function createEmptyGrantWorkflowSnapshot(): GrantWorkflowSnapshot {
 
 export function clearActiveGrantWorkflow(): void {
   try {
-    localStorage.removeItem(ACTIVE_GRANT_WORKFLOW_KEY);
+    localStorage.removeItem(getStorageKey(ACTIVE_GRANT_WORKFLOW_KEY));
   } catch {
     // ignore
   }
@@ -213,10 +231,14 @@ export function grantWorkflowHasProgress(workflow: GrantWorkflowSnapshot): boole
   if (workflow.uploadedFiles.length > 0) return true;
   if (inputSourcesHaveProgress(workflow.inputSources)) return true;
   if (Object.values(workflow.sections).some((section) => section?.trim())) return true;
+  if ((workflow.figures?.length ?? 0) > 0) return true;
   return false;
 }
 
 export function getGrantResumePath(workflow: GrantWorkflowSnapshot): string {
+  if ((workflow.figures?.length ?? 0) > 0) {
+    return GRANT_STEP_PATHS.figures;
+  }
   if (Object.values(workflow.sections).some((section) => section?.trim())) {
     return GRANT_STEP_PATHS.draft;
   }
@@ -256,7 +278,7 @@ const GRANT_DRAFT_FILE_VERSION = 1;
 
 function writeGrantJson(key: string, value: unknown): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(getStorageKey(key), JSON.stringify(value));
   } catch {
     throw new Error("Could not save draft. Browser storage may be full.");
   }

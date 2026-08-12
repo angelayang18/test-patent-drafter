@@ -26,6 +26,10 @@ from .patent_template import (
 )
 from .prompts import PATENT_SECTIONS, _format_invention_context, get_prompt
 from .retrieval import citations_from_excerpts, format_excerpts_block, retrieve_relevant_excerpts
+from .review_field_sources import (
+    PATENT_REVIEW_FIELD_LABELS,
+    append_review_fields_to_combined_text,
+)
 from .source_chunks import parse_source_chunks
 
 _SECTION_LABELS = {
@@ -40,7 +44,14 @@ _SECTION_LABELS = {
 _AGENT_CONVENTIONS = (
     "Use formal US provisional patent language: 'comprising', 'wherein', 'configured to', "
     "'in one embodiment', 'in another embodiment'. "
-    "Be highly specific for AI/ML inventions (transformers, embeddings, RAG, tokenization, etc.). "
+    "When the invention details actually describe an AI/ML invention, be highly specific "
+    "(transformers, embeddings, RAG, tokenization, etc.); do not default to AI/ML themes "
+    "when the details do not support them. "
+    "Ground every claim in the invention details provided. If the invention details are "
+    "largely missing, marked 'N/A', or too sparse to describe a real technical solution, "
+    "say so plainly in the section text (e.g., state that the source material does not "
+    "provide sufficient detail to draft this section) rather than inventing a "
+    "plausible-sounding generic description. "
     "Avoid vague business language. "
     "Do not use internal document delimiter markers (%%qa, %%Header 1%%, etc.) or "
     "template placeholders in braces ({item_1_desc}); write complete patent prose. "
@@ -208,8 +219,8 @@ def draft_section_agent(
 ) -> tuple[str, list[dict]]:
     """Draft one section via its isolated agent with optional reflection.
 
-    Returns ``(content, citations)``. When ``combined_text`` is empty, retrieval
-    is skipped and citations is ``[]``.
+    Returns ``(content, citations)``. When ``combined_text`` is empty and Review
+    fields are empty/N/A, retrieval is skipped and citations is ``[]``.
 
     Custom (non-canonical) section ids are accepted when ``custom_sections``
     supplies ``name`` / ``description`` metadata for that id.
@@ -220,6 +231,11 @@ def draft_section_agent(
         raise ValueError(
             f"Unknown section '{section}'. Must be one of: {PATENT_SECTIONS}"
         )
+
+    # Make Review-tab fields citable via the same chunk/citation pipeline as uploads.
+    combined_text = append_review_fields_to_combined_text(
+        combined_text, invention, PATENT_REVIEW_FIELD_LABELS
+    )
 
     excerpts = []
     query_terms: set[str] = set()
