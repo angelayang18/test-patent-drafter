@@ -504,19 +504,21 @@ def regenerate_patent_figure(
 async def generate_generic_single_figure(
     document_type_label: str,
     document_title: str,
-    combined_text: str,
+    section_name: str,
+    section_content: str,
     figure_number: int,
     total_figures: int,
 ) -> dict[str, Any]:
-    """Generate one supporting diagram for a non-patent document asynchronously."""
-    from .prompts import GENERIC_FIGURES_SYSTEM, get_generic_single_figure_prompt
+    """Generate one section-scoped supporting diagram asynchronously."""
+    from .prompts import GENERIC_FIGURES_SYSTEM, get_generic_section_figure_prompt
 
-    prompt = get_generic_single_figure_prompt(
+    _ = total_figures  # used only for call-site numbering context
+
+    prompt = get_generic_section_figure_prompt(
         document_type_label,
         document_title,
-        combined_text,
-        figure_number,
-        total_figures,
+        section_name,
+        section_content,
     )
 
     last_error: ValueError | None = None
@@ -547,33 +549,26 @@ async def generate_generic_single_figure(
 async def generate_generic_figures(
     document_type_label: str,
     document_title: str,
-    combined_text: str,
-    num_figures: int = 3,
+    sections: list[dict[str, str]],
 ) -> dict[str, Any]:
-    """
-    Generate supporting Mermaid diagrams for a non-patent document.
+    """One figure per input section, generated in parallel. Each returned figure dict
+    includes a "section_id" key matching the input so the frontend/export can anchor it."""
+    if not sections:
+        raise ValueError("At least one section is required.")
 
-    Returns:
-        {
-            "figures": list[dict],
-            "warnings": list[str] | omitted,
-        }
-    """
-    if num_figures < 1:
-        raise ValueError("num_figures must be at least 1.")
-
-    tasks = [
-        generate_generic_single_figure(
+    async def _one(section: dict[str, str], index: int) -> dict[str, Any]:
+        figure = await generate_generic_single_figure(
             document_type_label,
             document_title,
-            combined_text,
-            i + 1,
-            num_figures,
+            section["section_name"],
+            section.get("section_content", ""),
+            index + 1,
+            len(sections),
         )
-        for i in range(num_figures)
-    ]
-    figures = list(await asyncio.gather(*tasks))
+        figure["section_id"] = section["section_id"]
+        return figure
 
+    figures = list(await asyncio.gather(*[_one(s, i) for i, s in enumerate(sections)]))
     diagram_warnings = validate_figure_diagram_types(figures)
     result: dict[str, Any] = {"figures": figures}
     if diagram_warnings:
@@ -584,16 +579,18 @@ async def generate_generic_figures(
 def regenerate_generic_figure(
     document_type_label: str,
     document_title: str,
-    combined_text: str,
+    section_id: str,
+    section_name: str,
+    section_content: str,
     figure_number: int,
     existing_figures: list[dict],
 ) -> dict[str, Any]:
     """
-    Regenerate a single supporting diagram using a diagram type not already in use.
+    Regenerate a single section-scoped supporting diagram with a unique diagram type.
 
     Returns:
         {
-            "figure": normalized figure dict,
+            "figure": normalized figure dict (includes section_id),
             "warnings": list[str] | omitted,
         }
     """
@@ -607,7 +604,8 @@ def regenerate_generic_figure(
     prompt = get_generic_regenerate_figure_prompt(
         document_type_label,
         document_title,
-        combined_text,
+        section_name,
+        section_content,
         figure_number,
         existing_figures,
         used_types,
@@ -619,6 +617,7 @@ def regenerate_generic_figure(
         raw = generate_json(GENERIC_FIGURES_SYSTEM, user_prompt)
         try:
             figure = _figure_from_regenerate_response(raw, figure_number)
+            figure["section_id"] = section_id
             diagram_warnings = validate_figure_diagram_types([figure])
             if diagram_warnings:
                 return {"figure": figure, "warnings": diagram_warnings}

@@ -15,6 +15,8 @@ export interface SectionListEditorProps {
   warnOnRemoveIds: Set<string>;
   defaultLabels: Record<string, string>;
   defaultDescriptions: Record<string, string>;
+  /** When true, show a "Needs figure" checkbox per section (non-patent types). */
+  supportsFigureSections?: boolean;
   onMove: (index: number, direction: -1 | 1) => void;
   onPatch: (id: string, patch: Partial<SectionSetting>) => void;
   onToggleIncluded: (id: string, included: boolean) => void;
@@ -29,6 +31,7 @@ export function SectionListEditor({
   warnOnRemoveIds,
   defaultLabels,
   defaultDescriptions,
+  supportsFigureSections = false,
   onMove,
   onPatch,
   onToggleIncluded,
@@ -78,6 +81,7 @@ export function SectionListEditor({
         {rowOrder.map((id, index) => {
           const isCustom = !fixedIds.includes(id);
           const included = localSettings[id]?.included !== false;
+          const needsFigure = localSettings[id]?.needsFigure === true;
           const nameValue = localSettings[id]?.name ?? "";
           const descriptionValue = localSettings[id]?.description ?? "";
           const displayLabel = defaultLabels[id] ?? (nameValue || id);
@@ -115,16 +119,34 @@ export function SectionListEditor({
 
                 <div className="flex-1 min-w-0 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 font-body-sm text-body-sm text-on-surface">
-                      <input
-                        type="checkbox"
-                        checked={included}
-                        title="Include in this draft"
-                        onChange={(e) => handleToggleIncluded(id, e.target.checked)}
-                        className="rounded border-outline-variant"
-                      />
-                      Include in this draft
-                    </label>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <label className="flex items-center gap-2 font-body-sm text-body-sm text-on-surface">
+                        <input
+                          type="checkbox"
+                          checked={included}
+                          title="Include in this draft"
+                          onChange={(e) => handleToggleIncluded(id, e.target.checked)}
+                          className="rounded border-outline-variant"
+                        />
+                        Include in this draft
+                      </label>
+                      {supportsFigureSections && (
+                        <label className="flex items-center gap-2 font-body-sm text-body-sm text-on-surface">
+                          <input
+                            type="checkbox"
+                            checked={needsFigure}
+                            title="Needs figure"
+                            onChange={(e) =>
+                              onPatch(id, {
+                                needsFigure: e.target.checked ? true : undefined,
+                              })
+                            }
+                            className="rounded border-outline-variant"
+                          />
+                          Needs figure
+                        </label>
+                      )}
+                    </div>
                     {isCustom && (
                       <button
                         type="button"

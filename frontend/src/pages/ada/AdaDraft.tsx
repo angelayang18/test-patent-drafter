@@ -603,6 +603,7 @@ export default function AdaDraft() {
         warnOnRemoveIds={adaWarnOnRemoveIds}
         settings={sectionSettings}
         onSave={setSectionSettings}
+        supportsFigureSections
       />
       <SelectionRegeneratePopover
         anchorRect={textareaSelection?.anchorRect ?? null}

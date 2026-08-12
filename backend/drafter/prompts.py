@@ -882,107 +882,47 @@ GENERIC_FIGURES_SYSTEM = (
 ) + MERMAID_NO_HTML_RULES + MERMAID_GRAPH_TD_SUBGRAPH_RULE + DIAGRAM_TYPE_DIVERSITY_RULES
 
 
-def get_generic_figures_prompt(
+def get_generic_section_figure_prompt(
     document_type_label: str,
     document_title: str,
-    combined_text: str,
-    num_figures: int,
+    section_name: str,
+    section_content: str,
 ) -> str:
     """
-    Returns the LLM prompt for generating supporting diagrams for a non-patent document.
+    Returns the prompt for generating one supporting diagram for a specific section.
     """
-    text_block = ""
-    if combined_text.strip():
-        text_block = f"""
-DOCUMENT CONTENT (use for consistency of names, steps, and structure):
-{combined_text.strip()[:12000]}
-"""
-
     title = document_title.strip() or "(untitled)"
     label = document_type_label.strip() or "document"
+    section = section_name.strip() or "(unnamed section)"
+    content = section_content.strip()[:8000]
 
-    return f"""{text_block}
-
-TASK: Generate {num_figures} supporting diagram(s) for a {label} titled "{title}".
-
-Return a JSON object with exactly this key:
-- figures: list of objects, each with:
-  - number: int (consecutive Arabic numerals starting at 1)
-  - title: str (short title, e.g. "System architecture")
-  - brief_description: str (single sentence describing what the diagram shows)
-  - reference_numerals: object (optional; may be empty {{}})
-  - mermaid: str — valid Mermaid diagram for clean black-and-white line art
-
-REQUIREMENTS:
-- Generate exactly {num_figures} figure(s)
-- Use varied diagram types across figures when more than one is requested —
-  prefer a mix of flowchart, graph, sequenceDiagram, and classDiagram
-- Each figure must cover a DISTINCT aspect of the document — do not repeat the
-  same overview in different diagram types
-- Do NOT require reference numerals; leave reference_numerals empty unless
-  numerals naturally appear in the source text
-- Mermaid rules:
-{MERMAID_NO_HTML_RULES}
-  - Each figure's mermaid must start with its diagram type on the first non-comment line
-  - No classDef, no style directives, no colors, no subgraph styling
-  - Maximum 12 nodes/participants/entities per diagram
-  - Limit nodes per row to 4 in flowcharts and graph diagrams
-  - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}
-  - When using subgraphs in Mermaid, always give them a quoted display title using bracket
-    syntax, e.g. `subgraph ingestion [Ingestion Layer]`
-- Prefer tall/vertical layouts suitable for letter-size portrait paper
-
-Output ONLY the JSON object, no markdown fences."""
-
-
-def get_generic_single_figure_prompt(
-    document_type_label: str,
-    document_title: str,
-    combined_text: str,
-    figure_number: int,
-    total_figures: int,
-) -> str:
-    """
-    Returns the prompt for generating a single supporting diagram for a non-patent document.
-    """
-    text_block = ""
-    if combined_text.strip():
-        text_block = f"""
-DOCUMENT CONTENT (use for consistency of names, steps, and structure):
-{combined_text.strip()[:12000]}
+    section_block = ""
+    if content:
+        section_block = f"""
+SECTION CONTENT (illustrate this section; preserve names, steps, and structure):
+{content}
 """
 
-    title = document_title.strip() or "(untitled)"
-    label = document_type_label.strip() or "document"
-    type_hints = {
-        1: "graph TD or flowchart TD (architecture / overview)",
-        2: "flowchart TD (process / method steps)",
-        3: "sequenceDiagram or flowchart TD (interactions / data flow)",
-        4: "classDiagram (entities / relationships)",
-    }
-    preferred = type_hints.get(
-        figure_number,
-        "classDiagram or flowchart TD (distinct supporting view)",
-    )
+    return f"""
+TASK: Generate ONE supporting diagram that illustrates the following section of a
+{label} titled "{title}".
 
-    return f"""{text_block}
-
-TASK: Generate figure {figure_number} of {total_figures} supporting diagram(s) for a
-{label} titled "{title}". You are generating figure {figure_number} of {total_figures} only.
+SECTION NAME: {section}
+{section_block}
 
 Return a JSON object with exactly this key:
 - figure: object with:
-  - number: int (must be {figure_number})
+  - number: int
   - title: str (short title)
   - brief_description: str (single sentence describing what the diagram shows)
   - reference_numerals: object (optional; may be empty {{}})
   - mermaid: str — valid Mermaid diagram for clean black-and-white line art
 
 REQUIREMENTS:
-- Prefer diagram type: {preferred}
-- Cover a distinct aspect appropriate to this figure number among the set of {total_figures}
+{DIAGRAM_TYPE_DIVERSITY_RULES}
+- Illustrate this section only — do not invent unrelated document-wide overviews
 - Do NOT require reference numerals; leave reference_numerals empty unless numerals
-  naturally appear in the source text
+  naturally appear in the section content
 - Mermaid rules:
 {MERMAID_NO_HTML_RULES}
   - The mermaid field must start with its diagram type on the first non-comment line
@@ -1000,23 +940,26 @@ Output ONLY the JSON object, no markdown fences."""
 def get_generic_regenerate_figure_prompt(
     document_type_label: str,
     document_title: str,
-    combined_text: str,
+    section_name: str,
+    section_content: str,
     figure_number: int,
     existing_figures: list[dict],
     used_diagram_types: list[str],
 ) -> str:
     """
-    Returns the prompt for regenerating a single supporting diagram with a unique type.
+    Returns the prompt for regenerating a single section-scoped supporting diagram.
     """
-    text_block = ""
-    if combined_text.strip():
-        text_block = f"""
-DOCUMENT CONTENT (use for consistency of names, steps, and structure):
-{combined_text.strip()[:12000]}
-"""
-
     title = document_title.strip() or "(untitled)"
     label = document_type_label.strip() or "document"
+    section = section_name.strip() or "(unnamed section)"
+    content = section_content.strip()[:8000]
+
+    section_block = ""
+    if content:
+        section_block = f"""
+SECTION CONTENT (illustrate this section; preserve names, steps, and structure):
+{content}
+"""
 
     other_figures_lines: list[str] = []
     for fig in sorted(existing_figures, key=lambda f: int(f.get("number", 0))):
@@ -1042,9 +985,12 @@ DOCUMENT CONTENT (use for consistency of names, steps, and structure):
     )
     used_types_str = ", ".join(used_diagram_types) if used_diagram_types else "(none yet)"
 
-    return f"""{text_block}
+    return f"""
+TASK: Regenerate ONLY figure {figure_number} for the following section of a
+{label} titled "{title}".
 
-TASK: Regenerate ONLY figure {figure_number} for a {label} titled "{title}".
+SECTION NAME: {section}
+{section_block}
 
 OTHER EXISTING FIGURES (do NOT duplicate their diagram types or subject matter):
 {other_figures_block}
@@ -1061,12 +1007,13 @@ Return a JSON object with exactly this key:
   - mermaid: str — valid Mermaid diagram using a diagram type NOT in the used-types list above
 
 REQUIREMENTS:
+{DIAGRAM_TYPE_DIVERSITY_RULES}
 {MERMAID_NO_HTML_RULES}
-- Regenerate figure {figure_number} only — cover a distinct aspect not already depicted
+- Regenerate figure {figure_number} only — illustrate this section, not other sections
 - Use a Mermaid diagram type that is NOT already used by any other figure
   (prefer among flowchart, graph, sequenceDiagram, classDiagram)
 - Do NOT require reference numerals; leave reference_numerals empty unless numerals
-  naturally appear in the source text
+  naturally appear in the section content
 - Keep the diagram black-and-white with no classDef, style directives, or colors
 - Maximum 12 nodes/participants per diagram
 - {MERMAID_GRAPH_TD_SUBGRAPH_RULE}

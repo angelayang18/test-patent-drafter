@@ -1,10 +1,18 @@
 import { defaultSowDetails, type SOWDetails, type SectionCitation } from "../types/patent";
 import type { GenericFigure } from "../types/genericFigures";
+import { normalizeGenericFigure } from "../types/genericFigures";
 import type { InputSources, UploadedSourceFile } from "../context/sowContext";
 import type { CachedRemoteSources } from "./gatherSourceText";
 import { notifyDraftsChanged } from "./draftLibraryEvents";
 import type { SectionSettingsMap } from "./sectionSettings";
 import { getStorageKey } from "./userScopedStorage";
+
+function normalizeStoredFigures(raw: unknown): GenericFigure[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => normalizeGenericFigure(entry))
+    .filter((entry): entry is GenericFigure => entry !== null);
+}
 
 export type SowWorkflowStep = "input" | "review" | "draft" | "figures" | "export";
 
@@ -141,7 +149,7 @@ export function normalizeSowWorkflow(
     uploadedFiles: raw?.uploadedFiles ?? [],
     inputSources: normalizeInputSources(raw?.inputSources as LegacyInputSources | undefined),
     cachedRemoteSources: normalizeCachedRemoteSources(raw?.cachedRemoteSources),
-    figures: Array.isArray(raw?.figures) ? raw.figures : [],
+    figures: normalizeStoredFigures(raw?.figures),
     completedSteps: raw?.completedSteps ?? [],
     extractionSourceKey: raw?.extractionSourceKey ?? null,
     autoDraftPending: raw?.autoDraftPending ?? false,

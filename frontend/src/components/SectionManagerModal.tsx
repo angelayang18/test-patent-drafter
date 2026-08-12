@@ -20,6 +20,8 @@ export interface SectionManagerModalProps {
   warnOnRemoveIds: Set<string>;
   settings: SectionSettingsMap;
   onSave: (settings: SectionSettingsMap) => void;
+  /** When true, show per-section "Needs figure" checkboxes (non-patent types). */
+  supportsFigureSections?: boolean;
 }
 
 function patchSetting(
@@ -40,6 +42,7 @@ export function SectionManagerModal({
   warnOnRemoveIds,
   settings,
   onSave,
+  supportsFigureSections = false,
 }: SectionManagerModalProps) {
   const allIds = effectiveSectionIds(sectionIds, settings);
   const [localSettings, setLocalSettings] = useState<SectionSettingsMap>(() =>
@@ -128,6 +131,7 @@ export function SectionManagerModal({
             warnOnRemoveIds={warnOnRemoveIds}
             defaultLabels={defaultLabels}
             defaultDescriptions={defaultDescriptions}
+            supportsFigureSections={supportsFigureSections}
             onMove={moveRow}
             onPatch={(id, patch) =>
               setLocalSettings((prev) => patchSetting(prev, id, patch))

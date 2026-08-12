@@ -12,7 +12,11 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 
 from exporter.figure_png import prerender_figure_pngs
-from exporter.figure_sheets import add_drawing_sheets_docx, add_drawing_sheets_pdf
+from exporter.figure_sheets import (
+    add_drawing_sheets_docx,
+    add_drawing_sheets_pdf,
+    group_figures_by_section_id,
+)
 from exporter.text_format import split_paragraphs
 
 FONT_SIZE_BODY = 11
@@ -86,10 +90,15 @@ def export_generic_docx(
         heading = doc.add_heading(title, level=0)
         heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    for index, (key, content) in enumerate(
-        _ordered_sections(sections, section_order),
-        start=1,
-    ):
+    figure_list = figures or []
+    png_by_number = prerender_figure_pngs(figure_list) if figure_list else {}
+    figures_by_section = group_figures_by_section_id(figure_list)
+    total_sheets = len(figure_list)
+    next_sheet = 1
+    ordered = _ordered_sections(sections, section_order)
+    ordered_keys = {key for key, _ in ordered}
+
+    for index, (key, content) in enumerate(ordered, start=1):
         label = _resolve_label(key, section_labels)
         section_heading = doc.add_paragraph()
         run = section_heading.add_run(f"{index}. {label}")
@@ -103,10 +112,29 @@ def export_generic_docx(
             for run in body.runs:
                 run.font.size = Pt(11)
 
-    figure_list = figures or []
-    if figure_list:
-        png_by_number = prerender_figure_pngs(figure_list)
-        add_drawing_sheets_docx(doc, figure_list, png_by_number)
+        section_figures = figures_by_section.get(key, [])
+        if section_figures:
+            next_sheet = add_drawing_sheets_docx(
+                doc,
+                section_figures,
+                png_by_number,
+                sheet_start=next_sheet,
+                total_sheets=total_sheets,
+            )
+
+    orphan_figures = [
+        fig
+        for fig in figure_list
+        if str(fig.get("section_id") or "") not in ordered_keys
+    ]
+    if orphan_figures:
+        add_drawing_sheets_docx(
+            doc,
+            orphan_figures,
+            png_by_number,
+            sheet_start=next_sheet,
+            total_sheets=total_sheets,
+        )
 
     buffer = BytesIO()
     doc.save(buffer)
@@ -135,10 +163,15 @@ def export_generic_pdf(
         pdf.multi_cell(0, LINE_HEIGHT + 2, _sanitize_text(title), align="C", **_MULTI_CELL_KW)
         pdf.ln(8)
 
-    for index, (key, content) in enumerate(
-        _ordered_sections(sections, section_order),
-        start=1,
-    ):
+    figure_list = figures or []
+    png_by_number = prerender_figure_pngs(figure_list) if figure_list else {}
+    figures_by_section = group_figures_by_section_id(figure_list)
+    total_sheets = len(figure_list)
+    next_sheet = 1
+    ordered = _ordered_sections(sections, section_order)
+    ordered_keys = {key for key, _ in ordered}
+
+    for index, (key, content) in enumerate(ordered, start=1):
         label = _resolve_label(key, section_labels)
         pdf.set_font("Helvetica", style="B", size=FONT_SIZE_HEADING)
         pdf.multi_cell(
@@ -155,10 +188,29 @@ def export_generic_pdf(
             pdf.ln(2)
         pdf.ln(4)
 
-    figure_list = figures or []
-    if figure_list:
-        png_by_number = prerender_figure_pngs(figure_list)
-        add_drawing_sheets_pdf(pdf, figure_list, png_by_number)
+        section_figures = figures_by_section.get(key, [])
+        if section_figures:
+            next_sheet = add_drawing_sheets_pdf(
+                pdf,
+                section_figures,
+                png_by_number,
+                sheet_start=next_sheet,
+                total_sheets=total_sheets,
+            )
+
+    orphan_figures = [
+        fig
+        for fig in figure_list
+        if str(fig.get("section_id") or "") not in ordered_keys
+    ]
+    if orphan_figures:
+        add_drawing_sheets_pdf(
+            pdf,
+            orphan_figures,
+            png_by_number,
+            sheet_start=next_sheet,
+            total_sheets=total_sheets,
+        )
 
     buffer = BytesIO()
     pdf.output(buffer)

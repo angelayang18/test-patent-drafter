@@ -19,7 +19,6 @@ export default function GenericFigures() {
     figures,
     setFigures,
     updateFigure,
-    gatherSourceText,
     saveToStorage,
     getWorkflowSnapshot,
     markStepComplete,
@@ -31,7 +30,14 @@ export default function GenericFigures() {
     () => template.sections.map((section) => section.id),
     [template.sections],
   );
-  const sectionOrder = useMemo(
+  const defaultLabels = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const section of template.sections) {
+      map[section.id] = section.name;
+    }
+    return map;
+  }, [template.sections]);
+  const sectionIds = useMemo(
     () =>
       resolveSectionOrder(
         effectiveSectionIds(templateSectionIds, sectionSettings),
@@ -39,15 +45,6 @@ export default function GenericFigures() {
       ),
     [templateSectionIds, sectionSettings],
   );
-
-  const gatherCombinedText = useCallback(async () => {
-    const { combined } = await gatherSourceText();
-    const sectionText = Object.entries(sections)
-      .filter(([, value]) => value?.trim())
-      .map(([id, value]) => `--- ${id} ---\n${value}`)
-      .join("\n\n");
-    return [combined, sectionText].filter((part) => part.trim()).join("\n\n");
-  }, [gatherSourceText, sections]);
 
   const isFiguresAccessible = useCallback(
     () => isGenericStepAccessible("figures", getWorkflowSnapshot()),
@@ -61,12 +58,14 @@ export default function GenericFigures() {
       documentTypeLabel={template.name}
       documentTitle={details?.title ?? ""}
       documentLabel={`${template.name} Draft`}
+      sectionSettings={sectionSettings}
+      sectionIds={sectionIds}
       sections={sections}
-      sectionOrder={sectionOrder}
+      defaultLabels={defaultLabels}
+      sectionOrder={sectionIds}
       figures={figures}
       setFigures={setFigures}
       updateFigure={updateFigure}
-      gatherCombinedText={gatherCombinedText}
       saveToStorage={saveToStorage}
       markStepComplete={() => markStepComplete("figures")}
       workflowResetting={workflowResetting}

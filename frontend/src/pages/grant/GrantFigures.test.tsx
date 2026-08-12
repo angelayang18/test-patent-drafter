@@ -9,6 +9,7 @@ const { generateGenericFigures, setFigures } = vi.hoisted(() => ({
     figures: [
       {
         number: 1,
+        sectionId: "methodology",
         title: "Overview",
         brief_description: "System overview diagram.",
         reference_numerals: {},
@@ -61,15 +62,20 @@ vi.mock("../../utils/grantStorage", async () => {
 vi.mock("../../context/GrantWorkflowContext", () => ({
   useGrantWorkflow: () => ({
     grantDetails: { project_title: "Climate Project" },
-    sections: { abstract: "Abstract content" },
+    sections: { methodology: "We will deploy sensors and analyze telemetry." },
+    sectionSettings: {
+      methodology: { order: 3, included: true, needsFigure: true },
+    },
     figures: [],
     setFigures,
     updateFigure: vi.fn(),
-    gatherSourceText: vi.fn(async () => ({ combined: "source text", cache: {} })),
     saveToStorage: vi.fn(),
     getWorkflowSnapshot: () => ({
       grantDetails: { project_title: "Climate Project" },
-      sections: { abstract: "Abstract content" },
+      sections: { methodology: "We will deploy sensors and analyze telemetry." },
+      sectionSettings: {
+        methodology: { order: 3, included: true, needsFigure: true },
+      },
       figures: [],
       uploadedFiles: [],
       inputSources: {
@@ -95,7 +101,7 @@ afterEach(() => {
 });
 
 describe("GrantFigures", () => {
-  it("calls generateGenericFigures when Generate with AI is clicked", async () => {
+  it("calls generateGenericFigures for a flagged section when Generate diagram is clicked", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter initialEntries={["/grant/figures"]}>
@@ -105,7 +111,7 @@ describe("GrantFigures", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getByRole("button", { name: /Generate with AI/i }));
+    await user.click(screen.getByRole("button", { name: /Generate diagram/i }));
 
     expect(generateGenericFigures).toHaveBeenCalledTimes(1);
     expect(generateGenericFigures).toHaveBeenCalledWith(
@@ -113,7 +119,13 @@ describe("GrantFigures", () => {
       expect.objectContaining({
         documentTypeLabel: "Grant Application",
         documentTitle: "Climate Project",
-        numFigures: 3,
+        sections: [
+          expect.objectContaining({
+            sectionId: "methodology",
+            sectionName: "Methodology",
+            sectionContent: "We will deploy sensors and analyze telemetry.",
+          }),
+        ],
       }),
     );
   });

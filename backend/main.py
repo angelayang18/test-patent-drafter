@@ -252,6 +252,7 @@ class GrantDraftAllRequest(GrantDetails):
 
 class GenericFigureModel(BaseModel):
     number: int
+    section_id: str
     title: str
     brief_description: str
     reference_numerals: dict[str, str] = Field(default_factory=dict)
@@ -453,11 +454,16 @@ class GenerateFiguresRequest(InventionDetails):
     num_figures: int = Field(default=3, ge=1, le=8)
 
 
+class GenericFigureSectionInput(BaseModel):
+    section_id: str
+    section_name: str
+    section_content: str = ""
+
+
 class GenerateGenericFiguresRequest(BaseModel):
     document_type_label: str = ""
     document_title: str = ""
-    combined_text: str = ""
-    num_figures: int = Field(default=3, ge=1, le=8)
+    sections: list[GenericFigureSectionInput]
 
 
 class RegenerateFigureRequest(InventionDetails):
@@ -469,7 +475,9 @@ class RegenerateFigureRequest(InventionDetails):
 class RegenerateGenericFigureRequest(BaseModel):
     document_type_label: str = ""
     document_title: str = ""
-    combined_text: str = ""
+    section_id: str
+    section_name: str
+    section_content: str = ""
     figure_number: int
     existing_figures: list[GenericFigureModel] = Field(default_factory=list)
 
@@ -1583,13 +1591,12 @@ async def generate_figures(body: GenerateFiguresRequest) -> dict:
 
 @app.post("/figures/generate/generic")
 async def generate_generic_figures_route(body: GenerateGenericFiguresRequest) -> dict:
-    """Generate supporting Mermaid diagrams for Grant/SOW/ADA/Generic documents."""
+    """Generate one supporting Mermaid diagram per flagged section."""
     try:
         result = await generate_generic_figures(
             body.document_type_label,
             body.document_title,
-            body.combined_text,
-            num_figures=body.num_figures,
+            [section.model_dump() for section in body.sections],
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1641,7 +1648,9 @@ def regenerate_generic_figure_route(body: RegenerateGenericFigureRequest) -> dic
         result = regenerate_generic_figure(
             body.document_type_label,
             body.document_title,
-            body.combined_text,
+            body.section_id,
+            body.section_name,
+            body.section_content,
             body.figure_number,
             existing,
         )

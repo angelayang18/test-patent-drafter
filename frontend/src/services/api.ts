@@ -14,6 +14,10 @@ import type {
   GenericFiguresResult,
   RegenerateGenericFigureResult,
 } from "../types/genericFigures";
+import {
+  normalizeGenericFigure,
+  serializeGenericFigure,
+} from "../types/genericFigures";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_URL ?? import.meta.env.REACT_APP_API_URL ?? "http://localhost:8000";
@@ -902,11 +906,17 @@ export async function generateGenericFigures(
   options: {
     documentTypeLabel: string;
     documentTitle: string;
-    combinedText: string;
-    numFigures: number;
+    sections: Array<{
+      sectionId: string;
+      sectionName: string;
+      sectionContent: string;
+    }>;
   },
 ): Promise<GenericFiguresResult> {
-  return requestJson<GenericFiguresResult>(
+  const data = await requestJson<{
+    figures?: unknown[];
+    warnings?: string[];
+  }>(
     "/figures/generate/generic",
     {
       method: "POST",
@@ -914,12 +924,21 @@ export async function generateGenericFigures(
       body: JSON.stringify({
         document_type_label: options.documentTypeLabel,
         document_title: options.documentTitle,
-        combined_text: options.combinedText,
-        num_figures: options.numFigures,
+        sections: options.sections.map((section) => ({
+          section_id: section.sectionId,
+          section_name: section.sectionName,
+          section_content: section.sectionContent,
+        })),
       }),
     },
     token ?? undefined,
   );
+  return {
+    figures: (data.figures ?? [])
+      .map((figure) => normalizeGenericFigure(figure))
+      .filter((figure): figure is GenericFigure => figure !== null),
+    ...(data.warnings?.length ? { warnings: data.warnings } : {}),
+  };
 }
 
 export async function regenerateGenericFigure(
@@ -927,12 +946,17 @@ export async function regenerateGenericFigure(
   options: {
     documentTypeLabel: string;
     documentTitle: string;
-    combinedText: string;
+    sectionId: string;
+    sectionName: string;
+    sectionContent: string;
     figureNumber: number;
     existingFigures: GenericFigure[];
   },
 ): Promise<RegenerateGenericFigureResult> {
-  return requestJson<RegenerateGenericFigureResult>(
+  const data = await requestJson<{
+    figure?: unknown;
+    warnings?: string[];
+  }>(
     "/figures/regenerate-one/generic",
     {
       method: "POST",
@@ -940,13 +964,23 @@ export async function regenerateGenericFigure(
       body: JSON.stringify({
         document_type_label: options.documentTypeLabel,
         document_title: options.documentTitle,
-        combined_text: options.combinedText,
+        section_id: options.sectionId,
+        section_name: options.sectionName,
+        section_content: options.sectionContent,
         figure_number: options.figureNumber,
-        existing_figures: options.existingFigures,
+        existing_figures: options.existingFigures.map(serializeGenericFigure),
       }),
     },
     token ?? undefined,
   );
+  const figure = normalizeGenericFigure(data.figure);
+  if (!figure) {
+    throw new ApiError("Invalid figure response from server.", 500);
+  }
+  return {
+    figure,
+    ...(data.warnings?.length ? { warnings: data.warnings } : {}),
+  };
 }
 
 export async function prerenderExportFigures(
@@ -1052,7 +1086,7 @@ export async function exportGrantDocx(
       sections,
       project_title: projectTitle ?? "",
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1077,7 +1111,7 @@ export async function exportGrantPdf(
       sections,
       project_title: projectTitle ?? "",
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1102,7 +1136,7 @@ export async function exportSowDocx(
       sections,
       engagement_title: engagementTitle ?? "",
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1127,7 +1161,7 @@ export async function exportSowPdf(
       sections,
       engagement_title: engagementTitle ?? "",
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1152,7 +1186,7 @@ export async function exportAdaDocx(
       sections,
       study_title: studyTitle ?? "",
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1177,7 +1211,7 @@ export async function exportAdaPdf(
       sections,
       study_title: studyTitle ?? "",
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1266,7 +1300,7 @@ export async function exportGenericDocx(
       document_title: documentTitle ?? "",
       section_order: sectionOrder ?? [],
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 
@@ -1293,7 +1327,7 @@ export async function exportGenericPdf(
       document_title: documentTitle ?? "",
       section_order: sectionOrder ?? [],
       section_labels: sectionLabels ?? {},
-      figures: figures ?? [],
+      figures: (figures ?? []).map(serializeGenericFigure),
     }),
   });
 

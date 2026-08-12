@@ -5,6 +5,8 @@ export interface CustomSectionDef {
   name: string;
   description: string;
   order: number;
+  /** When true, the Figures step generates a diagram for this section. */
+  needsFigure?: boolean;
 }
 
 export interface DocumentTypeTemplate {
@@ -55,6 +57,7 @@ function normalizeSection(raw: Partial<CustomSectionDef>, index: number): Custom
     name,
     description: typeof raw.description === "string" ? raw.description : "",
     order: typeof raw.order === "number" ? raw.order : index,
+    needsFigure: raw.needsFigure === true,
   };
 }
 

@@ -5,6 +5,8 @@ export interface SectionSetting {
   name?: string;
   /** Overrides the default description when set. */
   description?: string;
+  /** When true, the Figures step generates a diagram for this section. */
+  needsFigure?: boolean;
 }
 
 export type SectionSettingsMap = Record<string, SectionSetting>;
@@ -144,6 +146,7 @@ export function commitSectionSettings(
       included: current.included !== false,
       ...(name ? { name } : {}),
       ...(description ? { description } : {}),
+      ...(current.needsFigure ? { needsFigure: true } : {}),
     };
   });
   return next;

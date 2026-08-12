@@ -19,6 +19,8 @@ export interface FigurePanelProps {
   /** Optional helper under the generate controls. */
   helperText?: string;
   emptyStateText?: string;
+  /** When false, hide the num-figures slider and bulk Generate button. */
+  showBulkControls?: boolean;
 }
 
 export function FigurePanel({
@@ -36,6 +38,7 @@ export function FigurePanel({
   onMermaidChange,
   helperText = "Choose how many diagrams best illustrate your document.",
   emptyStateText = 'No figures yet. Click "Generate with AI" after drafting your document.',
+  showBulkControls = true,
 }: FigurePanelProps) {
   const [pngLoading, setPngLoading] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -105,87 +108,109 @@ export function FigurePanel({
         </div>
       )}
 
-      <div className="mb-6">
-        <div className="flex flex-wrap items-stretch gap-4">
-          <div className="bg-white border border-outline-variant rounded-2xl px-6 py-4 shadow-sm flex flex-wrap items-center">
-            <label
-              htmlFor="num-figures-slider"
-              className="font-label-md text-label-md font-medium text-on-surface shrink-0"
-            >
-              Number of figures
-            </label>
-            <span
-              className="ml-2 bg-primary-fixed text-on-primary-fixed-variant font-bold rounded-md px-2 py-0.5 text-sm min-w-[1.75rem] text-center tabular-nums"
-              aria-hidden="true"
-            >
-              {numFigures}
-            </span>
-            <div
-              className="border-l border-outline-variant h-5 mx-3 shrink-0"
-              aria-hidden="true"
-            />
-            <div className="flex items-center gap-2">
-              <span className="font-label-sm text-label-sm text-on-surface-variant tabular-nums">
-                1
+      {showBulkControls && (
+        <div className="mb-6">
+          <div className="flex flex-wrap items-stretch gap-4">
+            <div className="bg-white border border-outline-variant rounded-2xl px-6 py-4 shadow-sm flex flex-wrap items-center">
+              <label
+                htmlFor="num-figures-slider"
+                className="font-label-md text-label-md font-medium text-on-surface shrink-0"
+              >
+                Number of figures
+              </label>
+              <span
+                className="ml-2 bg-primary-fixed text-on-primary-fixed-variant font-bold rounded-md px-2 py-0.5 text-sm min-w-[1.75rem] text-center tabular-nums"
+                aria-hidden="true"
+              >
+                {numFigures}
               </span>
-              <input
-                id="num-figures-slider"
-                type="range"
-                min={1}
-                max={8}
-                step={1}
-                value={numFigures}
-                onChange={(e) => onNumFiguresChange(Number(e.target.value))}
-                disabled={loading}
-                className="w-56 accent-primary"
+              <div
+                className="border-l border-outline-variant h-5 mx-3 shrink-0"
+                aria-hidden="true"
               />
-              <span className="font-label-sm text-label-sm text-on-surface-variant tabular-nums">
-                8
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-label-sm text-label-sm text-on-surface-variant tabular-nums">
+                  1
+                </span>
+                <input
+                  id="num-figures-slider"
+                  type="range"
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={numFigures}
+                  onChange={(e) => onNumFiguresChange(Number(e.target.value))}
+                  disabled={loading}
+                  className="w-56 accent-primary"
+                />
+                <span className="font-label-sm text-label-sm text-on-surface-variant tabular-nums">
+                  8
+                </span>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => void onGenerate()}
+              disabled={loading}
+              className="self-stretch flex items-center gap-2 px-6 bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95 disabled:opacity-60"
+            >
+              <span className={`material-symbols-outlined text-sm ${loading ? "loading-spin" : ""}`}>
+                {loading ? "progress_activity" : "auto_awesome"}
+              </span>
+              {loading ? "Generating..." : "Generate with AI"}
+            </button>
           </div>
+          <p className="font-body-sm text-body-sm text-on-surface-variant mt-2 max-w-xl">
+            {helperText}
+          </p>
+          {figures.length > 0 && current && (
+            <div className="flex flex-wrap gap-3 mt-4">
+              <button
+                type="button"
+                onClick={handleDownloadMermaid}
+                className="px-4 py-2.5 border border-outline-variant rounded-lg font-label-md text-label-md hover:bg-surface-container transition-all"
+              >
+                Download .mmd
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDownloadPng()}
+                disabled={pngLoading}
+                className="px-4 py-2.5 border border-secondary text-secondary rounded-lg font-label-md text-label-md hover:bg-secondary/5 transition-all disabled:opacity-60"
+              >
+                {pngLoading ? "Rendering..." : "Download PNG"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!showBulkControls && figures.length > 0 && current && (
+        <div className="flex flex-wrap gap-3 mb-4">
           <button
             type="button"
-            onClick={() => void onGenerate()}
-            disabled={loading}
-            className="self-stretch flex items-center gap-2 px-6 bg-primary text-on-primary rounded-lg font-label-md text-label-md hover:bg-primary-container transition-all active:scale-95 disabled:opacity-60"
+            onClick={handleDownloadMermaid}
+            className="px-4 py-2.5 border border-outline-variant rounded-lg font-label-md text-label-md hover:bg-surface-container transition-all"
           >
-            <span className={`material-symbols-outlined text-sm ${loading ? "loading-spin" : ""}`}>
-              {loading ? "progress_activity" : "auto_awesome"}
-            </span>
-            {loading ? "Generating..." : "Generate with AI"}
+            Download .mmd
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleDownloadPng()}
+            disabled={pngLoading}
+            className="px-4 py-2.5 border border-secondary text-secondary rounded-lg font-label-md text-label-md hover:bg-secondary/5 transition-all disabled:opacity-60"
+          >
+            {pngLoading ? "Rendering..." : "Download PNG"}
           </button>
         </div>
-        <p className="font-body-sm text-body-sm text-on-surface-variant mt-2 max-w-xl">
-          {helperText}
-        </p>
-        {figures.length > 0 && current && (
-          <div className="flex flex-wrap gap-3 mt-4">
-            <button
-              type="button"
-              onClick={handleDownloadMermaid}
-              className="px-4 py-2.5 border border-outline-variant rounded-lg font-label-md text-label-md hover:bg-surface-container transition-all"
-            >
-              Download .mmd
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleDownloadPng()}
-              disabled={pngLoading}
-              className="px-4 py-2.5 border border-secondary text-secondary rounded-lg font-label-md text-label-md hover:bg-secondary/5 transition-all disabled:opacity-60"
-            >
-              {pngLoading ? "Rendering..." : "Download PNG"}
-            </button>
-          </div>
-        )}
-      </div>
+      )}
 
       {figures.length === 0 ? (
         <div className="bg-surface-container-lowest border border-outline-variant rounded-xl p-12 text-center">
           <span className="material-symbols-outlined text-5xl text-outline mb-4">account_tree</span>
           <p className="font-body-md text-body-md text-on-surface-variant">{emptyStateText}</p>
         </div>
-      ) : (
+      ) : showBulkControls ? (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
           <aside className="lg:col-span-3 space-y-2">
             {figures.map((fig) => {
@@ -280,6 +305,73 @@ export function FigurePanel({
             )}
           </section>
         </div>
+      ) : (
+        current && (
+          <div className="space-y-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-title-lg text-title-lg text-primary mb-2">
+                  FIG. {current.number} — {current.title}
+                </h3>
+                <p className="font-body-sm text-body-sm text-on-surface-variant mb-4">
+                  {current.brief_description}
+                </p>
+              </div>
+              <button
+                type="button"
+                title={`Regenerate FIG. ${current.number}`}
+                aria-label={`Regenerate FIG. ${current.number}`}
+                onClick={() => void onRegenerateOne(current.number)}
+                disabled={regeneratingFigures.has(current.number)}
+                className="shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-outline-variant bg-surface text-on-surface-variant hover:text-primary hover:border-secondary transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <span
+                  className={`material-symbols-outlined text-[18px] ${regeneratingFigures.has(current.number) ? "loading-spin" : ""}`}
+                >
+                  autorenew
+                </span>
+                Regenerate
+              </button>
+            </div>
+            {Object.keys(current.reference_numerals).length > 0 && (
+              <div>
+                <h3 className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-2">
+                  Reference numerals
+                </h3>
+                <ul className="font-body-sm text-body-sm space-y-1">
+                  {Object.entries(current.reference_numerals).map(([num, label]) => (
+                    <li key={num}>
+                      <strong>{num}</strong> — {label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div
+              className="relative cursor-zoom-in group"
+              onClick={() => setLightboxOpen(true)}
+            >
+              <MermaidPreview source={current.mermaid} />
+              <button
+                type="button"
+                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container rounded p-1 shadow"
+              >
+                <span className="material-symbols-outlined text-[18px]">fullscreen</span>
+              </button>
+            </div>
+            <div>
+              <label className="font-label-md text-label-md text-primary block mb-2">
+                Mermaid source (editable)
+              </label>
+              <textarea
+                className="w-full font-mono text-sm border border-outline-variant rounded-lg p-4 min-h-[220px] focus:ring-2 focus:ring-secondary focus:border-secondary outline-none resize-y"
+                value={current.mermaid}
+                onChange={(e) => onMermaidChange(current.number, e.target.value)}
+                spellCheck={false}
+              />
+            </div>
+          </div>
+        )
       )}
 
       {lightboxOpen && (

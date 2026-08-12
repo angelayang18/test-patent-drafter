@@ -607,6 +607,7 @@ export default function SowDraft() {
         warnOnRemoveIds={sowWarnOnRemoveIds}
         settings={sectionSettings}
         onSave={setSectionSettings}
+        supportsFigureSections
       />
       <SelectionRegeneratePopover
         anchorRect={textareaSelection?.anchorRect ?? null}

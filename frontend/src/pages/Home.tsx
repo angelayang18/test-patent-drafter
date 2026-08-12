@@ -152,6 +152,14 @@ function sectionsToEditorState(sections: CustomSectionDef[]): {
     defaultDescriptions[section.id] = section.description;
   }
   const localSettings = defaultSectionSettings(fixedIds);
+  for (const section of sections) {
+    if (section.needsFigure) {
+      localSettings[section.id] = {
+        ...localSettings[section.id],
+        needsFigure: true,
+      };
+    }
+  }
   return {
     fixedIds,
     defaultLabels,
@@ -179,6 +187,7 @@ function commitSectionsFromEditor(
         defaultDescriptions[id] ?? "",
       ),
       order: index,
+      ...(committed[id]?.needsFigure ? { needsFigure: true } : {}),
     }));
 }
 
@@ -283,6 +292,7 @@ function TypeSectionsPanel({
         warnOnRemoveIds={warnOnRemoveIds}
         defaultLabels={defaultLabels}
         defaultDescriptions={defaultDescriptions}
+        supportsFigureSections={typeId !== "PATENT_PROVISIONAL"}
         onMove={(index, direction) => {
           const target = index + direction;
           if (target < 0 || target >= rowOrder.length) return;
@@ -354,7 +364,16 @@ function CustomTypeSectionsPanel({ template }: CustomTypeSectionsPanelProps) {
 
   const workflow = readActiveGenericWorkflow(template.id);
   const sectionSettings =
-    workflow.sectionSettings ?? defaultSectionSettings(fixedIds);
+    workflow.sectionSettings ??
+    (() => {
+      const seeded = defaultSectionSettings(fixedIds);
+      for (const section of template.sections) {
+        if (section.needsFigure) {
+          seeded[section.id] = { ...seeded[section.id], needsFigure: true };
+        }
+      }
+      return seeded;
+    })();
   const hasProgress = genericWorkflowHasProgress(workflow);
   const resumePath = getGenericResumePath(template.id, workflow);
   const entryPath = GENERIC_STEP_PATHS(template.id).input;
@@ -432,6 +451,7 @@ function CustomTypeSectionsPanel({ template }: CustomTypeSectionsPanelProps) {
         warnOnRemoveIds={EMPTY_WARN_ON_REMOVE}
         defaultLabels={defaultLabels}
         defaultDescriptions={defaultDescriptions}
+        supportsFigureSections
         onMove={(index, direction) => {
           const target = index + direction;
           if (target < 0 || target >= rowOrder.length) return;
@@ -1154,6 +1174,7 @@ function CreateDocumentTypePanel({
             warnOnRemoveIds={EMPTY_WARN_ON_REMOVE}
             defaultLabels={defaultLabels}
             defaultDescriptions={defaultDescriptions}
+            supportsFigureSections
             onMove={(index, direction) => {
               const target = index + direction;
               if (target < 0 || target >= rowOrder.length) return;

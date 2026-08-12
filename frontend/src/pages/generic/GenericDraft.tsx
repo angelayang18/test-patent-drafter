@@ -647,6 +647,7 @@ export default function GenericDraft() {
         warnOnRemoveIds={warnOnRemoveIds}
         settings={sectionSettings}
         onSave={setSectionSettings}
+        supportsFigureSections
       />
       <SelectionRegeneratePopover
         anchorRect={textareaSelection?.anchorRect ?? null}

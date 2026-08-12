@@ -1,32 +1,37 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { DocumentFiguresWorkflow } from "../../components/DocumentFiguresWorkflow";
 import { GrantAppShell } from "../../components/GrantAppShell";
 import { useGrantWorkflow } from "../../context/GrantWorkflowContext";
+import { GRANT_SECTION_IDS, GRANT_SECTION_LABELS } from "../../types/patent";
 import { isGrantStepAccessible } from "../../utils/grantStorage";
+import {
+  effectiveSectionIds,
+  resolveSectionOrder,
+} from "../../utils/sectionSettings";
 import "../../styles/patent-drafter.css";
 
 export default function GrantFigures() {
   const {
     grantDetails,
     sections,
+    sectionSettings,
     figures,
     setFigures,
     updateFigure,
-    gatherSourceText,
     saveToStorage,
     getWorkflowSnapshot,
     markStepComplete,
     workflowResetting,
   } = useGrantWorkflow();
 
-  const gatherCombinedText = useCallback(async () => {
-    const { combined } = await gatherSourceText();
-    const sectionText = Object.entries(sections)
-      .filter(([, value]) => value?.trim())
-      .map(([id, value]) => `--- ${id} ---\n${value}`)
-      .join("\n\n");
-    return [combined, sectionText].filter((part) => part.trim()).join("\n\n");
-  }, [gatherSourceText, sections]);
+  const sectionIds = useMemo(
+    () =>
+      resolveSectionOrder(
+        effectiveSectionIds(GRANT_SECTION_IDS, sectionSettings),
+        sectionSettings,
+      ),
+    [sectionSettings],
+  );
 
   const isFiguresAccessible = useCallback(
     () => isGrantStepAccessible("figures", getWorkflowSnapshot()),
@@ -40,11 +45,14 @@ export default function GrantFigures() {
       documentTypeLabel="Grant Application"
       documentTitle={grantDetails?.project_title ?? ""}
       documentLabel="Grant Application Draft"
+      sectionSettings={sectionSettings}
+      sectionIds={sectionIds}
       sections={sections}
+      defaultLabels={GRANT_SECTION_LABELS}
+      sectionOrder={sectionIds}
       figures={figures}
       setFigures={setFigures}
       updateFigure={updateFigure}
-      gatherCombinedText={gatherCombinedText}
       saveToStorage={saveToStorage}
       markStepComplete={() => markStepComplete("figures")}
       workflowResetting={workflowResetting}

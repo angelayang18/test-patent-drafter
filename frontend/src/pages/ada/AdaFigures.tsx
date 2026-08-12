@@ -1,32 +1,37 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { DocumentFiguresWorkflow } from "../../components/DocumentFiguresWorkflow";
 import { AdaAppShell } from "../../components/AdaAppShell";
 import { useAdaWorkflow } from "../../context/AdaWorkflowContext";
+import { ADA_SECTION_IDS, ADA_SECTION_LABELS } from "../../types/patent";
 import { isAdaStepAccessible } from "../../utils/adaStorage";
+import {
+  effectiveSectionIds,
+  resolveSectionOrder,
+} from "../../utils/sectionSettings";
 import "../../styles/patent-drafter.css";
 
 export default function AdaFigures() {
   const {
     adaDetails,
     sections,
+    sectionSettings,
     figures,
     setFigures,
     updateFigure,
-    gatherSourceText,
     saveToStorage,
     getWorkflowSnapshot,
     markStepComplete,
     workflowResetting,
   } = useAdaWorkflow();
 
-  const gatherCombinedText = useCallback(async () => {
-    const { combined } = await gatherSourceText();
-    const sectionText = Object.entries(sections)
-      .filter(([, value]) => value?.trim())
-      .map(([id, value]) => `--- ${id} ---\n${value}`)
-      .join("\n\n");
-    return [combined, sectionText].filter((part) => part.trim()).join("\n\n");
-  }, [gatherSourceText, sections]);
+  const sectionIds = useMemo(
+    () =>
+      resolveSectionOrder(
+        effectiveSectionIds(ADA_SECTION_IDS, sectionSettings),
+        sectionSettings,
+      ),
+    [sectionSettings],
+  );
 
   const isFiguresAccessible = useCallback(
     () => isAdaStepAccessible("figures", getWorkflowSnapshot()),
@@ -40,11 +45,14 @@ export default function AdaFigures() {
       documentTypeLabel="ADA Bioanalytical Report"
       documentTitle={adaDetails?.study_title ?? ""}
       documentLabel="ADA Bioanalytical Report Draft"
+      sectionSettings={sectionSettings}
+      sectionIds={sectionIds}
       sections={sections}
+      defaultLabels={ADA_SECTION_LABELS}
+      sectionOrder={sectionIds}
       figures={figures}
       setFigures={setFigures}
       updateFigure={updateFigure}
-      gatherCombinedText={gatherCombinedText}
       saveToStorage={saveToStorage}
       markStepComplete={() => markStepComplete("figures")}
       workflowResetting={workflowResetting}
